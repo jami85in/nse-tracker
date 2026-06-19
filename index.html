@@ -459,6 +459,7 @@ function SqueezeCard({ stock, onInvest }) {
 }
 
 function BlastCard({ stock }) {
+  const hasEntry = stock.entry_price != null && stock.return_since_entry != null;
   return (
     <div style={{ background: T.card, border: `1px solid ${T.blast}44`, borderLeft: `3px solid ${T.blast}`, borderRadius: 10, padding: 14 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
@@ -474,9 +475,39 @@ function BlastCard({ stock }) {
           <div style={{ color: T.blast, fontSize: 12, fontWeight: 700 }}>Stoch {fmt(stock.stoch_k)}</div>
         </div>
       </div>
+
+      {hasEntry && (
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 12, background: T.surface, borderRadius: 8, padding: "8px 10px" }}>
+          <div style={{ flex: 1 }}>
+            <div style={{ color: T.muted, fontSize: 9, letterSpacing: 0.6, textTransform: "uppercase" }}>Entry (squeeze end)</div>
+            <div style={{ color: T.text, fontSize: 13, fontWeight: 700 }}>{curr(stock.entry_price)}</div>
+            {stock.entry_date && <div style={{ color: T.muted, fontSize: 9 }}>{stock.entry_date}</div>}
+          </div>
+          <div style={{ color: T.muted, fontSize: 16 }}>→</div>
+          <div style={{ flex: 1, textAlign: "right" }}>
+            <div style={{ color: T.muted, fontSize: 9, letterSpacing: 0.6, textTransform: "uppercase" }}>Now</div>
+            <div style={{ color: T.text, fontSize: 13, fontWeight: 700 }}>{curr(stock.price)}</div>
+            {stock.exit_date && <div style={{ color: T.muted, fontSize: 9 }}>{stock.exit_date}</div>}
+          </div>
+          <div style={{
+            color: stock.return_since_entry >= 0 ? T.green : T.red, fontSize: 15, fontWeight: 800,
+            background: (stock.return_since_entry >= 0 ? T.green : T.red) + "22", borderRadius: 6, padding: "4px 10px", marginLeft: 4,
+          }}>
+            {pct(stock.return_since_entry)}
+          </div>
+        </div>
+      )}
+
+      {hasEntry && stock.holding_period_days != null && (
+        <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 8 }}>
+          <span style={{ color: T.muted, fontSize: 11 }}>⏱ Holding period:</span>
+          <span style={{ color: T.text, fontSize: 11, fontWeight: 700 }}>{stock.holding_period_days} day{stock.holding_period_days === 1 ? "" : "s"}</span>
+        </div>
+      )}
+
       <div style={{ display: "grid", gridTemplateColumns: "repeat(2,1fr)", gap: 10, marginTop: 12 }}>
-        <Stat label="vs EMA30" value={pct(stock.predicted_return)} color={T.green} />
         <Stat label="Exit Zone" value={curr(stock.pivot_r2)} color={T.blast} />
+        <Stat label="BB Width" value={fmt(stock.bb_width) + "%"} color={T.muted} />
       </div>
       <div style={{ color: T.muted, fontSize: 12, marginTop: 10, lineHeight: 1.5 }}>{stock.reason}</div>
     </div>
