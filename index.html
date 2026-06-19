@@ -1,0 +1,557 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>NSE Squeeze Tracker</title>
+<meta name="theme-color" content="#0A0E1A" />
+<link rel="manifest" href="manifest.json" />
+<style>
+  html, body { margin: 0; padding: 0; background: #0A0E1A; }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  input::-webkit-outer-spin-button, input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+</style>
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel" data-presets="react">
+const { useState, useEffect, useCallback, useRef } = React;
+
+const T = {
+  bg: "#0A0E1A", surface: "#111827", card: "#161D2E", border: "#1E2D45",
+  accent: "#00D4AA", accentDim: "#00D4AA22", blast: "#FF6B35", blastDim: "#FF6B3522",
+  warn: "#FFB800", warnDim: "#FFB80022", text: "#E8EDF5", muted: "#6B7A99",
+  green: "#22C55E", red: "#EF4444", white: "#FFFFFF",
+};
+
+const GITHUB_USER = "jami85in";
+const GITHUB_REPO = "nse-tracker";
+const GITHUB_RAW_URL = `https://raw.githubusercontent.com/${GITHUB_USER}/${GITHUB_REPO}/main/data/scan_latest.json`;
+const GITHUB_APP_ACTIONS_URL = `https://github.com/${GITHUB_USER}/${GITHUB_REPO}/actions/workflows/scan.yml`;
+
+async function fetchScanData() {
+  const res = await fetch(`${GITHUB_RAW_URL}?t=${Date.now()}`);
+  if (!res.ok) throw new Error(`GitHub responded with ${res.status}. Check the repo is public and the file path is data/scan_latest.json on the main branch.`);
+  return res.json();
+}
+
+const fmt = (n, d = 2) => (typeof n === "number" ? n.toFixed(d) : "—");
+const pct = n => (n >= 0 ? "+" : "") + fmt(n) + "%";
+const curr = n => "₹" + (n >= 1000 ? n.toLocaleString("en-IN", { maximumFractionDigits: 2 }) : fmt(n));
+const nowStr = () => new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata", hour12: false });
+const uid = () => Math.random().toString(36).slice(2, 9);
+
+function Pill({ label, color }) {
+  const map = { HIGH: T.accent, MEDIUM: T.warn, LOW: T.red, BULLISH: T.green, NEUTRAL: T.warn, BEARISH: T.red };
+  const c = map[label] || color || T.muted;
+  return (
+    <span style={{ background: c + "22", color: c, border: `1px solid ${c}44`, borderRadius: 4, padding: "2px 8px", fontSize: 11, fontWeight: 700, letterSpacing: 0.5, whiteSpace: "nowrap" }}>
+      {label}
+    </span>
+  );
+}
+
+function Stat({ label, value, color }) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0 }}>
+      <span style={{ color: T.muted, fontSize: 10, letterSpacing: 0.6, textTransform: "uppercase" }}>{label}</span>
+      <span style={{ color: color || T.text, fontSize: 13, fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{value}</span>
+    </div>
+  );
+}
+
+function PullToRefresh({ onRefresh, children, refreshing }) {
+  const startY = useRef(0);
+  const [pull, setPull] = useState(0);
+  const dragging = useRef(false);
+
+  const onTouchStart = e => {
+    if (window.scrollY === 0) { startY.current = e.touches[0].clientY; dragging.current = true; }
+  };
+  const onTouchMove = e => {
+    if (!dragging.current) return;
+    const dy = e.touches[0].clientY - startY.current;
+    if (dy > 0 && window.scrollY === 0) setPull(Math.min(dy * 0.5, 90));
+  };
+  const onTouchEnd = () => {
+    if (pull > 60) onRefresh();
+    setPull(0);
+    dragging.current = false;
+  };
+
+  return (
+    <div onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd}>
+      <div style={{ height: refreshing ? 50 : pull, transition: refreshing ? "none" : "height 0.2s", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
+        <span style={{ color: T.accent, fontSize: 13, transform: refreshing ? "none" : `rotate(${pull * 3}deg)`, display: "inline-block" }}>
+          {refreshing ? "⟳ Refreshing…" : pull > 60 ? "↻ Release to refresh" : pull > 10 ? "↓ Pull to refresh" : ""}
+        </span>
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function SqueezeCard({ stock, onInvest }) {
+  const [expanded, setExpanded] = useState(false);
+  return (
+    <div style={{ background: T.card, border: `1px solid ${T.accent}44`, borderLeft: `3px solid ${T.accent}`, borderRadius: 10, padding: 14, cursor: "pointer" }}
+      onClick={() => setExpanded(e => !e)}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+            <span style={{ color: T.accent, fontWeight: 800, fontSize: 16, fontFamily: "monospace" }}>{stock.symbol}</span>
+            <Pill label={stock.confidence} />
+          </div>
+          <div style={{ color: T.muted, fontSize: 11, marginTop: 2 }}>NSE · Daily chart</div>
+        </div>
+        <div style={{ textAlign: "right", flexShrink: 0 }}>
+          <div style={{ color: T.white, fontWeight: 700, fontSize: 17 }}>{curr(stock.price)}</div>
+          <div style={{ color: T.green, fontSize: 13, fontWeight: 700 }}>+{fmt(stock.predicted_return)}% est.</div>
+        </div>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(2,1fr)", gap: 10, marginTop: 12 }}>
+        <Stat label="BB Width" value={fmt(stock.bb_width) + "%"} color={stock.bb_width < 1.8 ? T.accent : T.warn} />
+        <Stat label="Stoch K" value={fmt(stock.stoch_k)} color={stock.stoch_k < 45 ? T.accent : T.warn} />
+        <Stat label="Target R1" value={curr(stock.pivot_r1)} color={T.green} />
+        <Stat label="Stop S1" value={curr(stock.pivot_s1)} color={T.red} />
+      </div>
+      {expanded && (
+        <div style={{ marginTop: 12, paddingTop: 12, borderTop: `1px solid ${T.border}` }}>
+          <div style={{ color: T.muted, fontSize: 12, marginBottom: 10, lineHeight: 1.5 }}>{stock.reason}</div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(2,1fr)", gap: 10, marginBottom: 12 }}>
+            <Stat label="EMA 10" value={curr(stock.ema10)} />
+            <Stat label="EMA 30" value={curr(stock.ema30)} />
+            <Stat label="Target R2" value={curr(stock.pivot_r2)} color={T.green} />
+          </div>
+          <button onClick={e => { e.stopPropagation(); onInvest(stock); }}
+            style={{ background: T.accent, color: "#000", border: "none", borderRadius: 8, padding: "12px 18px", fontWeight: 800, fontSize: 14, cursor: "pointer", width: "100%" }}>
+            📈 Add to Portfolio
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function BlastCard({ stock }) {
+  return (
+    <div style={{ background: T.card, border: `1px solid ${T.blast}44`, borderLeft: `3px solid ${T.blast}`, borderRadius: 10, padding: 14 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+            <span style={{ color: T.blast, fontWeight: 800, fontSize: 16, fontFamily: "monospace" }}>{stock.symbol}</span>
+            <Pill label="EXIT SIGNAL" color={T.blast} />
+          </div>
+          <div style={{ color: T.muted, fontSize: 11, marginTop: 2 }}>NSE · Daily chart</div>
+        </div>
+        <div style={{ textAlign: "right", flexShrink: 0 }}>
+          <div style={{ color: T.white, fontWeight: 700, fontSize: 17 }}>{curr(stock.price)}</div>
+          <div style={{ color: T.blast, fontSize: 12, fontWeight: 700 }}>Stoch {fmt(stock.stoch_k)}</div>
+        </div>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(2,1fr)", gap: 10, marginTop: 12 }}>
+        <Stat label="vs EMA30" value={pct(stock.predicted_return)} color={T.green} />
+        <Stat label="Exit Zone" value={curr(stock.pivot_r2)} color={T.blast} />
+      </div>
+      <div style={{ color: T.muted, fontSize: 12, marginTop: 10, lineHeight: 1.5 }}>{stock.reason}</div>
+    </div>
+  );function InvestModal({ stock, onClose, onConfirm }) {
+  const [qty, setQty] = useState(10);
+  const [entryPrice, setEntryPrice] = useState(stock?.price || 0);
+  const [notes, setNotes] = useState("");
+  if (!stock) return null;
+  const invested = qty * entryPrice;
+  const targetVal = qty * (stock.pivot_r1 || stock.price * 1.07);
+  const predReturn = invested ? (((targetVal - invested) / invested) * 100).toFixed(1) : "0";
+
+  const inp = (val, set, prefix = "", step = "1") => (
+    <div style={{ display: "flex", alignItems: "center", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, padding: "12px 14px" }}>
+      {prefix && <span style={{ color: T.muted, marginRight: 6, fontSize: 15 }}>{prefix}</span>}
+      <input type="number" inputMode="decimal" step={step} value={val} onChange={e => set(Number(e.target.value))}
+        style={{ background: "transparent", border: "none", outline: "none", color: T.text, fontSize: 16, width: "100%" }} />
+    </div>
+  );
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "#000000DD", display: "flex", alignItems: "flex-end", justifyContent: "center", zIndex: 100 }}>
+      <div style={{ background: T.card, borderTopLeftRadius: 18, borderTopRightRadius: 18, padding: "20px 18px calc(20px + env(safe-area-inset-bottom))", width: "100%", maxWidth: 480, maxHeight: "88vh", overflowY: "auto" }}>
+        <div style={{ width: 36, height: 4, background: T.border, borderRadius: 2, margin: "0 auto 16px" }} />
+        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 18 }}>
+          <span style={{ color: T.accent, fontWeight: 800, fontSize: 18 }}>Add Position: {stock.symbol}</span>
+          <button onClick={onClose} style={{ background: T.surface, border: "none", color: T.muted, cursor: "pointer", fontSize: 16, width: 30, height: 30, borderRadius: 15 }}>✕</button>
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          <div><div style={{ color: T.muted, fontSize: 11, marginBottom: 5 }}>QUANTITY (shares)</div>{inp(qty, setQty)}</div>
+          <div><div style={{ color: T.muted, fontSize: 11, marginBottom: 5 }}>ENTRY PRICE</div>{inp(entryPrice, setEntryPrice, "₹", "0.05")}</div>
+          <div style={{ background: T.surface, borderRadius: 10, padding: 14 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              <Stat label="Invested" value={curr(invested)} />
+              <Stat label="Target (R1)" value={curr(targetVal)} color={T.green} />
+              <Stat label="Pred. Return" value={"+" + predReturn + "%"} color={T.green} />
+              <Stat label="Stop Loss" value={curr(qty * (stock.pivot_s1 || stock.price * 0.96))} color={T.red} />
+            </div>
+          </div>
+          <div>
+            <div style={{ color: T.muted, fontSize: 11, marginBottom: 5 }}>NOTES (optional)</div>
+            <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={2}
+              style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, padding: "10px 12px", color: T.text, fontSize: 14, width: "100%", resize: "none", outline: "none" }} />
+          </div>
+          <button onClick={() => onConfirm({ ...stock, qty, entryPrice, notes, invested, targetPrice: stock.pivot_r1, stopLoss: stock.pivot_s1, id: uid(), date: nowStr(), status: "OPEN", currentPrice: entryPrice, actualReturn: 0 })}
+            style={{ background: T.accent, color: "#000", border: "none", borderRadius: 10, padding: "14px", fontWeight: 800, fontSize: 15, cursor: "pointer" }}>
+            ✅ Confirm Investment
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PortfolioRow({ pos, onClose }) {
+  const [sellPrice, setSellPrice] = useState("");
+  const [showSell, setShowSell] = useState(false);
+  const isOpen = pos.status === "OPEN";
+  const liveReturn = ((pos.currentPrice - pos.entryPrice) / pos.entryPrice) * 100;
+  const targetReturn = pos.targetPrice ? ((pos.targetPrice - pos.entryPrice) / pos.entryPrice) * 100 : pos.predicted_return;
+  const achieved = pos.status === "CLOSED" ? ((pos.exitPrice - pos.entryPrice) / pos.entryPrice) * 100 : null;
+
+  return (
+    <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: 14, marginBottom: 8 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+            <span style={{ color: T.text, fontWeight: 700, fontFamily: "monospace" }}>{pos.symbol}</span>
+            <Pill label={pos.status} color={isOpen ? T.accent : T.muted} />
+          </div>
+          <div style={{ color: T.muted, fontSize: 11, marginTop: 3 }}>{pos.qty} sh @ {curr(pos.entryPrice)} · {pos.date}</div>
+        </div>
+        <div style={{ textAlign: "right", flexShrink: 0 }}>
+          <div style={{ color: isOpen ? (liveReturn >= 0 ? T.green : T.red) : achieved >= 0 ? T.green : T.red, fontWeight: 800, fontSize: 16 }}>
+            {isOpen ? pct(liveReturn) : pct(achieved)}
+          </div>
+          <div style={{ color: T.muted, fontSize: 11 }}>{isOpen ? `Live ${curr(pos.currentPrice)}` : `Sold ${curr(pos.exitPrice)}`}</div>
+        </div>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(2,1fr)", gap: 8, marginTop: 10 }}>
+        <Stat label="Invested" value={curr(pos.invested)} />
+        <Stat label="Pred. %" value={"+" + fmt(targetReturn) + "%"} color={T.warn} />
+        <Stat label="Target" value={pos.targetPrice ? curr(pos.targetPrice) : "—"} color={T.green} />
+        <Stat label="Stop" value={pos.stopLoss ? curr(pos.stopLoss) : "—"} color={T.red} />
+      </div>
+      {pos.notes && <div style={{ color: T.muted, fontSize: 11, marginTop: 8 }}>📝 {pos.notes}</div>}
+      {isOpen && (
+        <div style={{ marginTop: 10, display: "flex", gap: 8, flexWrap: "wrap" }}>
+          {!showSell ? (
+            <button onClick={() => setShowSell(true)}
+              style={{ background: T.blast + "22", border: `1px solid ${T.blast}`, color: T.blast, borderRadius: 8, padding: "10px 16px", fontSize: 13, fontWeight: 700, cursor: "pointer", flex: "1 1 auto" }}>
+              📤 Mark Sold
+            </button>
+          ) : (
+            <>
+              <input type="number" inputMode="decimal" placeholder="Exit price ₹" value={sellPrice} onChange={e => setSellPrice(e.target.value)}
+                style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, padding: "10px 12px", color: T.text, fontSize: 14, flex: "1 1 100px", outline: "none" }} />
+              <button onClick={() => { if (sellPrice) { onClose(pos.id, Number(sellPrice)); setShowSell(false); } }}
+                style={{ background: T.blast, color: "#fff", border: "none", borderRadius: 8, padding: "10px 16px", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
+                Confirm
+              </button>
+              <button onClick={() => setShowSell(false)}
+                style={{ background: T.surface, border: `1px solid ${T.border}`, color: T.muted, borderRadius: 8, padding: "10px 12px", fontSize: 13, cursor: "pointer" }}>
+                Cancel
+              </button>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PortfolioSummary({ positions }) {
+  const closed = positions.filter(p => p.status === "CLOSED");
+  const open = positions.filter(p => p.status === "OPEN");
+  const totalInvested = positions.reduce((s, p) => s + p.invested, 0);
+  const realizedPL = closed.reduce((s, p) => s + (p.exitPrice - p.entryPrice) * p.qty, 0);
+  const unrealizedPL = open.reduce((s, p) => s + (p.currentPrice - p.entryPrice) * p.qty, 0);
+  const winRate = closed.length ? ((closed.filter(p => p.exitPrice > p.entryPrice).length / closed.length) * 100).toFixed(0) : 0;
+
+  return (
+    <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, padding: 16, marginBottom: 16 }}>
+      <div style={{ color: T.muted, fontSize: 11, marginBottom: 12, letterSpacing: 1 }}>PORTFOLIO SUMMARY</div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(2,1fr)", gap: 14 }}>
+        <Stat label="Total Invested" value={curr(totalInvested)} />
+        <Stat label="Win Rate" value={winRate + "%"} color={Number(winRate) > 60 ? T.green : T.warn} />
+        <Stat label="Realized P&L" value={(realizedPL >= 0 ? "+" : "") + curr(Math.abs(realizedPL))} color={realizedPL >= 0 ? T.green : T.red} />
+        <Stat label="Unrealized P&L" value={(unrealizedPL >= 0 ? "+" : "") + curr(Math.abs(unrealizedPL))} color={unrealizedPL >= 0 ? T.green : T.red} />
+        <Stat label="Open" value={open.length} />
+        <Stat label="Closed" value={closed.length} />
+      </div>
+    </div>
+  );
+}
+
+function Countdown({ nextAt }) {
+  const [left, setLeft] = useState(0);
+  useEffect(() => {
+    const tick = () => setLeft(Math.max(0, nextAt - Date.now()));
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [nextAt]);
+  const m = Math.floor(left / 60000);
+  const s = Math.floor((left % 60000) / 1000);
+  return <span style={{ color: T.muted, fontFamily: "monospace", fontSize: 11 }}>{m}m {s}s</span>;
+}
+
+function BottomNav({ tab, setTab, scanCount, posCount }) {
+  const items = [
+    { id: "scanner", icon: "🎯", label: "Scanner", badge: scanCount },
+    { id: "portfolio", icon: "💼", label: "Portfolio", badge: posCount },
+    { id: "guide", icon: "📖", label: "Guide" },
+  ];
+  return (
+    <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, background: T.surface, borderTop: `1px solid ${T.border}`, display: "flex", paddingBottom: "env(safe-area-inset-bottom)", zIndex: 60 }}>
+      {items.map(it => (
+        <button key={it.id} onClick={() => setTab(it.id)}
+          style={{ flex: 1, background: "none", border: "none", padding: "10px 4px 8px", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 2, color: tab === it.id ? T.accent : T.muted }}>
+          <span style={{ fontSize: 20, position: "relative" }}>
+            {it.icon}
+            {!!it.badge && <span style={{ position: "absolute", top: -4, right: -10, background: T.accent, color: "#000", fontSize: 9, fontWeight: 800, borderRadius: 8, padding: "1px 5px" }}>{it.badge}</span>}
+          </span>
+          <span style={{ fontSize: 10, fontWeight: tab === it.id ? 700 : 500 }}>{it.label}</span>
+        </button>
+      ))}
+    </div>
+  );function App() {
+  const [tab, setTab] = useState("scanner");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [scanData, setScanData] = useState(null);
+  const [nextPoll, setNextPoll] = useState(null);
+  const [investTarget, setInvestTarget] = useState(null);
+  const [toast, setToast] = useState(null);
+  const [positions, setPositions] = useState(() => {
+    try { return JSON.parse(localStorage.getItem("nse_positions") || "[]"); } catch { return []; }
+  });
+  const intervalRef = useRef(null);
+
+  const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(null), 2500); };
+
+  const savePositions = ps => {
+    setPositions(ps);
+    try { localStorage.setItem("nse_positions", JSON.stringify(ps)); } catch {}
+  };
+
+  const loadData = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
+    setError(null);
+    try {
+      const data = await fetchScanData();
+      setScanData(data);
+      setNextPoll(Date.now() + 30 * 60 * 1000);
+      if (silent) showToast("✓ Updated with latest data");
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadData();
+    intervalRef.current = setInterval(() => loadData(true), 30 * 60 * 1000);
+    return () => clearInterval(intervalRef.current);
+  }, [loadData]);
+
+  const [showRefreshMenu, setShowRefreshMenu] = useState(false);
+  const handleRefreshClick = () => setShowRefreshMenu(true);
+  const handlePullRefresh = () => loadData(true);
+
+  const handleInvest = stock => { setInvestTarget(stock); };
+  const handleConfirmInvest = pos => {
+    savePositions([pos, ...positions]);
+    setInvestTarget(null);
+    setTab("portfolio");
+    showToast(`✓ Added ${pos.symbol} to portfolio`);
+  };
+  const handleClosePosition = (id, exitPrice) => {
+    savePositions(positions.map(p =>
+      p.id === id ? { ...p, status: "CLOSED", exitPrice, actualReturn: ((exitPrice - p.entryPrice) / p.entryPrice) * 100 } : p
+    ));
+    showToast("✓ Position closed");
+  };
+
+  return (
+    <div style={{ background: T.bg, minHeight: "100vh", color: T.text, fontFamily: "'Inter', 'Segoe UI', sans-serif", paddingBottom: 76 }}>
+      <div style={{ background: T.surface, borderBottom: `1px solid ${T.border}`, padding: "calc(10px + env(safe-area-inset-top)) 16px 10px", display: "flex", justifyContent: "space-between", alignItems: "center", position: "sticky", top: 0, zIndex: 50 }}>
+        <div style={{ minWidth: 0 }}>
+          <span style={{ color: T.accent, fontWeight: 800, fontSize: 16, letterSpacing: -0.3 }}>⚡ NSE Tracker</span>
+          <div style={{ color: T.muted, fontSize: 10, marginTop: 1, display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+            {scanData && <Pill label={scanData.market_mood} />}
+            {nextPoll && <span>· next check <Countdown nextAt={nextPoll} /></span>}
+          </div>
+        </div>
+        <button onClick={handleRefreshClick} disabled={loading}
+          style={{ background: T.accentDim, border: `1px solid ${T.accent}44`, color: T.accent, borderRadius: 20, width: 40, height: 40, fontSize: 17, cursor: loading ? "not-allowed" : "pointer", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", transform: loading ? "rotate(360deg)" : "none", transition: "transform 0.6s linear" }}>
+          {loading ? "⟳" : "↻"}
+        </button>
+      </div>
+
+      {showRefreshMenu && (
+        <div style={{ position: "fixed", inset: 0, background: "#000000DD", zIndex: 100, display: "flex", alignItems: "flex-end" }} onClick={() => setShowRefreshMenu(false)}>
+          <div onClick={e => e.stopPropagation()} style={{ background: T.card, width: "100%", borderTopLeftRadius: 18, borderTopRightRadius: 18, padding: "18px 18px calc(18px + env(safe-area-inset-bottom))" }}>
+            <div style={{ width: 36, height: 4, background: T.border, borderRadius: 2, margin: "0 auto 16px" }} />
+            <div style={{ color: T.text, fontWeight: 700, fontSize: 15, marginBottom: 14 }}>Refresh options</div>
+            <button onClick={() => { setShowRefreshMenu(false); loadData(); }}
+              style={{ width: "100%", textAlign: "left", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, padding: 14, marginBottom: 10, color: T.text, cursor: "pointer" }}>
+              <div style={{ fontWeight: 700, fontSize: 14, color: T.accent }}>↻ Reload latest data</div>
+              <div style={{ color: T.muted, fontSize: 12, marginTop: 3 }}>Pulls whatever the last automatic scan produced (free, instant)</div>
+            </button>
+            <a href={GITHUB_APP_ACTIONS_URL} target="_blank" rel="noreferrer"
+              style={{ display: "block", textDecoration: "none", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, padding: 14, color: T.text }}
+              onClick={() => setShowRefreshMenu(false)}>
+              <div style={{ fontWeight: 700, fontSize: 14, color: T.warn }}>⚡ Run a fresh scan now</div>
+              <div style={{ color: T.muted, fontSize: 12, marginTop: 3 }}>Opens GitHub → tap "Run workflow" → come back in ~1 min and reload.</div>
+            </a>
+            <button onClick={() => setShowRefreshMenu(false)} style={{ width: "100%", background: "none", border: "none", color: T.muted, padding: 12, marginTop: 8, fontSize: 13, cursor: "pointer" }}>Cancel</button>
+          </div>
+        </div>
+      )}
+
+      {toast && (
+        <div style={{ position: "fixed", top: 70, left: "50%", transform: "translateX(-50%)", background: T.accent, color: "#000", padding: "8px 18px", borderRadius: 20, fontSize: 13, fontWeight: 700, zIndex: 200, boxShadow: "0 4px 16px #00000066" }}>
+          {toast}
+        </div>
+      )}
+
+      <PullToRefresh onRefresh={handlePullRefresh} refreshing={loading}>
+        <div style={{ padding: 16 }}>
+          {error && (
+            <div style={{ background: T.red + "22", border: `1px solid ${T.red}44`, borderRadius: 10, padding: 14, marginBottom: 16, color: T.red, fontSize: 13, lineHeight: 1.5 }}>
+              ⚠️ {error}
+            </div>
+          )}
+
+          {loading && !scanData && (
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", padding: 60, gap: 16 }}>
+              <div style={{ color: T.accent, fontSize: 36 }}>⟳</div>
+              <div style={{ color: T.muted, textAlign: "center", fontSize: 14 }}>Loading latest scan results…</div>
+            </div>
+          )}
+
+          {tab === "scanner" && scanData && (
+            <div>
+              <div style={{ marginBottom: 14 }}>
+                <div style={{ fontWeight: 800, fontSize: 16, color: T.accent }}>🟢 End of Squeeze</div>
+                <div style={{ color: T.muted, fontSize: 11 }}>Entry signals · min 5% predicted return</div>
+              </div>
+              {(scanData.squeeze_stocks || []).length === 0 && (
+                <div style={{ color: T.muted, textAlign: "center", padding: 28, background: T.card, borderRadius: 10, fontSize: 13 }}>
+                  No squeeze setups meeting ≥5% criteria right now
+                </div>
+              )}
+              <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 26 }}>
+                {(scanData.squeeze_stocks || []).map(s => <SqueezeCard key={s.symbol} stock={s} onInvest={handleInvest} />)}
+              </div>
+              <div style={{ marginBottom: 14 }}>
+                <div style={{ fontWeight: 800, fontSize: 16, color: T.blast }}>🔴 End of Blast</div>
+                <div style={{ color: T.muted, fontSize: 11 }}>Exit signals · consider booking profits</div>
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                {(scanData.blast_stocks || []).map(s => <BlastCard key={s.symbol} stock={s} />)}
+              </div>
+              <div style={{ marginTop: 22, color: T.muted, fontSize: 11, textAlign: "center" }}>
+                Last scan: {scanData.scan_time} · {scanData.scanned_count} stocks scanned
+              </div>
+            </div>
+          )}
+
+          {tab === "portfolio" && (
+            <div>
+              <PortfolioSummary positions={positions} />
+              {positions.filter(p => p.status === "OPEN").length > 0 && (
+                <>
+                  <div style={{ color: T.text, fontWeight: 700, marginBottom: 10, fontSize: 14 }}>Open Positions</div>
+                  {positions.filter(p => p.status === "OPEN").map(p => <PortfolioRow key={p.id} pos={p} onClose={handleClosePosition} />)}
+                </>
+              )}
+              {positions.filter(p => p.status === "CLOSED").length > 0 && (
+                <>
+                  <div style={{ color: T.muted, fontWeight: 700, marginTop: 18, marginBottom: 10, fontSize: 14 }}>Closed Trades</div>
+                  {positions.filter(p => p.status === "CLOSED").map(p => <PortfolioRow key={p.id} pos={p} onClose={handleClosePosition} />)}
+                </>
+              )}
+              {positions.length === 0 && (
+                <div style={{ textAlign: "center", padding: 50, color: T.muted }}>
+                  <div style={{ fontSize: 36 }}>📂</div>
+                  <div style={{ marginTop: 10, fontSize: 13 }}>No positions yet.<br />Add stocks from the Scanner tab.</div>
+                </div>
+              )}
+              {positions.filter(p => p.status === "CLOSED").length > 0 && (
+                <div style={{ marginTop: 22, background: T.card, borderRadius: 12, padding: 16, border: `1px solid ${T.border}` }}>
+                  <div style={{ color: T.muted, fontSize: 11, marginBottom: 14 }}>PREDICTION vs ACTUAL</div>
+                  {positions.filter(p => p.status === "CLOSED").map(p => {
+                    const pred = p.predicted_return || 5;
+                    const actual = p.actualReturn || 0;
+                    const maxW = Math.max(pred, Math.abs(actual), 10);
+                    return (
+                      <div key={p.id} style={{ marginBottom: 14 }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 5, fontSize: 12 }}>
+                          <span style={{ color: T.text, fontFamily: "monospace", fontWeight: 700 }}>{p.symbol}</span>
+                          <span style={{ color: T.muted }}>+{fmt(pred)}% / {pct(actual)}</span>
+                        </div>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                            <span style={{ color: T.muted, fontSize: 9, width: 36 }}>Pred</span>
+                            <div style={{ height: 7, borderRadius: 4, background: T.warn, width: `${(pred / maxW) * 100}%`, minWidth: 4 }} />
+                          </div>
+                          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                            <span style={{ color: T.muted, fontSize: 9, width: 36 }}>Actual</span>
+                            <div style={{ height: 7, borderRadius: 4, background: actual >= 0 ? T.green : T.red, width: `${(Math.abs(actual) / maxW) * 100}%`, minWidth: 4 }} />
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
+          {tab === "guide" && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              {[
+                { title: "📲 Using this on your phone", color: T.accent, body: "Tap the ↻ button top-right anytime. 'Reload latest data' is instant and free. 'Run a fresh scan now' opens GitHub to manually trigger a brand-new scan.\n\nYou can also pull down from the top to reload, like any phone app." },
+                { title: "🏠 Install as a home-screen app", color: T.warn, body: "In Chrome on Android: tap the ⋮ menu → 'Add to Home screen' or 'Install app'. This gives you an app icon that opens full-screen, no browser bar. Your portfolio is saved on this device only." },
+                { title: "🟢 What is End of Squeeze?", color: T.accent, body: "Bollinger Bands contract tightly (BB Width < 3%) as price consolidates. When Stochastic K turns up from below 45, the squeeze is ending. This is your ENTRY point — only flagged when predicted return to R1 is ≥5%." },
+                { title: "🔴 What is End of Blast?", color: T.blast, body: "BB bands expand and Stochastic K exceeds 75 while price holds above EMA10. This is the EXIT signal — book profits before the next correction." },
+                { title: "📊 Indicators used", color: T.warn, body: "Bollinger Bands: 20, 2 SD | EMA: 10 & 30 | RSI(14) → Stochastic 3/3 smoothing | Pivots: Traditional (prior day H/L/C) | Timeframe: Daily, for 5–10 day holds" },
+                { title: "⚠️ Disclaimer", color: T.red, body: "Educational and informational only — not investment advice. All trading decisions are your responsibility. Past patterns don't guarantee future returns." },
+              ].map(({ title, color, body }) => (
+                <div key={title} style={{ background: T.card, border: `1px solid ${color}33`, borderLeft: `3px solid ${color}`, borderRadius: 10, padding: 14 }}>
+                  <div style={{ color, fontWeight: 700, marginBottom: 8, fontSize: 14 }}>{title}</div>
+                  <div style={{ color: T.muted, fontSize: 13, lineHeight: 1.6, whiteSpace: "pre-line" }}>{body}</div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </PullToRefresh>
+
+      <BottomNav tab={tab} setTab={setTab}
+        scanCount={scanData ? (scanData.squeeze_stocks?.length || 0) + (scanData.blast_stocks?.length || 0) : 0}
+        posCount={positions.filter(p => p.status === "OPEN").length} />
+
+      {investTarget && <InvestModal stock={investTarget} onClose={() => setInvestTarget(null)} onConfirm={handleConfirmInvest} />}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+</body>
+</html>
+}
+}
