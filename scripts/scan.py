@@ -49,6 +49,7 @@ NIFTY_500_SAMPLE = [
 
 NSE_BASE = "https://www.nseindia.com"
 NSE_API_HIST = "https://www.nseindia.com/api/historical/cm/equity?symbol={symbol}&series=[%22EQ%22]&from={frm}&to={to}"
+NSE_API_HOLIDAYS = "https://www.nseindia.com/api/holiday-master?type=trading"
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -58,6 +59,113 @@ HEADERS = {
 }
 
 MIN_PREDICTED_RETURN = 5.0  # % — hard floor for squeeze candidates
+
+# ── NSE trading holiday calendar ─────────────────────────────────────────
+# Primary source is always the live NSE API (NSE_API_HOLIDAYS above) since
+# the exchange occasionally amends its calendar after announcement. This
+# hardcoded list is ONLY a fallback for the rare case that API call fails
+# (network hiccup, NSE site change, etc.) — without it, a failed holiday
+# check could silently let the workflow run on a real holiday (wasting the
+# Claude API call) or, worse, skip a real trading day entirely.
+# Source: official NSE 2026 holiday circular, cross-checked against
+# angelone.in/nse-holidays (verified weekday-correct as of this writing).
+NSE_HOLIDAYS_2026_FALLBACK = {
+    "2026-01-15": "Municipal Corporation Election (Maharashtra)",
+    "2026-01-26": "Republic Day",
+    "2026-02-15": "Mahashivratri",
+    "2026-03-03": "Holi",
+    "2026-03-21": "Id-Ul-Fitr (Ramadan Eid)",
+    "2026-03-26": "Shri Ram Navami",
+    "2026-03-31": "Shri Mahavir Jayanti",
+    "2026-04-03": "Good Friday",
+    "2026-04-14": "Dr. Baba Saheb Ambedkar Jayanti",
+    "2026-05-01": "Maharashtra Day",
+    "2026-05-28": "Bakri Id",
+    "2026-06-26": "Muharram",
+    "2026-08-15": "Independence Day",
+    "2026-09-14": "Ganesh Chaturthi",
+    "2026-10-02": "Mahatma Gandhi Jayanti",
+    "2026-10-20": "Dussehra",
+    "2026-11-08": "Diwali Laxmi Pujan",
+    "2026-11-10": "Diwali-Balipratipada",
+    "2026-11-24": "Prakash Gurpurb Sri Guru Nanak Dev",
+    "2026-12-25": "Christmas",
+}
+
+# Special sessions that run on an otherwise-non-trading day (the reverse
+# case): Muhurat Trading is a short, symbolic session held on Diwali
+# Laxmi Pujan even when that date falls on a weekend. For 2026, Diwali
+# Laxmi Pujan / Muhurat Trading falls on Sunday, November 8 — confirmed
+# across NSE/BSE holiday circulars and major broker calendars (Zerodha,
+# Groww, etc.) as of this writing. Exact session timing is announced by
+# NSE closer to the date and is typically a ~1 hour evening window, so a
+# scan triggered on this date will still run scan.py's normal logic
+# against whatever prices are available at run time.
+NSE_SPECIAL_SESSIONS_2026_FALLBACK = {
+    "2026-11-08": "Diwali Laxmi Pujan — Muhurat Trading (special session, Sunday)",
+}
+
+
+def fetch_nse_holiday_calendar(session: requests.Session) -> dict | None:
+    """
+    Pull NSE's live official trading-holiday list. Returns a dict of
+    {YYYY-MM-DD: description} or None if the call fails for any reason
+    (caller should fall back to the hardcoded list below).
+    """
+    try:
+        r = session.get(NSE_API_HOLIDAYS, timeout=10)
+        if r.status_code != 200:
+            return None
+        data = r.json()
+        fo = data.get("FO") or data.get("CM") or []
+        holidays = {}
+        for item in fo:
+            raw_date = item.get("tradingDate")
+            desc = item.get("description", "")
+            if not raw_date:
+                continue
+            try:
+                # NSE returns dates like "26-Jan-2026"
+                dt = datetime.datetime.strptime(raw_date, "%d-%b-%Y").date()
+                holidays[dt.isoformat()] = desc
+            except ValueError:
+                continue
+        return holidays if holidays else None
+    except Exception:
+        return None
+
+
+def is_trading_day(check_date: datetime.date, session: requests.Session = None) -> tuple[bool, str]:
+    """
+    Returns (is_open, reason). Checks, in order:
+    1. Live NSE holiday API (authoritative, current) for a closure on this date
+    2. Hardcoded fallback list if the live call fails
+    3. Special-session override (a trading day that would otherwise be
+       closed, e.g. a weekend Muhurat Trading session)
+    4. Plain weekday/weekend check as the final baseline
+    """
+    date_str = check_date.isoformat()
+
+    holidays = None
+    if session is not None:
+        holidays = fetch_nse_holiday_calendar(session)
+    source = "live NSE calendar"
+    if holidays is None:
+        holidays = NSE_HOLIDAYS_2026_FALLBACK
+        source = "fallback calendar (live API unavailable)"
+
+    special_sessions = NSE_SPECIAL_SESSIONS_2026_FALLBACK
+
+    if date_str in special_sessions:
+        return True, f"Special trading session: {special_sessions[date_str]}"
+
+    if date_str in holidays:
+        return False, f"NSE holiday ({source}): {holidays[date_str]}"
+
+    if check_date.weekday() >= 5:  # Saturday=5, Sunday=6
+        return False, "Weekend"
+
+    return True, f"Regular trading day ({source})"
 
 
 # ── NSE session (cookies required) ───────────────────────────────────────
@@ -178,7 +286,7 @@ def add_indicators(df: pd.DataFrame) -> pd.DataFrame:
 @dataclass
 class Candidate:
     symbol: str
-    price: float
+    price: float                    # current/live price at this scan
     bb_width: float
     bb_width_5d_ago: float
     stoch_k: float
@@ -190,11 +298,33 @@ class Candidate:
     pivot_s1: float
     predicted_return: float
     setup: str  # "SQUEEZE" or "BLAST"
-    entry_price: float = None       # price at squeeze-end / blast-start (BLAST only)
-    entry_date: str = None          # date the squeeze ended / blast began (BLAST only)
-    exit_date: str = None           # date this blast/exit signal fired — i.e. today's scan date (BLAST only)
-    holding_period_days: int = None # calendar days between entry_date and exit_date (BLAST only)
-    return_since_entry: float = None  # % gained from entry_price to current price (BLAST only)
+
+    # --- SQUEEZE (entry) fields ---
+    # entry_price/entry_date: the price+date this squeeze was first flagged
+    # (set once, on first detection, then held fixed by the ledger even as
+    # the stock is re-scanned on later days — see update_ledger()).
+    entry_price: float = None
+    entry_date: str = None
+    # target_price: estimated upside if the move plays out to pivot R1 —
+    # the "how much could this make me" answer at the moment of entry.
+    target_price: float = None
+    target_return_pct: float = None
+
+    # --- BLAST (exit) fields ---
+    # blast_entry_price/blast_entry_date: price+date the SQUEEZE ended and
+    # this move actually started (found by walking back through bb_width
+    # history — see find_blast_entry()). This is when you *would* have
+    # bought if you'd acted on the original squeeze signal.
+    blast_entry_price: float = None
+    blast_entry_date: str = None
+    # exit_price/exit_date: price+date THIS blast/exit signal fired —
+    # i.e. when the tool told you to consider selling. Distinct from
+    # `price`/today's date once a BLAST entry persists across multiple
+    # scans in its 10-day retention window.
+    exit_price: float = None
+    exit_date: str = None
+    holding_period_days: int = None   # calendar days, blast_entry_date -> exit_date
+    return_since_entry: float = None  # % gained, blast_entry_price -> exit_price
 
 
 def find_blast_entry(df: pd.DataFrame, lookback: int = 20):
@@ -240,7 +370,7 @@ def find_blast_entry(df: pd.DataFrame, lookback: int = 20):
     return entry_price, entry_date, exit_date, holding_period_days
 
 
-def classify(symbol: str, df: pd.DataFrame):
+def classify(symbol: str, df: pd.DataFrame, scan_date: str = None):
     if len(df) < 35:
         return None
     last = df.iloc[-1]
@@ -260,6 +390,11 @@ def classify(symbol: str, df: pd.DataFrame):
 
     predicted_return = round((r1 - price) / price * 100, 2) if price else 0
 
+    last_date = last["date"]
+    last_date_str = last_date.strftime("%Y-%m-%d") if hasattr(last_date, "strftime") else str(last_date)
+    if scan_date is None:
+        scan_date = last_date_str
+
     # SQUEEZE (entry): tight bands, contracting, stoch turning up from <45, EMA10 >= EMA30 trend
     is_squeeze = (
         bb_width < 3.0
@@ -277,25 +412,38 @@ def classify(symbol: str, df: pd.DataFrame):
     )
 
     if is_squeeze:
-        return Candidate(symbol, price, bb_width, bb_width_5d, stoch_k, stoch_d,
-                          ema10, ema30, r1, r2, s1, predicted_return, "SQUEEZE")
+        # target_price: the estimated upside if this move plays out to
+        # pivot R1 — the "how much could this make me" figure shown the
+        # moment a squeeze/entry signal fires. R1 is used (not R2) as the
+        # conservative first target, consistent with predicted_return's
+        # existing definition above.
+        return Candidate(
+            symbol, price, bb_width, bb_width_5d, stoch_k, stoch_d,
+            ema10, ema30, r1, r2, s1, predicted_return, "SQUEEZE",
+            entry_price=round(price, 2), entry_date=scan_date,
+            target_price=round(r1, 2), target_return_pct=predicted_return,
+        )
+
     if is_blast:
-        entry_price, entry_date, exit_date, holding_period_days = find_blast_entry(df)
-        if entry_price and entry_price > 0:
-            return_since_entry = round((price - entry_price) / entry_price * 100, 2)
+        blast_entry_price, blast_entry_date, _exit_date_unused, holding_period_days = find_blast_entry(df)
+        if blast_entry_price and blast_entry_price > 0:
+            return_since_entry = round((price - blast_entry_price) / blast_entry_price * 100, 2)
         else:
             # Fallback if we couldn't pin down a clean squeeze-start bar —
             # use EMA30 as a rough proxy so the field is never just blank.
-            entry_price = ema30
-            entry_date = None
-            exit_date = df.iloc[-1]["date"].strftime("%Y-%m-%d") if hasattr(df.iloc[-1]["date"], "strftime") else str(df.iloc[-1]["date"])
+            blast_entry_price = ema30
+            blast_entry_date = None
             holding_period_days = None
             return_since_entry = round((price - ema30) / ema30 * 100, 2) if ema30 else 0
-        return Candidate(symbol, price, bb_width, bb_width_5d, stoch_k, stoch_d,
-                          ema10, ema30, r1, r2, s1, return_since_entry, "BLAST",
-                          entry_price=round(entry_price, 2), entry_date=entry_date,
-                          exit_date=exit_date, holding_period_days=holding_period_days,
-                          return_since_entry=return_since_entry)
+        return Candidate(
+            symbol, price, bb_width, bb_width_5d, stoch_k, stoch_d,
+            ema10, ema30, r1, r2, s1, return_since_entry, "BLAST",
+            blast_entry_price=round(blast_entry_price, 2) if blast_entry_price else None,
+            blast_entry_date=blast_entry_date,
+            exit_price=round(price, 2), exit_date=scan_date,
+            holding_period_days=holding_period_days,
+            return_since_entry=return_since_entry,
+        )
     return None
 
 
@@ -382,50 +530,324 @@ def _fallback_commentary(c: Candidate) -> dict:
     return {"confidence": conf, "reason": reason}
 
 
-# ── Main pipeline ──────────────────────────────────────────────────────────
-def run():
-    session = get_nse_session()
+# ── Persistent position ledger ──────────────────────────────────────────────
+# Problem this solves: a plain per-scan snapshot only shows stocks that meet
+# the narrow numeric thresholds *today*. A stock flagged SQUEEZE yesterday
+# can drift just outside the tight "BB width < 3% and still contracting"
+# condition today (often *because* the move is starting — the whole point)
+# and silently vanish from the dashboard with no record it was ever flagged.
+# That's wrong for a tool meant to track "I told you to watch this until I
+# tell you to exit." This ledger makes that lifecycle explicit and durable
+# across scans, independent of the per-scan classify() snapshot.
+LEDGER_PATH = "data/active_positions.json"
+BLAST_RETENTION_DAYS = 10  # keep an exit signal visible for this many days, then drop it
+
+
+def load_ledger() -> dict:
+    if os.path.exists(LEDGER_PATH):
+        try:
+            with open(LEDGER_PATH) as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return {}
+
+
+def save_ledger(ledger: dict):
+    os.makedirs(os.path.dirname(LEDGER_PATH), exist_ok=True)
+    with open(LEDGER_PATH, "w") as f:
+        json.dump(ledger, f, indent=2)
+
+
+def update_ledger(ledger: dict, all_candidates: list, scan_date: str) -> dict:
+    """
+    Merge this scan's fresh classify() results into the durable ledger.
+
+    Rules:
+    - New SQUEEZE detection -> add to ledger as SQUEEZE, record first_seen.
+    - Existing SQUEEZE entry, still SQUEEZE today -> refresh its numbers.
+    - Existing SQUEEZE entry, no longer meets SQUEEZE numerically today but
+      hasn't hit BLAST either -> KEEP as SQUEEZE, just don't refresh numbers
+      (the position is still considered "open" until an actual exit fires).
+    - Existing SQUEEZE entry that now meets BLAST -> flip to BLAST, record
+      blast_triggered_date.
+    - New BLAST detection with no prior SQUEEZE on record (e.g. first scan
+      after deploying this feature, or a move that started before tracking
+      began) -> add directly as BLAST so it's not silently dropped either.
+    - Existing BLAST entry -> refresh numbers each scan while still
+      numerically BLAST; once it's been BLAST_RETENTION_DAYS since
+      blast_triggered_date, drop it from the ledger entirely.
+    """
+    today = pd.to_datetime(scan_date)
+    fresh_by_symbol = {c.symbol: c for c in all_candidates}
+
+    # 1. Update/insert from this scan's fresh results
+    for symbol, cand in fresh_by_symbol.items():
+        existing = ledger.get(symbol)
+        cand_dict = asdict(cand)
+        cand_dict["last_seen"] = scan_date
+
+        if cand.setup == "SQUEEZE":
+            if existing and existing.get("status") == "BLAST":
+                # Already exited and currently in its retention window —
+                # don't let a fresh SQUEEZE read resurrect/overwrite that;
+                # leave the BLAST record alone, it'll age out on its own.
+                continue
+            if not existing:
+                cand_dict["status"] = "SQUEEZE"
+                cand_dict["first_seen"] = scan_date
+                ledger[symbol] = cand_dict
+            else:
+                cand_dict["status"] = "SQUEEZE"
+                cand_dict["first_seen"] = existing.get("first_seen", scan_date)
+                ledger[symbol] = cand_dict
+
+        elif cand.setup == "BLAST":
+            cand_dict["status"] = "BLAST"
+            if existing and existing.get("status") == "BLAST":
+                # Still blasting — refresh price/exit_date/numbers each
+                # scan, but keep the ORIGINAL blast_entry_price/date and
+                # the original trigger date fixed from when this exit
+                # signal first fired, not today's find_blast_entry() guess.
+                cand_dict["first_seen"] = existing.get("first_seen", scan_date)
+                cand_dict["blast_triggered_date"] = existing.get("blast_triggered_date", scan_date)
+                cand_dict["blast_entry_price"] = existing.get("blast_entry_price", cand_dict.get("blast_entry_price"))
+                cand_dict["blast_entry_date"] = existing.get("blast_entry_date", cand_dict.get("blast_entry_date"))
+                # original_squeeze_entry_price/date: if this stock was
+                # tracked as a SQUEEZE before flipping, those are already
+                # carried on the existing record from the flip below — keep
+                # them as-is rather than letting them be overwritten.
+                if "original_squeeze_entry_price" in existing:
+                    cand_dict["original_squeeze_entry_price"] = existing["original_squeeze_entry_price"]
+                    cand_dict["original_squeeze_entry_date"] = existing["original_squeeze_entry_date"]
+            else:
+                # Either was SQUEEZE and just flipped, or appearing fresh
+                cand_dict["first_seen"] = existing.get("first_seen", scan_date) if existing else scan_date
+                cand_dict["blast_triggered_date"] = scan_date
+                if existing and existing.get("status") == "SQUEEZE":
+                    # Preserve the original entry signal (what you'd have
+                    # bought at) distinct from blast_entry_price (the
+                    # squeeze-end price found via BB-width lookback, which
+                    # can differ slightly from the exact day the dashboard
+                    # first flagged it).
+                    cand_dict["original_squeeze_entry_price"] = existing.get("entry_price")
+                    cand_dict["original_squeeze_entry_date"] = existing.get("entry_date")
+            ledger[symbol] = cand_dict
+
+    # 2. Anything in the ledger NOT in today's fresh results: leave SQUEEZE
+    #    entries untouched (per your instruction — stays visible until an
+    #    actual exit fires), and age out BLAST entries past retention.
+    to_drop = []
+    for symbol, entry in ledger.items():
+        if symbol in fresh_by_symbol:
+            continue  # already handled above
+        if entry.get("status") == "BLAST":
+            trigger_date = entry.get("blast_triggered_date")
+            if trigger_date:
+                age_days = (today - pd.to_datetime(trigger_date)).days
+                if age_days >= BLAST_RETENTION_DAYS:
+                    to_drop.append(symbol)
+        # SQUEEZE entries not refreshed today are intentionally left as-is.
+
+    for symbol in to_drop:
+        del ledger[symbol]
+
+    return ledger
+
+
+def scan_all_symbols(session: requests.Session, as_of_date: str = None, histories: dict = None):
+    """
+    Run classify() across the whole symbol universe. If as_of_date is
+    given, each symbol's price history is truncated to bars on or before
+    that date before classifying — this lets a backfill run reconstruct
+    what a scan would have shown on a past trading day, using the same
+    classify() logic as a live run. histories, if provided, is a
+    {symbol: DataFrame} cache to avoid re-fetching from NSE for every
+    backfilled day (fetch once, slice many times).
+    """
     all_candidates = []
+    fetched_histories = histories if histories is not None else {}
 
     for symbol in NIFTY_500_SAMPLE:
-        df = fetch_history(session, symbol)
+        if symbol in fetched_histories:
+            df = fetched_histories[symbol]
+        else:
+            df = fetch_history(session, symbol)
+            if histories is not None:
+                fetched_histories[symbol] = df
+            time.sleep(0.25)  # be polite to NSE — only matters on real fetches
+
         if df is None:
             continue
-        df = add_indicators(df)
-        cand = classify(symbol, df)
+
+        df_slice = df
+        if as_of_date:
+            cutoff = pd.to_datetime(as_of_date)
+            df_slice = df[pd.to_datetime(df["date"]) <= cutoff]
+            if len(df_slice) < 35:
+                continue
+
+        df_ind = add_indicators(df_slice)
+        cand = classify(symbol, df_ind, scan_date=as_of_date)
         if cand:
             all_candidates.append(cand)
-        time.sleep(0.25)  # be polite to NSE
 
-    # Cap shortlist sent to Claude (keeps the call cheap & focused)
+    return all_candidates, fetched_histories
+
+
+def run(backfill_days: int = 0, allow_weekend: bool = False):
+    session = get_nse_session()
+
+    today = datetime.date.today()
+    is_open, reason = is_trading_day(today, session)
+    print(f"Market day check for {today.isoformat()}: {'OPEN' if is_open else 'CLOSED'} — {reason}")
+
+    if not is_open and not allow_weekend and backfill_days == 0:
+        # Write a lightweight status file so the frontend can show
+        # "market closed today" instead of silently keeping stale data
+        # with no explanation. No NSE data fetch, no Claude call — zero
+        # cost on non-trading days.
+        os.makedirs("data", exist_ok=True)
+        status_path = "data/market_status.json"
+        with open(status_path, "w") as f:
+            json.dump({
+                "date": today.isoformat(),
+                "market_open": False,
+                "reason": reason,
+                "checked_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M IST"),
+            }, f, indent=2)
+        print(f"Skipping scan — {reason}. No data fetched, no Claude API call made.")
+        return
+
+    # Record today's market-open status regardless of backfill/weekend
+    # override, so the frontend status always reflects the real calendar.
+    os.makedirs("data", exist_ok=True)
+    with open("data/market_status.json", "w") as f:
+        json.dump({
+            "date": today.isoformat(),
+            "market_open": is_open,
+            "reason": reason,
+            "checked_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M IST"),
+        }, f, indent=2)
+
+    ledger = load_ledger()
+
+    if backfill_days > 0:
+        # Reconstruct the last N trading days sequentially, feeding each
+        # day's classify() results into update_ledger() in chronological
+        # order — exactly as if a normal scan had run on each of those
+        # days. Fetch each symbol's history once, slice per day, to avoid
+        # N x the NSE API load.
+        print(f"Backfill mode: reconstructing the last {backfill_days} trading day(s)...")
+        histories = {}
+        candidate_dates = []
+        check_date = today
+        while len(candidate_dates) < backfill_days and (today - check_date).days < 14:
+            check_date -= datetime.timedelta(days=1)
+            is_open_check, _ = is_trading_day(check_date, session)
+            if is_open_check:
+                candidate_dates.append(check_date)
+        candidate_dates.reverse()  # chronological order, oldest first
+
+        last_candidates = []
+        for d in candidate_dates:
+            d_str = d.isoformat()
+            print(f"  Reconstructing {d_str}...")
+            day_candidates, histories = scan_all_symbols(session, as_of_date=d_str, histories=histories)
+            ledger = update_ledger(ledger, day_candidates, d_str)
+            last_candidates = day_candidates
+        all_candidates = last_candidates
+        scan_date = candidate_dates[-1].isoformat() if candidate_dates else today.isoformat()
+    else:
+        scan_date = today.isoformat()
+        all_candidates, _ = scan_all_symbols(session, as_of_date=scan_date)
+        ledger = update_ledger(ledger, all_candidates, scan_date)
+
+
+    # Build the dashboard view FROM THE LEDGER, not just today's fresh
+    # candidates — this is what makes SQUEEZE entries persist until a real
+    # exit fires, and BLAST entries stay visible for their retention window.
+    ledger_squeeze = [v for v in ledger.values() if v.get("status") == "SQUEEZE"]
+    ledger_blast = [v for v in ledger.values() if v.get("status") == "BLAST"]
+
+    # Cap shortlist shown on the dashboard. For SQUEEZE, best predicted
+    # return first; for BLAST, best realized return first.
     squeeze_sorted = sorted(
-        [c for c in all_candidates if c.setup == "SQUEEZE"],
-        key=lambda c: c.predicted_return, reverse=True
+        ledger_squeeze, key=lambda v: v.get("predicted_return", 0) or 0, reverse=True
     )[:6]
     blast_sorted = sorted(
-        [c for c in all_candidates if c.setup == "BLAST"],
-        key=lambda c: (c.return_since_entry if c.return_since_entry is not None else c.stoch_k),
+        ledger_blast,
+        key=lambda v: (v.get("return_since_entry") if v.get("return_since_entry") is not None else v.get("stoch_k", 0)) or 0,
         reverse=True
     )[:4]
-    shortlist = squeeze_sorted + blast_sorted
 
-    commentary = get_claude_commentary(shortlist) if shortlist else {"items": {}, "market_mood": "NEUTRAL"}
-    items = commentary.get("items", commentary)  # tolerate either shape
+    # Only ask Claude about entries that don't already have stored
+    # commentary from a previous scan — keeps the API call minimal even
+    # though the ledger can now hold more symbols across multiple days.
+    def needs_commentary(entry):
+        return not entry.get("reason")
 
-    def to_dict(c: Candidate) -> dict:
-        extra = items.get(c.symbol, _fallback_commentary(c))
-        base = asdict(c)
-        base["confidence"] = extra.get("confidence", "MEDIUM")
-        base["reason"] = extra.get("reason", "")
-        return base
+    field_names = set(Candidate.__dataclass_fields__.keys())
+
+    def dict_to_candidate(v: dict):
+        kwargs = {k: v.get(k) for k in field_names if k in v}
+        try:
+            return Candidate(**kwargs)
+        except TypeError:
+            return None
+
+    shortlist_dicts = [v for v in (squeeze_sorted + blast_sorted) if needs_commentary(v)]
+    shortlist_candidates = [c for c in (dict_to_candidate(v) for v in shortlist_dicts) if c is not None]
+
+    commentary = get_claude_commentary(shortlist_candidates) if shortlist_candidates else {"items": {}, "market_mood": None}
+    items = commentary.get("items", commentary)
+
+    def apply_commentary(entry: dict) -> dict:
+        entry = dict(entry)
+        symbol = entry["symbol"]
+        if symbol in items:
+            extra = items[symbol]
+            entry["confidence"] = extra.get("confidence", entry.get("confidence", "MEDIUM"))
+            entry["reason"] = extra.get("reason", entry.get("reason", ""))
+        elif not entry.get("reason"):
+            cand = dict_to_candidate(entry)
+            if cand:
+                fb = _fallback_commentary(cand)
+                entry["confidence"] = fb["confidence"]
+                entry["reason"] = fb["reason"]
+        # persist the (possibly updated) commentary back into the ledger
+        # entry so future scans can re-use it without re-asking Claude
+        if symbol in ledger:
+            ledger[symbol]["confidence"] = entry.get("confidence")
+            ledger[symbol]["reason"] = entry.get("reason")
+        return entry
+
+    squeeze_sorted = [apply_commentary(v) for v in squeeze_sorted]
+    blast_sorted = [apply_commentary(v) for v in blast_sorted]
+
+    save_ledger(ledger)  # persist commentary + lifecycle state for next scan
+
+    # Overall market mood: only Claude-generated when we actually called
+    # Claude this run; otherwise derive a simple rule-based mood so we don't
+    # show a stale/misleading label on calls that skipped the API entirely.
+    market_mood = commentary.get("market_mood")
+    if not market_mood:
+        if len(ledger_squeeze) > len(ledger_blast):
+            market_mood = "BULLISH"
+        elif len(ledger_blast) > len(ledger_squeeze):
+            market_mood = "NEUTRAL"
+        else:
+            market_mood = "NEUTRAL"
 
     output = {
         "scan_time": datetime.datetime.now().strftime("%Y-%m-%d %H:%M IST"),
-        "market_mood": commentary.get("market_mood", "NEUTRAL"),
-        "squeeze_stocks": [to_dict(c) for c in squeeze_sorted],
-        "blast_stocks": [to_dict(c) for c in blast_sorted],
+        "market_mood": market_mood,
+        "squeeze_stocks": squeeze_sorted,
+        "blast_stocks": blast_sorted,
         "scanned_count": len(NIFTY_500_SAMPLE),
         "candidates_found": len(all_candidates),
+        "ledger_squeeze_total": len(ledger_squeeze),
+        "ledger_blast_total": len(ledger_blast),
     }
 
     os.makedirs("data", exist_ok=True)
@@ -438,8 +860,26 @@ def run():
     with open(hist_path, "w") as f:
         json.dump(output, f, indent=2)
 
-    print(f"Scan complete: {len(squeeze_sorted)} squeeze, {len(blast_sorted)} blast candidates written.")
+    print(f"Scan complete: {len(squeeze_sorted)} squeeze shown (ledger total {len(ledger_squeeze)}), "
+          f"{len(blast_sorted)} blast shown (ledger total {len(ledger_blast)}). "
+          f"Claude called for {len(shortlist_candidates)} new/changed entries.")
 
 
 if __name__ == "__main__":
-    run()
+    import argparse
+    parser = argparse.ArgumentParser(description="NSE Squeeze & Blast Scanner")
+    parser.add_argument(
+        "--backfill-days", type=int, default=0,
+        help="Reconstruct the last N trading days into the ledger (e.g. "
+             "--backfill-days 2 on a weekend to see what Thu/Fri would "
+             "have shown). Ignores the normal market-day skip check."
+    )
+    parser.add_argument(
+        "--allow-weekend", action="store_true",
+        help="Run a normal (non-backfill) scan even if today is not a "
+             "trading day. Useful for testing; not for routine use since "
+             "it spends a Claude API call against data that won't have "
+             "moved since the last real trading day."
+    )
+    args = parser.parse_args()
+    run(backfill_days=args.backfill_days, allow_weekend=args.allow_weekend)
