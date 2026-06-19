@@ -351,12 +351,23 @@ const T = {
 const GITHUB_USER = "jami85in";
 const GITHUB_REPO = "nse-tracker";
 const GITHUB_RAW_URL = `https://raw.githubusercontent.com/${GITHUB_USER}/${GITHUB_REPO}/main/data/scan_latest.json`;
+const GITHUB_STATUS_URL = `https://raw.githubusercontent.com/${GITHUB_USER}/${GITHUB_REPO}/main/data/market_status.json`;
 const GITHUB_APP_ACTIONS_URL = `https://github.com/${GITHUB_USER}/${GITHUB_REPO}/actions/workflows/scan.yml`;
 
 async function fetchScanData() {
   const res = await fetch(`${GITHUB_RAW_URL}?t=${Date.now()}`);
   if (!res.ok) throw new Error(`GitHub responded with ${res.status}. Check the repo is public and the file path is data/scan_latest.json on the main branch.`);
   return res.json();
+}
+
+async function fetchMarketStatus() {
+  try {
+    const res = await fetch(`${GITHUB_STATUS_URL}?t=${Date.now()}`);
+    if (!res.ok) return null;
+    return res.json();
+  } catch {
+    return null; // not fatal — market_status.json may not exist yet on first run
+  }
 }
 
 // ── Utility ───────────────────────────────────────────────────────────────────
@@ -418,6 +429,8 @@ function PullToRefresh({ onRefresh, children, refreshing }) {
 
 function SqueezeCard({ stock, onInvest }) {
   const [expanded, setExpanded] = useState(false);
+  const daysTracked = stock.entry_date ? Math.max(0, Math.round((new Date() - new Date(stock.entry_date)) / 86400000)) : null;
+  const liveReturn = (stock.entry_price && stock.price) ? ((stock.price - stock.entry_price) / stock.entry_price) * 100 : null;
   return (
     <div style={{ background: T.card, border: `1px solid ${T.accent}44`, borderLeft: `3px solid ${T.accent}`, borderRadius: 10, padding: 14, cursor: "pointer" }}
       onClick={() => setExpanded(e => !e)}>
@@ -427,13 +440,38 @@ function SqueezeCard({ stock, onInvest }) {
             <span style={{ color: T.accent, fontWeight: 800, fontSize: 16, fontFamily: "monospace" }}>{stock.symbol}</span>
             <Pill label={stock.confidence} />
           </div>
-          <div style={{ color: T.muted, fontSize: 11, marginTop: 2 }}>NSE · Daily chart</div>
+          <div style={{ color: T.muted, fontSize: 11, marginTop: 2 }}>
+            NSE · Daily chart{daysTracked != null && daysTracked > 0 ? ` · watching ${daysTracked}d` : ""}
+          </div>
         </div>
         <div style={{ textAlign: "right", flexShrink: 0 }}>
           <div style={{ color: T.white, fontWeight: 700, fontSize: 17 }}>{curr(stock.price)}</div>
-          <div style={{ color: T.green, fontSize: 13, fontWeight: 700 }}>+{fmt(stock.predicted_return)}% est.</div>
+          {liveReturn != null && (
+            <div style={{ color: liveReturn >= 0 ? T.green : T.red, fontSize: 13, fontWeight: 700 }}>{pct(liveReturn)} since entry</div>
+          )}
         </div>
       </div>
+
+      {/* Entry -> Current -> Target strip */}
+      <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 12, background: T.surface, borderRadius: 8, padding: "8px 10px" }}>
+        <div style={{ flex: 1 }}>
+          <div style={{ color: T.muted, fontSize: 9, letterSpacing: 0.6, textTransform: "uppercase" }}>Entry</div>
+          <div style={{ color: T.text, fontSize: 13, fontWeight: 700 }}>{curr(stock.entry_price)}</div>
+          {stock.entry_date && <div style={{ color: T.muted, fontSize: 9 }}>{stock.entry_date}</div>}
+        </div>
+        <div style={{ color: T.muted, fontSize: 14 }}>→</div>
+        <div style={{ flex: 1, textAlign: "center" }}>
+          <div style={{ color: T.muted, fontSize: 9, letterSpacing: 0.6, textTransform: "uppercase" }}>Current</div>
+          <div style={{ color: T.text, fontSize: 13, fontWeight: 700 }}>{curr(stock.price)}</div>
+        </div>
+        <div style={{ color: T.muted, fontSize: 14 }}>→</div>
+        <div style={{ flex: 1, textAlign: "right" }}>
+          <div style={{ color: T.muted, fontSize: 9, letterSpacing: 0.6, textTransform: "uppercase" }}>Target</div>
+          <div style={{ color: T.green, fontSize: 13, fontWeight: 700 }}>{curr(stock.target_price)}</div>
+          {stock.target_return_pct != null && <div style={{ color: T.green, fontSize: 9 }}>+{fmt(stock.target_return_pct)}%</div>}
+        </div>
+      </div>
+
       <div style={{ display: "grid", gridTemplateColumns: "repeat(2,1fr)", gap: 10, marginTop: 12 }}>
         <Stat label="BB Width" value={fmt(stock.bb_width) + "%"} color={stock.bb_width < 1.8 ? T.accent : T.warn} />
         <Stat label="Stoch K" value={fmt(stock.stoch_k)} color={stock.stoch_k < 45 ? T.accent : T.warn} />
@@ -459,7 +497,7 @@ function SqueezeCard({ stock, onInvest }) {
 }
 
 function BlastCard({ stock }) {
-  const hasEntry = stock.entry_price != null && stock.return_since_entry != null;
+  const hasEntry = stock.blast_entry_price != null && stock.return_since_entry != null;
   return (
     <div style={{ background: T.card, border: `1px solid ${T.blast}44`, borderLeft: `3px solid ${T.blast}`, borderRadius: 10, padding: 14 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
@@ -477,31 +515,56 @@ function BlastCard({ stock }) {
       </div>
 
       {hasEntry && (
-        <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 12, background: T.surface, borderRadius: 8, padding: "8px 10px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 12, background: T.surface, borderRadius: 8, padding: "8px 10px" }}>
           <div style={{ flex: 1 }}>
-            <div style={{ color: T.muted, fontSize: 9, letterSpacing: 0.6, textTransform: "uppercase" }}>Entry (squeeze end)</div>
-            <div style={{ color: T.text, fontSize: 13, fontWeight: 700 }}>{curr(stock.entry_price)}</div>
-            {stock.entry_date && <div style={{ color: T.muted, fontSize: 9 }}>{stock.entry_date}</div>}
+            <div style={{ color: T.muted, fontSize: 9, letterSpacing: 0.6, textTransform: "uppercase" }}>Entry</div>
+            <div style={{ color: T.text, fontSize: 13, fontWeight: 700 }}>{curr(stock.blast_entry_price)}</div>
+            {stock.blast_entry_date && <div style={{ color: T.muted, fontSize: 9 }}>{stock.blast_entry_date}</div>}
           </div>
-          <div style={{ color: T.muted, fontSize: 16 }}>→</div>
-          <div style={{ flex: 1, textAlign: "right" }}>
-            <div style={{ color: T.muted, fontSize: 9, letterSpacing: 0.6, textTransform: "uppercase" }}>Now</div>
-            <div style={{ color: T.text, fontSize: 13, fontWeight: 700 }}>{curr(stock.price)}</div>
+          <div style={{ color: T.muted, fontSize: 14 }}>→</div>
+          <div style={{ flex: 1, textAlign: "center" }}>
+            <div style={{ color: T.muted, fontSize: 9, letterSpacing: 0.6, textTransform: "uppercase" }}>Exit signal</div>
+            <div style={{ color: T.blast, fontSize: 13, fontWeight: 700 }}>{curr(stock.exit_price)}</div>
             {stock.exit_date && <div style={{ color: T.muted, fontSize: 9 }}>{stock.exit_date}</div>}
           </div>
-          <div style={{
-            color: stock.return_since_entry >= 0 ? T.green : T.red, fontSize: 15, fontWeight: 800,
-            background: (stock.return_since_entry >= 0 ? T.green : T.red) + "22", borderRadius: 6, padding: "4px 10px", marginLeft: 4,
-          }}>
-            {pct(stock.return_since_entry)}
+          <div style={{ color: T.muted, fontSize: 14 }}>→</div>
+          <div style={{ flex: 1, textAlign: "right" }}>
+            <div style={{ color: T.muted, fontSize: 9, letterSpacing: 0.6, textTransform: "uppercase" }}>Current</div>
+            <div style={{ color: T.text, fontSize: 13, fontWeight: 700 }}>{curr(stock.price)}</div>
           </div>
         </div>
       )}
 
+      {hasEntry && (
+        <div style={{ display: "flex", justifyContent: "center", marginTop: 8 }}>
+          <div style={{
+            color: stock.return_since_entry >= 0 ? T.green : T.red, fontSize: 16, fontWeight: 800,
+            background: (stock.return_since_entry >= 0 ? T.green : T.red) + "22", borderRadius: 6, padding: "4px 14px",
+          }}>
+            {pct(stock.return_since_entry)} total since entry
+          </div>
+        </div>
+      )}
+
+      {hasEntry && stock.original_squeeze_entry_price != null && stock.original_squeeze_entry_price !== stock.blast_entry_price && (
+        <div style={{ color: T.muted, fontSize: 10, marginTop: 6, textAlign: "center" }}>
+          Originally flagged at {curr(stock.original_squeeze_entry_price)} on {stock.original_squeeze_entry_date}
+        </div>
+      )}
+
       {hasEntry && stock.holding_period_days != null && (
-        <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 8 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
           <span style={{ color: T.muted, fontSize: 11 }}>⏱ Holding period:</span>
           <span style={{ color: T.text, fontSize: 11, fontWeight: 700 }}>{stock.holding_period_days} day{stock.holding_period_days === 1 ? "" : "s"}</span>
+          {stock.blast_triggered_date && (() => {
+            const daysSinceTrigger = Math.max(0, Math.round((new Date() - new Date(stock.blast_triggered_date)) / 86400000));
+            const daysLeft = Math.max(0, 10 - daysSinceTrigger);
+            return (
+              <span style={{ color: daysLeft <= 2 ? T.warn : T.muted, fontSize: 10, marginLeft: "auto" }}>
+                {daysLeft === 0 ? "Removing today" : `Removed from list in ${daysLeft}d`}
+              </span>
+            );
+          })()}
         </div>
       )}
 
@@ -687,6 +750,7 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [scanData, setScanData] = useState(null);
+  const [marketStatus, setMarketStatus] = useState(null);
   const [nextPoll, setNextPoll] = useState(null);
   const [investTarget, setInvestTarget] = useState(null);
   const [toast, setToast] = useState(null);
@@ -706,8 +770,9 @@ function App() {
     if (!silent) setLoading(true);
     setError(null);
     try {
-      const data = await fetchScanData();
+      const [data, status] = await Promise.all([fetchScanData(), fetchMarketStatus()]);
       setScanData(data);
+      setMarketStatus(status);
       setNextPoll(Date.now() + 30 * 60 * 1000);
       if (silent) showToast("✓ Updated with latest data");
     } catch (e) {
@@ -801,6 +866,15 @@ function App() {
 
           {tab === "scanner" && scanData && (
             <div>
+              {marketStatus && marketStatus.market_open === false && (
+                <div style={{ background: T.warnDim, border: `1px solid ${T.warn}44`, borderRadius: 10, padding: 12, marginBottom: 16, display: "flex", alignItems: "center", gap: 10 }}>
+                  <span style={{ fontSize: 18 }}>🏛️</span>
+                  <div>
+                    <div style={{ color: T.warn, fontWeight: 700, fontSize: 13 }}>Market closed today</div>
+                    <div style={{ color: T.muted, fontSize: 11, marginTop: 1 }}>{marketStatus.reason} · showing last available data</div>
+                  </div>
+                </div>
+              )}
               <div style={{ marginBottom: 14 }}>
                 <div style={{ fontWeight: 800, fontSize: 16, color: T.accent }}>🟢 End of Squeeze</div>
                 <div style={{ color: T.muted, fontSize: 11 }}>Entry signals · min 5% predicted return</div>
