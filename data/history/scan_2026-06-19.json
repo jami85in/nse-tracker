@@ -1,6 +1,6 @@
 {
-  "scan_time": "2026-06-19 12:18 IST",
-  "market_mood": "BULLISH \u2014 four BLAST setups with no squeezes signal broad momentum expansion across NSE",
+  "scan_time": "2026-06-19 12:56 IST",
+  "market_mood": "BULLISH \u2014 four active BLAST setups with strong EMA alignment and no squeeze setups present.",
   "squeeze_stocks": [],
   "blast_stocks": [
     {
@@ -18,7 +18,7 @@
       "predicted_return": 4.18,
       "setup": "BLAST",
       "confidence": "MEDIUM",
-      "reason": "BB expanded from 9% to 12%, stoch maxed but momentum already extended"
+      "reason": "BB expanded from 9% to 12%; stoch_k 100 but modest 4.18% return."
     },
     {
       "symbol": "TITAN",
@@ -35,7 +35,7 @@
       "predicted_return": 4.67,
       "setup": "BLAST",
       "confidence": "HIGH",
-      "reason": "BB doubled from 6.25% to 12%, stoch_k and stoch_d both perfect 100"
+      "reason": "BB doubled from 6.25% to 12%; stoch_k and stoch_d both perfect 100."
     },
     {
       "symbol": "PIDILITIND",
@@ -52,7 +52,7 @@
       "predicted_return": 5.71,
       "setup": "BLAST",
       "confidence": "HIGH",
-      "reason": "BB surged from 5.5% to 12.2%, stoch near 100 with 5.71% predicted return"
+      "reason": "BB surged from 5.48% to 12.24%; stoch near-perfect with 5.71% predicted return."
     },
     {
       "symbol": "TRENT",
@@ -69,7 +69,7 @@
       "predicted_return": 12.51,
       "setup": "BLAST",
       "confidence": "MEDIUM",
-      "reason": "BB extremely wide at 19.9%, stoch_d lagging 93.5 signals overextended blast"
+      "reason": "BB ballooned 7.7% to 19.9%; stoch_d lags at 93.47 despite massive 12.51% target."
     }
   ],
   "scanned_count": 84,
