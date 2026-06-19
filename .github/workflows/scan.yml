@@ -2,11 +2,35 @@ name: NSE Squeeze & Blast Scan
 
 on:
   schedule:
-    - cron: "15 4 * * 1-5"
-    - cron: "15 6 * * 1-5"
-    - cron: "15 8 * * 1-5"
-    - cron: "15 9 * * 1-5"
-  workflow_dispatch: {}
+    # Runs Mon-Fri after market close. The cron itself can only express
+    # "weekdays", so scan.py does the real holiday-awareness check at
+    # runtime against NSE's live trading-holiday calendar (with a
+    # hardcoded fallback list) and exits immediately — before any data
+    # fetch or Claude API call — on actual NSE holidays that fall on a
+    # weekday (Republic Day, Diwali, etc.). It also supports the reverse
+    # case (a special trading session on an otherwise-closed Sat/Sun,
+    # e.g. Muhurat Trading or a Budget Day weekend session) via the
+    # NSE_SPECIAL_SESSIONS fallback list in scan.py, though the cron
+    # schedule below would need an extra weekend entry added to actually
+    # fire on such a day — see scan.py's is_trading_day() for details.
+    #
+    # Once per trading day, shortly after market close (15:30 IST), so
+    # the day's daily candle (the BB/EMA/Stoch RSI inputs) is fully
+    # formed and final rather than a still-moving intraday partial bar.
+    # (cron is UTC; IST = UTC+5:30)
+    - cron: "15 10 * * 1-5"   # 15:45 IST weekdays — ~15 min after close, candle settled
+    - cron: "15 10 * * 0,6"   # 15:45 IST weekends — runs scan.py's is_trading_day()
+                                # check too; no-ops (zero cost) on an ordinary Sat/Sun,
+                                # but actually scans if NSE schedules a special weekend
+                                # session (Muhurat Trading, Budget Day, etc.) — covers
+                                # the reverse case without needing a code redeploy
+  workflow_dispatch:          # lets you trigger manually from the Actions tab / GitHub app
+    inputs:
+      backfill_days:
+        description: "Reconstruct the last N trading days into the ledger (0 = normal single-day scan)"
+        required: false
+        default: "0"
+        type: string
 
 permissions:
   contents: write
@@ -27,7 +51,8 @@ jobs:
       - name: Run scan
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-        run: python scripts/scan.py
+          BACKFILL_DAYS: ${{ github.event.inputs.backfill_days || '0' }}
+        run: python scripts/scan.py --backfill-days "$BACKFILL_DAYS"
 
       - name: Commit results
         run: |
