@@ -32,10 +32,13 @@ on:
         default: "0"
         type: string
       diagnose:
-        description: "Run diagnostic mode instead (shows near-miss stocks, no Claude call, no ledger write — check the Actions log for output)"
+        description: "Run diagnostic mode instead of a normal scan? Shows near-miss stocks, no Claude call, no ledger write — check the Actions log for output"
         required: false
-        default: false
-        type: boolean
+        default: "false"
+        type: choice
+        options:
+          - "false"
+          - "true"
 
 permissions:
   contents: write
