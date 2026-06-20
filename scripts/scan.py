@@ -1088,6 +1088,14 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
+    # Explicit, unambiguous confirmation of which mode actually ran — this
+    # exists because of a real incident where the GitHub Actions UI's
+    # diagnose toggle didn't pass through correctly and the script silently
+    # ran a normal scan instead, which wasn't obvious from the log output
+    # at the time. This line removes all doubt going forward.
+    mode = "DIAGNOSE" if args.diagnose else (f"BACKFILL({args.backfill_days}d)" if args.backfill_days > 0 else "NORMAL SCAN")
+    print(f"=== MODE: {mode} (diagnose={args.diagnose}, backfill_days={args.backfill_days}, allow_weekend={args.allow_weekend}) ===\n")
+
     if args.diagnose:
         sess = get_nse_session()
         diag_universe = fetch_nifty500_universe(sess)
