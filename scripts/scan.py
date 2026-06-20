@@ -28,24 +28,37 @@ import pandas as pd
 import requests
 
 # ── Config ────────────────────────────────────────────────────────────────
-NIFTY_500_SAMPLE = [
-    # Curate / expand this list. Keep it to liquid, F&O-active names for
-    # reliability. You can swap this for a dynamic Nifty 500 constituent
-    # pull from NSE's index CSV if you want full coverage.
+# Stock universe is fetched dynamically from NSE's official Nifty 500
+# constituent list at the start of each run (see fetch_nifty500_universe()
+# below) — this widens coverage from ~84 hand-picked names to the full
+# ~500, which matters directly for SQUEEZE detection: on any given day
+# only a small fraction of stocks sit in a genuinely tight consolidation,
+# so a larger universe meaningfully increases the odds of catching one.
+# It also self-corrects for delisted/renamed symbols automatically (the
+# hardcoded list below had several: TATAMOTORS' 2025 demerger, LTIM,
+# VEDANTA and ZOMATO/ETERNAL ticker changes all showed up as "possibly
+# delisted" errors in earlier runs) since NSE's own list is always current.
+#
+# FALLBACK_STOCK_LIST below is used ONLY if the live NSE fetch fails for
+# any reason (network issue, NSE API change, etc.) — so the scan never
+# hard-fails to zero stocks, it just falls back to a smaller known-good set.
+FALLBACK_STOCK_LIST = [
     "RELIANCE", "TCS", "HDFCBANK", "ICICIBANK", "INFY", "SBIN", "AXISBANK",
     "KOTAKBANK", "BAJFINANCE", "BHARTIARTL", "ITC", "LT", "MARUTI", "TITAN",
-    "SUNPHARMA", "ULTRACEMCO", "NTPC", "POWERGRID", "TATASTEEL", "TATAMOTORS",
+    "SUNPHARMA", "ULTRACEMCO", "NTPC", "POWERGRID", "TATASTEEL",
     "IDFCFIRSTB", "BANKBARODA", "PNB", "CANBK", "FEDERALBNK", "INDUSINDBK",
     "ADANIPORTS", "ADANIENT", "JSWSTEEL", "HINDALCO", "COALINDIA", "ONGC",
     "BPCL", "GRASIM", "DRREDDY", "CIPLA", "DIVISLAB", "APOLLOHOSP",
     "BAJAJFINSV", "HDFCLIFE", "SBILIFE", "HEROMOTOCO", "EICHERMOT", "TVSMOTOR",
-    "M&M", "WIPRO", "TECHM", "HCLTECH", "LTIM", "ASIANPAINT", "NESTLEIND",
+    "M&M", "WIPRO", "TECHM", "HCLTECH", "ASIANPAINT", "NESTLEIND",
     "BRITANNIA", "DABUR", "GODREJCP", "PIDILITIND", "SIEMENS", "ABB",
-    "HAVELLS", "DLF", "GODREJPROP", "VEDANTA", "HINDZINC", "AMBUJACEM",
-    "ACC", "SHREECEM", "IDEA", "ZOMATO", "PAYTM", "NYKAA", "TRENT",
+    "HAVELLS", "DLF", "GODREJPROP", "HINDZINC", "AMBUJACEM",
+    "ACC", "SHREECEM", "IDEA", "PAYTM", "NYKAA", "TRENT",
     "VOLTAS", "PERSISTENT", "MPHASIS", "LUPIN", "AUROPHARMA", "BIOCON",
     "PFC", "RECLTD", "IRFC", "IRCTC", "INDIGO", "BEL", "HAL", "MAZDOCK",
 ]
+
+NSE_NIFTY500_CSV_URL = "https://nsearchives.nseindia.com/content/indices/ind_nifty500list.csv"
 
 NSE_BASE = "https://www.nseindia.com"
 NSE_API_HIST = "https://www.nseindia.com/api/historical/cm/equity?symbol={symbol}&series=[%22EQ%22]&from={frm}&to={to}"
@@ -59,6 +72,43 @@ HEADERS = {
 }
 
 MIN_PREDICTED_RETURN = 5.0  # % — hard floor for squeeze candidates
+
+
+def fetch_nifty500_universe(session: requests.Session) -> list:
+    """
+    Fetch the live, official Nifty 500 constituent list from NSE's own
+    archive CSV. This is the full ~500-stock universe rather than the
+    ~84-stock curated sample — directly relevant to SQUEEZE detection,
+    since on any given day only a small fraction of stocks sit in a
+    genuinely tight consolidation; a larger universe meaningfully
+    improves the odds of catching one. It also self-corrects for
+    delisted/renamed symbols (e.g. demergers, ticker changes) since
+    NSE's own list is always current, unlike a hardcoded snapshot.
+
+    Falls back to FALLBACK_STOCK_LIST if the live fetch fails for any
+    reason, so a network hiccup never reduces the scan to zero stocks.
+    """
+    try:
+        r = session.get(NSE_NIFTY500_CSV_URL, timeout=15)
+        r.raise_for_status()
+        # CSV columns: Company Name,Industry,Symbol,Series,ISIN Code
+        lines = r.text.strip().splitlines()
+        if len(lines) < 100:  # sanity check — a real Nifty 500 CSV has ~501 lines
+            raise ValueError(f"CSV too short ({len(lines)} lines) — likely not the real file")
+        symbols = []
+        for line in lines[1:]:  # skip header row
+            parts = line.split(",")
+            if len(parts) >= 3:
+                sym = parts[2].strip()
+                if sym:
+                    symbols.append(sym)
+        if len(symbols) < 100:
+            raise ValueError(f"Parsed only {len(symbols)} symbols — likely a parsing issue")
+        print(f"Fetched live Nifty 500 universe: {len(symbols)} symbols")
+        return symbols
+    except Exception as e:
+        print(f"Live Nifty 500 fetch failed ({e}), using {len(FALLBACK_STOCK_LIST)}-stock fallback list")
+        return FALLBACK_STOCK_LIST
 
 # ── NSE trading holiday calendar ─────────────────────────────────────────
 # Primary source is always the live NSE API (NSE_API_HOLIDAYS above) since
@@ -769,9 +819,9 @@ def update_ledger(ledger: dict, all_candidates: list, scan_date: str) -> dict:
     return ledger
 
 
-def scan_all_symbols(session: requests.Session, as_of_date: str = None, histories: dict = None):
+def scan_all_symbols(session: requests.Session, universe: list, as_of_date: str = None, histories: dict = None):
     """
-    Run classify() across the whole symbol universe. If as_of_date is
+    Run classify() across the given symbol universe. If as_of_date is
     given, each symbol's price history is truncated to bars on or before
     that date before classifying — this lets a backfill run reconstruct
     what a scan would have shown on a past trading day, using the same
@@ -782,7 +832,7 @@ def scan_all_symbols(session: requests.Session, as_of_date: str = None, historie
     all_candidates = []
     fetched_histories = histories if histories is not None else {}
 
-    for symbol in NIFTY_500_SAMPLE:
+    for symbol in universe:
         if symbol in fetched_histories:
             df = fetched_histories[symbol]
         else:
@@ -844,6 +894,13 @@ def run(backfill_days: int = 0, allow_weekend: bool = False):
             "checked_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M IST"),
         }, f, indent=2)
 
+    # Fetch the live Nifty 500 universe once per run (falls back to the
+    # smaller hardcoded list if NSE's CSV is unreachable). Widening from
+    # ~84 to ~500 stocks directly improves SQUEEZE detection odds, since
+    # only a small fraction of any universe sits in a tight consolidation
+    # on a given day.
+    universe = fetch_nifty500_universe(session)
+
     ledger = load_ledger()
 
     if backfill_days > 0:
@@ -867,14 +924,14 @@ def run(backfill_days: int = 0, allow_weekend: bool = False):
         for d in candidate_dates:
             d_str = d.isoformat()
             print(f"  Reconstructing {d_str}...")
-            day_candidates, histories = scan_all_symbols(session, as_of_date=d_str, histories=histories)
+            day_candidates, histories = scan_all_symbols(session, universe, as_of_date=d_str, histories=histories)
             ledger = update_ledger(ledger, day_candidates, d_str)
             last_candidates = day_candidates
         all_candidates = last_candidates
         scan_date = candidate_dates[-1].isoformat() if candidate_dates else today.isoformat()
     else:
         scan_date = today.isoformat()
-        all_candidates, _ = scan_all_symbols(session, as_of_date=scan_date)
+        all_candidates, _ = scan_all_symbols(session, universe, as_of_date=scan_date)
         ledger = update_ledger(ledger, all_candidates, scan_date)
 
 
@@ -983,7 +1040,7 @@ def run(backfill_days: int = 0, allow_weekend: bool = False):
         "market_mood": market_mood,
         "squeeze_stocks": squeeze_sorted,
         "blast_stocks": blast_sorted,
-        "scanned_count": len(NIFTY_500_SAMPLE),
+        "scanned_count": len(universe),
         "candidates_found": len(all_candidates),
         "ledger_squeeze_total": len(ledger_squeeze),
         "ledger_blast_total": len(ledger_blast),
@@ -1033,9 +1090,10 @@ if __name__ == "__main__":
 
     if args.diagnose:
         sess = get_nse_session()
-        print(f"Diagnosing all {len(NIFTY_500_SAMPLE)} symbols (no Claude call, no ledger write)...\n")
+        diag_universe = fetch_nifty500_universe(sess)
+        print(f"Diagnosing all {len(diag_universe)} symbols (no Claude call, no ledger write)...\n")
         results = []
-        for sym in NIFTY_500_SAMPLE:
+        for sym in diag_universe:
             hist = fetch_history(sess, sym)
             if hist is None:
                 continue
