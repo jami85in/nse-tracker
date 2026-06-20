@@ -439,6 +439,7 @@ function SqueezeCard({ stock, onInvest }) {
           <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
             <span style={{ color: T.accent, fontWeight: 800, fontSize: 16, fontFamily: "monospace" }}>{stock.symbol}</span>
             <Pill label={stock.confidence} />
+            {stock.promoted_from_watchlist && <Pill label="GRADUATED" color={T.warn} />}
           </div>
           <div style={{ color: T.muted, fontSize: 11, marginTop: 2 }}>
             NSE · Daily chart{daysTracked != null && daysTracked > 0 ? ` · watching ${daysTracked}d` : ""}
@@ -451,6 +452,12 @@ function SqueezeCard({ stock, onInvest }) {
           )}
         </div>
       </div>
+
+      {stock.promoted_from_watchlist && stock.watchlist_first_seen && (
+        <div style={{ color: T.warn, fontSize: 10, marginTop: 6, background: T.warn + "15", borderRadius: 6, padding: "5px 8px" }}>
+          ⭐ Spotted on watchlist {stock.watchlist_first_seen} at {curr(stock.watchlist_first_price)} — confirmed entry {stock.promoted_date}
+        </div>
+      )}
 
       {/* Entry -> Current -> Target strip */}
       <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 12, background: T.surface, borderRadius: 8, padding: "8px 10px" }}>
@@ -492,6 +499,30 @@ function SqueezeCard({ stock, onInvest }) {
           </button>
         </div>
       )}
+    </div>
+  );
+}
+
+function WatchlistCard({ stock }) {
+  const daysWatching = stock.watchlist_first_seen ? Math.max(0, Math.round((new Date() - new Date(stock.watchlist_first_seen)) / 86400000)) : null;
+  return (
+    <div style={{ background: T.card, border: `1px solid ${T.warn}33`, borderLeft: `3px solid ${T.warn}`, borderRadius: 10, padding: 12 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
+          <span style={{ color: T.warn, fontWeight: 700, fontSize: 14, fontFamily: "monospace" }}>{stock.symbol}</span>
+          <span style={{ color: T.muted, fontSize: 10 }}>
+            {daysWatching != null ? `watching ${daysWatching}d` : ""}
+          </span>
+        </div>
+        <div style={{ textAlign: "right", flexShrink: 0 }}>
+          <span style={{ color: T.text, fontWeight: 600, fontSize: 13 }}>{curr(stock.price)}</span>
+        </div>
+      </div>
+      <div style={{ display: "flex", gap: 12, marginTop: 6 }}>
+        <span style={{ color: T.muted, fontSize: 11 }}>BB {fmt(stock.bb_width)}%</span>
+        <span style={{ color: T.muted, fontSize: 11 }}>Stoch {fmt(stock.stoch_k)}</span>
+        <span style={{ color: T.muted, fontSize: 11 }}>needs &lt;3.0% to confirm</span>
+      </div>
     </div>
   );
 }
@@ -754,6 +785,7 @@ function App() {
   const [nextPoll, setNextPoll] = useState(null);
   const [investTarget, setInvestTarget] = useState(null);
   const [toast, setToast] = useState(null);
+  const [showWatchlist, setShowWatchlist] = useState(false);
   const [positions, setPositions] = useState(() => {
     try { return JSON.parse(localStorage.getItem("nse_positions") || "[]"); } catch { return []; }
   });
@@ -894,6 +926,33 @@ function App() {
               <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                 {(scanData.blast_stocks || []).map(s => <BlastCard key={s.symbol} stock={s} />)}
               </div>
+
+              {(scanData.watchlist_stocks || []).length > 0 && (
+                <div style={{ marginTop: 26 }}>
+                  <div
+                    style={{ display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer" }}
+                    onClick={() => setShowWatchlist(w => !w)}
+                  >
+                    <div>
+                      <div style={{ fontWeight: 800, fontSize: 16, color: T.warn }}>
+                        👀 Watchlist {showWatchlist ? "▾" : "▸"}
+                      </div>
+                      <div style={{ color: T.muted, fontSize: 11 }}>
+                        Forming, not yet confirmed · {scanData.watchlist_stocks.length} stock{scanData.watchlist_stocks.length === 1 ? "" : "s"}
+                        {scanData.promoted_from_watchlist_today > 0 && (
+                          <span style={{ color: T.accent }}> · {scanData.promoted_from_watchlist_today} graduated today!</span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                  {showWatchlist && (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 12 }}>
+                      {scanData.watchlist_stocks.map(s => <WatchlistCard key={s.symbol} stock={s} />)}
+                    </div>
+                  )}
+                </div>
+              )}
+
               <div style={{ marginTop: 22, color: T.muted, fontSize: 11, textAlign: "center" }}>
                 Last scan: {scanData.scan_time} · {scanData.scanned_count} stocks scanned
               </div>
@@ -959,6 +1018,7 @@ function App() {
                 { title: "🏠 Install as a home-screen app", color: T.warn, body: "In Chrome on Android: tap the ⋮ menu → 'Add to Home screen' or 'Install app'. This gives you an app icon that opens full-screen, no browser bar. Your portfolio is saved on this device only." },
                 { title: "🟢 What is End of Squeeze?", color: T.accent, body: "Bollinger Bands contract tightly (BB Width < 3%) as price consolidates. When Stochastic K turns up from below 45, the squeeze is ending. This is your ENTRY point — only flagged when predicted return to R1 is ≥5%." },
                 { title: "🔴 What is End of Blast?", color: T.blast, body: "BB bands expand and Stochastic K exceeds 75 while price holds above EMA10. This is the EXIT signal — book profits before the next correction." },
+                { title: "👀 What is the Watchlist?", color: T.warn, body: "A looser, earlier tier for stocks that are visibly tightening (BB width under 8%) and turning up, but haven't yet cleared the strict 3% squeeze threshold. Nothing here is a confirmed signal — it's a heads-up that a stock is forming. When a watchlist stock later earns a real SQUEEZE signal, it's marked 'GRADUATED' with its full history (when it was first spotted, at what price) so you can see the lead-up to confirmed entries." },
                 { title: "📊 Indicators used", color: T.warn, body: "Bollinger Bands: 20, 2 SD | EMA: 10 & 30 | RSI(14) → Stochastic 3/3 smoothing | Pivots: Traditional (prior day H/L/C) | Timeframe: Daily, for 5–10 day holds" },
                 { title: "⚠️ Disclaimer", color: T.red, body: "Educational and informational only — not investment advice. All trading decisions are your responsibility. Past patterns don't guarantee future returns." },
               ].map(({ title, color, body }) => (
