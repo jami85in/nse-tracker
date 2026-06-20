@@ -31,6 +31,11 @@ on:
         required: false
         default: "0"
         type: string
+      diagnose:
+        description: "Run diagnostic mode instead (shows near-miss stocks, no Claude call, no ledger write — check the Actions log for output)"
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: write
@@ -52,7 +57,13 @@ jobs:
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           BACKFILL_DAYS: ${{ github.event.inputs.backfill_days || '0' }}
-        run: python scripts/scan.py --backfill-days "$BACKFILL_DAYS"
+          DIAGNOSE: ${{ github.event.inputs.diagnose || 'false' }}
+        run: |
+          if [ "$DIAGNOSE" = "true" ]; then
+            python scripts/scan.py --diagnose
+          else
+            python scripts/scan.py --backfill-days "$BACKFILL_DAYS"
+          fi
 
       - name: Commit results
         run: |
