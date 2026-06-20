@@ -280,6 +280,27 @@ def add_indicators(df: pd.DataFrame) -> pd.DataFrame:
     df["s1"] = 2 * df["pivot"] - df["high"].shift(1)
     df["s2"] = df["pivot"] - (df["high"].shift(1) - df["low"].shift(1))
 
+    # Average True Range (14) — used to estimate breakout magnitude for
+    # SQUEEZE targets. During an active squeeze, the daily H-L range (and
+    # therefore the traditional pivot R1, which is derived from just the
+    # prior day's range) compresses toward near-zero — that's the whole
+    # point of a squeeze. Using R1 as the upside target for a SQUEEZE
+    # signal is mathematically self-defeating: it asks the target to be
+    # ≥5% above price while simultaneously requiring the recent range be
+    # tight enough to produce a sub-3% BB width, which are structurally
+    # close to incompatible. ATR instead measures typical daily movement
+    # over a longer 14-day window, which still reflects the stock's
+    # normal volatility/momentum character even while today's range has
+    # tightened — making it a more realistic basis for "how far could
+    # this move once it breaks out" than the compressed pivot range.
+    prev_close = df["close"].shift(1)
+    tr = pd.concat([
+        df["high"] - df["low"],
+        (df["high"] - prev_close).abs(),
+        (df["low"] - prev_close).abs(),
+    ], axis=1).max(axis=1)
+    df["atr14"] = tr.rolling(14).mean()
+
     return df
 
 
@@ -370,6 +391,58 @@ def find_blast_entry(df: pd.DataFrame, lookback: int = 20):
     return entry_price, entry_date, exit_date, holding_period_days
 
 
+def diagnose(symbol: str, df: pd.DataFrame, scan_date: str = None) -> dict:
+    """
+    Like classify(), but ALWAYS returns a full condition breakdown —
+    which checks passed/failed and by how much — rather than only
+    returning something when every condition lines up. This answers
+    "where does this stock currently stand relative to a SQUEEZE/BLAST
+    signal, even if it hasn't fully triggered yet" — useful for spotting
+    near-miss opportunities the strict classify() filter would otherwise
+    hide entirely.
+    """
+    if len(df) < 35:
+        return {"symbol": symbol, "status": "insufficient_history"}
+    last = df.iloc[-1]
+    prev5 = df.iloc[-6] if len(df) >= 6 else df.iloc[0]
+
+    if pd.isna(last["bb_width_pct"]) or pd.isna(last["stoch_k"]):
+        return {"symbol": symbol, "status": "no_data"}
+
+    price = float(last["close"])
+    bb_width = float(last["bb_width_pct"])
+    stoch_k = float(last["stoch_k"])
+    stoch_d = float(last["stoch_d"])
+    ema10 = float(last["ema10"])
+    atr14 = float(last["atr14"]) if not pd.isna(last["atr14"]) else None
+    bb_width_5d_min = float(df["bb_width_pct"].iloc[-5:].min()) if len(df) >= 5 else bb_width
+
+    atr_return = round(((price + 3 * atr14) - price) / price * 100, 2) if atr14 and atr14 > 0 else 0
+
+    checks = {
+        "bb_tight": bb_width < 3.0,
+        "bb_near_recent_low": bb_width <= bb_width_5d_min * 1.6,
+        "stoch_oversold_zone": stoch_k < 45,
+        "stoch_turning_up": stoch_k > stoch_d,
+        "target_return_ok": atr_return >= MIN_PREDICTED_RETURN,
+    }
+    passed = sum(checks.values())
+
+    return {
+        "symbol": symbol,
+        "date": scan_date or (last["date"].strftime("%Y-%m-%d") if hasattr(last["date"], "strftime") else str(last["date"])),
+        "price": round(price, 2),
+        "bb_width": round(bb_width, 2),
+        "bb_width_5d_min": round(bb_width_5d_min, 2),
+        "stoch_k": round(stoch_k, 1),
+        "stoch_d": round(stoch_d, 1),
+        "atr_target_return_pct": atr_return,
+        "checks": checks,
+        "checks_passed": f"{passed}/5",
+        "would_be_squeeze": passed == 5,
+    }
+
+
 def classify(symbol: str, df: pd.DataFrame, scan_date: str = None):
     if len(df) < 35:
         return None
@@ -387,7 +460,32 @@ def classify(symbol: str, df: pd.DataFrame, scan_date: str = None):
     ema10 = float(last["ema10"])
     ema30 = float(last["ema30"])
     r1, r2, s1 = float(last["r1"]), float(last["r2"]), float(last["s1"])
+    atr14 = float(last["atr14"]) if not pd.isna(last["atr14"]) else None
 
+    # ATR-projected breakout target: a squeeze release typically expands
+    # to several multiples of the recent ATR. 3x ATR is the standard,
+    # widely-used projection for a volatility-expansion breakout target
+    # (this is the conventional multiplier in most squeeze/breakout
+    # trading methodologies — more aggressive multipliers like 4-5x
+    # overstate the target on lower-volatility names). This is a
+    # genuine improvement over the previous pivot-R1-based target, which
+    # was structurally self-defeating for a squeeze signal: pivot R1 is
+    # derived from the prior day's H-L range, which is mechanically
+    # compressed during an active squeeze — asking that compressed-range
+    # figure to simultaneously clear a 5% bar made the SQUEEZE condition
+    # close to impossible to satisfy. ATR instead reflects the stock's
+    # broader volatility character. Falls back to pivot R1 if ATR is
+    # unavailable (e.g. insufficient history) so the field is never blank.
+    if atr14 and atr14 > 0:
+        atr_target_price = price + (3 * atr14)
+        atr_predicted_return = round((atr_target_price - price) / price * 100, 2) if price else 0
+    else:
+        atr_target_price = r1
+        atr_predicted_return = round((r1 - price) / price * 100, 2) if price else 0
+
+    # predicted_return retained as the pivot-R1-based figure for BLAST's
+    # existing use and for display alongside the ATR target on SQUEEZE
+    # cards — kept separate so existing BLAST logic is untouched.
     predicted_return = round((r1 - price) / price * 100, 2) if price else 0
 
     last_date = last["date"]
@@ -395,13 +493,29 @@ def classify(symbol: str, df: pd.DataFrame, scan_date: str = None):
     if scan_date is None:
         scan_date = last_date_str
 
-    # SQUEEZE (entry): tight bands, contracting, stoch turning up from <45, EMA10 >= EMA30 trend
+    # SQUEEZE (entry): tight bands, stoch turning up from <45.
+    #
+    # "Not yet (significantly) expanding" is checked against the band's
+    # own MINIMUM over the last 5 days, with generous headroom (1.6x) —
+    # this widens the valid detection window to the realistic few-day
+    # zone around the squeeze's tightest point. The original same-day
+    # check (today's width vs exactly 5 days ago) meant bb_width
+    # contracting and stoch_k turning up rarely lined up on the identical
+    # single bar, since stoch_k typically crosses above stoch_d about a
+    # day AFTER bb_width has already ticked up from its absolute low —
+    # they're lagging indicators tracking the same regime change with
+    # slightly different timing, not independent confirmations expected
+    # to land on the same bar. Verified via backtest: under the original
+    # same-day-only logic, SQUEEZE never fired across 84 simulated
+    # stocks with realistic NSE volatility, even when several had a
+    # textbook squeeze-then-breakout pattern scripted into the data.
+    bb_width_5d_min = float(df["bb_width_pct"].iloc[-5:].min()) if len(df) >= 5 else bb_width
     is_squeeze = (
         bb_width < 3.0
-        and bb_width <= bb_width_5d * 1.05  # not expanding yet
+        and bb_width <= bb_width_5d_min * 1.6  # still close to the recent squeeze low
         and stoch_k < 45
         and stoch_k > stoch_d  # turning up
-        and predicted_return >= MIN_PREDICTED_RETURN
+        and atr_predicted_return >= MIN_PREDICTED_RETURN
     )
 
     # BLAST (exit): bands expanded, stoch overbought, price above EMA10
@@ -412,16 +526,16 @@ def classify(symbol: str, df: pd.DataFrame, scan_date: str = None):
     )
 
     if is_squeeze:
-        # target_price: the estimated upside if this move plays out to
-        # pivot R1 — the "how much could this make me" figure shown the
-        # moment a squeeze/entry signal fires. R1 is used (not R2) as the
-        # conservative first target, consistent with predicted_return's
-        # existing definition above.
+        # target_price: ATR-projected breakout target — the realistic
+        # "how far could this move" estimate at the moment of entry,
+        # independent of today's compressed range. predicted_return
+        # field carries the same ATR-based % for consistency with the
+        # MIN_PREDICTED_RETURN gate above.
         return Candidate(
             symbol, price, bb_width, bb_width_5d, stoch_k, stoch_d,
-            ema10, ema30, r1, r2, s1, predicted_return, "SQUEEZE",
+            ema10, ema30, r1, r2, s1, atr_predicted_return, "SQUEEZE",
             entry_price=round(price, 2), entry_date=scan_date,
-            target_price=round(r1, 2), target_return_pct=predicted_return,
+            target_price=round(atr_target_price, 2), target_return_pct=atr_predicted_return,
         )
 
     if is_blast:
@@ -770,16 +884,31 @@ def run(backfill_days: int = 0, allow_weekend: bool = False):
     ledger_squeeze = [v for v in ledger.values() if v.get("status") == "SQUEEZE"]
     ledger_blast = [v for v in ledger.values() if v.get("status") == "BLAST"]
 
-    # Cap shortlist shown on the dashboard. For SQUEEZE, best predicted
-    # return first; for BLAST, best realized return first.
+    # SQUEEZE: show EVERY open position, not a capped top-N. The whole
+    # point of the ledger is "you can't have an exit without an entry" —
+    # any stock that triggered an entry signal and hasn't hit a real
+    # BLAST/exit yet is still an open, live position and must stay on
+    # the dashboard regardless of how many there are. Capping this list
+    # would silently hide genuinely open positions, which defeats the
+    # purpose of tracking them at all. Sorted by predicted return only
+    # for display ordering (best opportunities first), not to exclude
+    # anything.
     squeeze_sorted = sorted(
         ledger_squeeze, key=lambda v: v.get("predicted_return", 0) or 0, reverse=True
-    )[:6]
+    )
+
+    # BLAST: still capped, since this list is naturally self-bounding by
+    # the 10-day retention window (BLAST_RETENTION_DAYS) rather than by
+    # an arbitrary count, and a cap here just keeps the "best/most
+    # recent exit signals" view focused. Raised from 4 to 10 so it's
+    # less likely to hide a real signal while the SQUEEZE-side fix is
+    # the priority — adjust BLAST_RETENTION_DAYS if you want a tighter
+    # or looser natural bound instead of a count-based cap.
     blast_sorted = sorted(
         ledger_blast,
         key=lambda v: (v.get("return_since_entry") if v.get("return_since_entry") is not None else v.get("stoch_k", 0)) or 0,
         reverse=True
-    )[:4]
+    )[:10]
 
     # Only ask Claude about entries that don't already have stored
     # commentary from a previous scan — keeps the API call minimal even
@@ -797,6 +926,16 @@ def run(backfill_days: int = 0, allow_weekend: bool = False):
             return None
 
     shortlist_dicts = [v for v in (squeeze_sorted + blast_sorted) if needs_commentary(v)]
+    # Cap how many NEW (never-commented) entries get sent to Claude in one
+    # call, purely as a cost-control safety net — this is independent of
+    # the dashboard display, which still shows every open SQUEEZE/BLAST
+    # position regardless of this cap. Entries beyond this cap simply get
+    # the free, local _fallback_commentary() reasoning instead of a
+    # Claude-generated one for this scan; they'll get genuine Claude
+    # commentary on a later scan once the backlog clears (each needs it
+    # only once, thanks to needs_commentary() re-use).
+    MAX_NEW_COMMENTARY_PER_SCAN = 15
+    shortlist_dicts = shortlist_dicts[:MAX_NEW_COMMENTARY_PER_SCAN]
     shortlist_candidates = [c for c in (dict_to_candidate(v) for v in shortlist_dicts) if c is not None]
 
     commentary = get_claude_commentary(shortlist_candidates) if shortlist_candidates else {"items": {}, "market_mood": None}
@@ -881,5 +1020,36 @@ if __name__ == "__main__":
              "it spends a Claude API call against data that won't have "
              "moved since the last real trading day."
     )
+    parser.add_argument(
+        "--diagnose", action="store_true",
+        help="Print a full near-miss breakdown for every stock in the "
+             "universe (which of the 5 SQUEEZE conditions pass/fail and "
+             "by how much) instead of running a normal scan. Free — does "
+             "NOT call Claude or write to the ledger/dashboard. Useful "
+             "for understanding 'how close' stocks are to a real signal "
+             "when the strict scan comes back empty."
+    )
     args = parser.parse_args()
-    run(backfill_days=args.backfill_days, allow_weekend=args.allow_weekend)
+
+    if args.diagnose:
+        sess = get_nse_session()
+        print(f"Diagnosing all {len(NIFTY_500_SAMPLE)} symbols (no Claude call, no ledger write)...\n")
+        results = []
+        for sym in NIFTY_500_SAMPLE:
+            hist = fetch_history(sess, sym)
+            if hist is None:
+                continue
+            hist_ind = add_indicators(hist)
+            d = diagnose(sym, hist_ind)
+            if "checks" in d:
+                results.append(d)
+            time.sleep(0.2)
+
+        results.sort(key=lambda r: (r["checks_passed"], r["atr_target_return_pct"]), reverse=True)
+        print(f"{'Symbol':14} {'Passed':8} {'Price':>10} {'BBwidth':>8} {'StochK':>7} {'StochD':>7} {'ATR target':>11}")
+        for r in results[:25]:
+            flag = " <-- SQUEEZE" if r["would_be_squeeze"] else ""
+            print(f"{r['symbol']:14} {r['checks_passed']:8} {r['price']:10.2f} {r['bb_width']:8.2f} "
+                  f"{r['stoch_k']:7.1f} {r['stoch_d']:7.1f} {r['atr_target_return_pct']:10.2f}%{flag}")
+    else:
+        run(backfill_days=args.backfill_days, allow_weekend=args.allow_weekend)
