@@ -490,6 +490,7 @@ def diagnose(symbol: str, df: pd.DataFrame, scan_date: str = None) -> dict:
         "checks": checks,
         "checks_passed": f"{passed}/5",
         "would_be_squeeze": passed == 5,
+        "would_be_watchlist": (passed < 5 and bb_width < 8.0 and stoch_k < 50 and stoch_k > stoch_d),
     }
 
 
@@ -568,6 +569,28 @@ def classify(symbol: str, df: pd.DataFrame, scan_date: str = None):
         and atr_predicted_return >= MIN_PREDICTED_RETURN
     )
 
+    # WATCHLIST (forming, not yet confirmed): a deliberately looser tier
+    # for stocks that are visibly tightening and turning up, but haven't
+    # cleared the strict SQUEEZE bar yet. Diagnostic runs across the full
+    # 502-stock Nifty 500 universe showed the closest real candidates
+    # consistently sitting around 5-10% BB width when every other SQUEEZE
+    # condition (stoch turning up, target return) was already satisfied —
+    # this tier surfaces exactly that population, so a stock can be seen
+    # "forming" before it actually triggers. WATCHLIST_BB_WIDTH_MAX is
+    # set above the strict 3.0% threshold but well below the typical
+    # already-blasting range (BLAST stocks in practice run 9-20%+ wide),
+    # keeping this tier meaningfully selective rather than just "most of
+    # the market." A stock only ever shows here if it does NOT already
+    # qualify as SQUEEZE — this is a strictly lower tier, not an
+    # alternative path to the same signal.
+    WATCHLIST_BB_WIDTH_MAX = 8.0
+    is_watchlist = (
+        not is_squeeze
+        and bb_width < WATCHLIST_BB_WIDTH_MAX
+        and stoch_k < 50
+        and stoch_k > stoch_d  # turning up, same directional requirement as SQUEEZE
+    )
+
     # BLAST (exit): bands expanded, stoch overbought, price above EMA10
     is_blast = (
         bb_width > bb_width_5d * 1.15  # expanded vs 5 days ago
@@ -584,6 +607,19 @@ def classify(symbol: str, df: pd.DataFrame, scan_date: str = None):
         return Candidate(
             symbol, price, bb_width, bb_width_5d, stoch_k, stoch_d,
             ema10, ema30, r1, r2, s1, atr_predicted_return, "SQUEEZE",
+            entry_price=round(price, 2), entry_date=scan_date,
+            target_price=round(atr_target_price, 2), target_return_pct=atr_predicted_return,
+        )
+
+    if is_watchlist:
+        # Same field shape as SQUEEZE (entry_price/date, target_price)
+        # so a stock's watchlist record and its eventual SQUEEZE record
+        # are directly comparable — the frontend uses this to show
+        # "first spotted forming on {date} at {price}" when a stock
+        # later graduates to a real entry signal.
+        return Candidate(
+            symbol, price, bb_width, bb_width_5d, stoch_k, stoch_d,
+            ema10, ema30, r1, r2, s1, atr_predicted_return, "WATCHLIST",
             entry_price=round(price, 2), entry_date=scan_date,
             target_price=round(atr_target_price, 2), target_return_pct=atr_predicted_return,
         )
@@ -705,6 +741,7 @@ def _fallback_commentary(c: Candidate) -> dict:
 # across scans, independent of the per-scan classify() snapshot.
 LEDGER_PATH = "data/active_positions.json"
 BLAST_RETENTION_DAYS = 10  # keep an exit signal visible for this many days, then drop it
+WATCHLIST_RETENTION_DAYS = 7  # drop a forming-but-unconfirmed watchlist entry after this many days
 
 
 def load_ledger() -> dict:
@@ -757,14 +794,48 @@ def update_ledger(ledger: dict, all_candidates: list, scan_date: str) -> dict:
                 # don't let a fresh SQUEEZE read resurrect/overwrite that;
                 # leave the BLAST record alone, it'll age out on its own.
                 continue
+            # Promotion tracking: if this stock was previously sitting on
+            # the WATCHLIST tier and has now genuinely earned a SQUEEZE
+            # signal, preserve when it was first spotted forming — this
+            # is the "graduated from watchlist" case the dashboard
+            # highlights, since a stock that was visibly tightening
+            # before it confirmed is a stronger, more legible setup than
+            # one that appears with no lead-up.
+            was_watchlist = existing and existing.get("status") == "WATCHLIST"
+            cand_dict["status"] = "SQUEEZE"
+            cand_dict["first_seen"] = existing.get("first_seen", scan_date) if existing else scan_date
+            if was_watchlist:
+                cand_dict["watchlist_first_seen"] = existing.get("watchlist_first_seen", existing.get("first_seen"))
+                cand_dict["watchlist_first_price"] = existing.get("watchlist_first_price", existing.get("price"))
+                cand_dict["promoted_from_watchlist"] = True
+                cand_dict["promoted_date"] = scan_date
+            elif existing and existing.get("promoted_from_watchlist"):
+                # already-promoted stock, still SQUEEZE on a later scan —
+                # keep carrying the promotion record forward
+                cand_dict["watchlist_first_seen"] = existing.get("watchlist_first_seen")
+                cand_dict["watchlist_first_price"] = existing.get("watchlist_first_price")
+                cand_dict["promoted_from_watchlist"] = True
+                cand_dict["promoted_date"] = existing.get("promoted_date")
+            ledger[symbol] = cand_dict
+
+        elif cand.setup == "WATCHLIST":
+            if existing and existing.get("status") in ("SQUEEZE", "BLAST"):
+                # Never downgrade — a stock that already earned SQUEEZE or
+                # is mid-BLAST stays there; a softer WATCHLIST read on a
+                # later scan doesn't overwrite real progress.
+                continue
+            cand_dict["status"] = "WATCHLIST"
             if not existing:
-                cand_dict["status"] = "SQUEEZE"
                 cand_dict["first_seen"] = scan_date
-                ledger[symbol] = cand_dict
+                cand_dict["watchlist_first_seen"] = scan_date
+                cand_dict["watchlist_first_price"] = cand_dict["price"]
             else:
-                cand_dict["status"] = "SQUEEZE"
+                # Still forming — keep the original watchlist spot date/
+                # price fixed, refresh current numbers
                 cand_dict["first_seen"] = existing.get("first_seen", scan_date)
-                ledger[symbol] = cand_dict
+                cand_dict["watchlist_first_seen"] = existing.get("watchlist_first_seen", scan_date)
+                cand_dict["watchlist_first_price"] = existing.get("watchlist_first_price", cand_dict["price"])
+            ledger[symbol] = cand_dict
 
         elif cand.setup == "BLAST":
             cand_dict["status"] = "BLAST"
@@ -800,7 +871,11 @@ def update_ledger(ledger: dict, all_candidates: list, scan_date: str) -> dict:
 
     # 2. Anything in the ledger NOT in today's fresh results: leave SQUEEZE
     #    entries untouched (per your instruction — stays visible until an
-    #    actual exit fires), and age out BLAST entries past retention.
+    #    actual exit fires), age out BLAST entries past retention, and age
+    #    out WATCHLIST entries that stopped forming (didn't promote, didn't
+    #    stay tight) — unlike SQUEEZE, a WATCHLIST entry was never a
+    #    confirmed signal, so there's no "open position" obligation to keep
+    #    showing it indefinitely once it's no longer actually forming.
     to_drop = []
     for symbol, entry in ledger.items():
         if symbol in fresh_by_symbol:
@@ -810,6 +885,12 @@ def update_ledger(ledger: dict, all_candidates: list, scan_date: str) -> dict:
             if trigger_date:
                 age_days = (today - pd.to_datetime(trigger_date)).days
                 if age_days >= BLAST_RETENTION_DAYS:
+                    to_drop.append(symbol)
+        elif entry.get("status") == "WATCHLIST":
+            spotted_date = entry.get("watchlist_first_seen") or entry.get("first_seen")
+            if spotted_date:
+                age_days = (today - pd.to_datetime(spotted_date)).days
+                if age_days >= WATCHLIST_RETENTION_DAYS:
                     to_drop.append(symbol)
         # SQUEEZE entries not refreshed today are intentionally left as-is.
 
@@ -940,6 +1021,7 @@ def run(backfill_days: int = 0, allow_weekend: bool = False):
     # exit fires, and BLAST entries stay visible for their retention window.
     ledger_squeeze = [v for v in ledger.values() if v.get("status") == "SQUEEZE"]
     ledger_blast = [v for v in ledger.values() if v.get("status") == "BLAST"]
+    ledger_watchlist = [v for v in ledger.values() if v.get("status") == "WATCHLIST"]
 
     # SQUEEZE: show EVERY open position, not a capped top-N. The whole
     # point of the ledger is "you can't have an exit without an entry" —
@@ -966,6 +1048,15 @@ def run(backfill_days: int = 0, allow_weekend: bool = False):
         key=lambda v: (v.get("return_since_entry") if v.get("return_since_entry") is not None else v.get("stoch_k", 0)) or 0,
         reverse=True
     )[:10]
+
+    # WATCHLIST: capped more tightly (15) since this is explicitly a
+    # lower-confidence, higher-volume tier by design — it's meant to
+    # surface "worth keeping an eye on," not to compete with the
+    # SQUEEZE list for attention. Sorted by BB width ascending (tightest
+    # = closest to a real signal, shown first).
+    watchlist_sorted = sorted(
+        ledger_watchlist, key=lambda v: v.get("bb_width", 999) or 999
+    )[:15]
 
     # Only ask Claude about entries that don't already have stored
     # commentary from a previous scan — keeps the API call minimal even
@@ -1021,6 +1112,19 @@ def run(backfill_days: int = 0, allow_weekend: bool = False):
     squeeze_sorted = [apply_commentary(v) for v in squeeze_sorted]
     blast_sorted = [apply_commentary(v) for v in blast_sorted]
 
+    # WATCHLIST gets free, rule-based reasons only — no Claude call, by
+    # design, since this is a high-volume "keep an eye on it" tier rather
+    # than a confirmed signal worth spending API budget on.
+    def watchlist_reason(entry: dict) -> str:
+        bbw = entry.get("bb_width", 0) or 0
+        sk = entry.get("stoch_k", 0) or 0
+        return f"BB width {bbw}% tightening, stoch_k {sk:.0f} turning up — not yet confirmed (needs <3.0% width)"
+
+    for v in watchlist_sorted:
+        if not v.get("reason"):
+            v["reason"] = watchlist_reason(v)
+        v["confidence"] = "WATCHING"
+
     save_ledger(ledger)  # persist commentary + lifecycle state for next scan
 
     # Overall market mood: only Claude-generated when we actually called
@@ -1035,15 +1139,23 @@ def run(backfill_days: int = 0, allow_weekend: bool = False):
         else:
             market_mood = "NEUTRAL"
 
+    # Count how many of today's SQUEEZE entries are fresh graduations
+    # from the watchlist — directly answers "is the watchlist actually
+    # producing real hits."
+    promoted_today = [v for v in squeeze_sorted if v.get("promoted_date") == scan_date]
+
     output = {
         "scan_time": datetime.datetime.now().strftime("%Y-%m-%d %H:%M IST"),
         "market_mood": market_mood,
         "squeeze_stocks": squeeze_sorted,
         "blast_stocks": blast_sorted,
+        "watchlist_stocks": watchlist_sorted,
         "scanned_count": len(universe),
         "candidates_found": len(all_candidates),
         "ledger_squeeze_total": len(ledger_squeeze),
         "ledger_blast_total": len(ledger_blast),
+        "ledger_watchlist_total": len(ledger_watchlist),
+        "promoted_from_watchlist_today": len(promoted_today),
     }
 
     os.makedirs("data", exist_ok=True)
@@ -1057,7 +1169,9 @@ def run(backfill_days: int = 0, allow_weekend: bool = False):
         json.dump(output, f, indent=2)
 
     print(f"Scan complete: {len(squeeze_sorted)} squeeze shown (ledger total {len(ledger_squeeze)}), "
-          f"{len(blast_sorted)} blast shown (ledger total {len(ledger_blast)}). "
+          f"{len(blast_sorted)} blast shown (ledger total {len(ledger_blast)}), "
+          f"{len(watchlist_sorted)} watchlist shown (ledger total {len(ledger_watchlist)}). "
+          f"{len(promoted_today)} promoted from watchlist today. "
           f"Claude called for {len(shortlist_candidates)} new/changed entries.")
 
 
@@ -1112,9 +1226,12 @@ if __name__ == "__main__":
             time.sleep(0.2)
 
         results.sort(key=lambda r: (r["checks_passed"], r["atr_target_return_pct"]), reverse=True)
+        watchlist_count = sum(1 for r in results if r.get("would_be_watchlist"))
+        squeeze_count = sum(1 for r in results if r["would_be_squeeze"])
+        print(f"Would-be SQUEEZE: {squeeze_count} | Would-be WATCHLIST: {watchlist_count}\n")
         print(f"{'Symbol':14} {'Passed':8} {'Price':>10} {'BBwidth':>8} {'StochK':>7} {'StochD':>7} {'ATR target':>11}")
         for r in results[:25]:
-            flag = " <-- SQUEEZE" if r["would_be_squeeze"] else ""
+            flag = " <-- SQUEEZE" if r["would_be_squeeze"] else (" <-- watchlist" if r.get("would_be_watchlist") else "")
             print(f"{r['symbol']:14} {r['checks_passed']:8} {r['price']:10.2f} {r['bb_width']:8.2f} "
                   f"{r['stoch_k']:7.1f} {r['stoch_d']:7.1f} {r['atr_target_return_pct']:10.2f}%{flag}")
     else:
