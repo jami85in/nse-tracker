@@ -350,23 +350,32 @@ const T = {
 // ── Config ───────────────────────────────────────────────────────────────────
 const GITHUB_USER = "jami85in";
 const GITHUB_REPO = "nse-tracker";
-const GITHUB_RAW_URL = `https://raw.githubusercontent.com/${GITHUB_USER}/${GITHUB_REPO}/main/data/scan_latest.json`;
-const GITHUB_STATUS_URL = `https://raw.githubusercontent.com/${GITHUB_USER}/${GITHUB_REPO}/main/data/market_status.json`;
+// Use GitHub API (not raw CDN) — bypasses the 5-min CDN cache on raw.githubusercontent.com
+const GITHUB_API_SCAN_URL = `https://api.github.com/repos/${GITHUB_USER}/${GITHUB_REPO}/contents/data/scan_latest.json`;
+const GITHUB_API_STATUS_URL = `https://api.github.com/repos/${GITHUB_USER}/${GITHUB_REPO}/contents/data/market_status.json`;
 const GITHUB_APP_ACTIONS_URL = `https://github.com/${GITHUB_USER}/${GITHUB_REPO}/actions/workflows/scan.yml`;
 
 async function fetchScanData() {
-  const res = await fetch(`${GITHUB_RAW_URL}?t=${Date.now()}`);
-  if (!res.ok) throw new Error(`GitHub responded with ${res.status}. Check the repo is public and the file path is data/scan_latest.json on the main branch.`);
-  return res.json();
+  // GitHub Contents API returns base64-encoded file content — fresh every request, no CDN lag
+  const res = await fetch(`${GITHUB_API_SCAN_URL}?t=${Date.now()}`, {
+    headers: { "Accept": "application/vnd.github.v3+json" }
+  });
+  if (!res.ok) throw new Error(`GitHub API responded with ${res.status}. Check the repo is public.`);
+  const envelope = await res.json();
+  const decoded = JSON.parse(atob(envelope.content.replace(/\n/g, "")));
+  return decoded;
 }
 
 async function fetchMarketStatus() {
   try {
-    const res = await fetch(`${GITHUB_STATUS_URL}?t=${Date.now()}`);
+    const res = await fetch(`${GITHUB_API_STATUS_URL}?t=${Date.now()}`, {
+      headers: { "Accept": "application/vnd.github.v3+json" }
+    });
     if (!res.ok) return null;
-    return res.json();
+    const envelope = await res.json();
+    return JSON.parse(atob(envelope.content.replace(/\n/g, "")));
   } catch {
-    return null; // not fatal — market_status.json may not exist yet on first run
+    return null;
   }
 }
 
@@ -427,7 +436,7 @@ function PullToRefresh({ onRefresh, children, refreshing }) {
   );
 }
 
-function SqueezeCard({ stock, onInvest }) {
+function SqueezeCard({ stock, onInvest, rank }) {
   const [expanded, setExpanded] = useState(false);
   const daysTracked = stock.entry_date ? Math.max(0, Math.round((new Date() - new Date(stock.entry_date)) / 86400000)) : null;
   const liveReturn = (stock.entry_price && stock.price) ? ((stock.price - stock.entry_price) / stock.entry_price) * 100 : null;
@@ -437,6 +446,7 @@ function SqueezeCard({ stock, onInvest }) {
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
         <div style={{ minWidth: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+            {rank && <span style={{ color: T.muted, fontSize: 11, fontWeight: 700, fontFamily: "monospace", minWidth: 18 }}>#{rank}</span>}
             <span style={{ color: T.accent, fontWeight: 800, fontSize: 16, fontFamily: "monospace" }}>{stock.symbol}</span>
             <Pill label={stock.confidence} />
             {stock.promoted_from_watchlist && <Pill label="GRADUATED" color={T.warn} />}
@@ -444,6 +454,11 @@ function SqueezeCard({ stock, onInvest }) {
           <div style={{ color: T.muted, fontSize: 11, marginTop: 2 }}>
             NSE · Daily chart{daysTracked != null && daysTracked > 0 ? ` · watching ${daysTracked}d` : ""}
           </div>
+          {stock.entry_date && (
+            <div style={{ color: T.muted, fontSize: 10, marginTop: 2 }}>
+              🟢 Squeeze triggered: <span style={{ color: T.accent }}>{stock.entry_date}</span>
+            </div>
+          )}
         </div>
         <div style={{ textAlign: "right", flexShrink: 0 }}>
           <div style={{ color: T.white, fontWeight: 700, fontSize: 17 }}>{curr(stock.price)}</div>
@@ -503,41 +518,51 @@ function SqueezeCard({ stock, onInvest }) {
   );
 }
 
-function WatchlistCard({ stock }) {
+function WatchlistCard({ stock, rank }) {
   const daysWatching = stock.watchlist_first_seen ? Math.max(0, Math.round((new Date() - new Date(stock.watchlist_first_seen)) / 86400000)) : null;
   return (
     <div style={{ background: T.card, border: `1px solid ${T.warn}33`, borderLeft: `3px solid ${T.warn}`, borderRadius: 10, padding: 12 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
+          {rank && <span style={{ color: T.muted, fontSize: 11, fontWeight: 700, fontFamily: "monospace", minWidth: 18 }}>#{rank}</span>}
           <span style={{ color: T.warn, fontWeight: 700, fontSize: 14, fontFamily: "monospace" }}>{stock.symbol}</span>
-          <span style={{ color: T.muted, fontSize: 10 }}>
-            {daysWatching != null ? `watching ${daysWatching}d` : ""}
-          </span>
         </div>
         <div style={{ textAlign: "right", flexShrink: 0 }}>
           <span style={{ color: T.text, fontWeight: 600, fontSize: 13 }}>{curr(stock.price)}</span>
         </div>
       </div>
-      <div style={{ display: "flex", gap: 12, marginTop: 6 }}>
+      <div style={{ display: "flex", gap: 12, marginTop: 5, flexWrap: "wrap" }}>
         <span style={{ color: T.muted, fontSize: 11 }}>BB {fmt(stock.bb_width)}%</span>
         <span style={{ color: T.muted, fontSize: 11 }}>Stoch {fmt(stock.stoch_k)}</span>
-        <span style={{ color: T.muted, fontSize: 11 }}>needs &lt;3.0% to confirm</span>
+        <span style={{ color: T.muted, fontSize: 11 }}>needs &lt;3.0% BB to confirm</span>
       </div>
+      {stock.watchlist_first_seen && (
+        <div style={{ color: T.muted, fontSize: 10, marginTop: 4 }}>
+          👀 First spotted: <span style={{ color: T.warn }}>{stock.watchlist_first_seen}</span>
+          {daysWatching != null && daysWatching > 0 && <span> ({daysWatching}d ago)</span>}
+        </div>
+      )}
     </div>
   );
 }
 
-function BlastCard({ stock }) {
+function BlastCard({ stock, rank }) {
   const hasEntry = stock.blast_entry_price != null && stock.return_since_entry != null;
   return (
     <div style={{ background: T.card, border: `1px solid ${T.blast}44`, borderLeft: `3px solid ${T.blast}`, borderRadius: 10, padding: 14 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
         <div style={{ minWidth: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+            {rank && <span style={{ color: T.muted, fontSize: 11, fontWeight: 700, fontFamily: "monospace", minWidth: 18 }}>#{rank}</span>}
             <span style={{ color: T.blast, fontWeight: 800, fontSize: 16, fontFamily: "monospace" }}>{stock.symbol}</span>
             <Pill label="EXIT SIGNAL" color={T.blast} />
           </div>
           <div style={{ color: T.muted, fontSize: 11, marginTop: 2 }}>NSE · Daily chart</div>
+          {stock.blast_triggered_date && (
+            <div style={{ color: T.muted, fontSize: 10, marginTop: 2 }}>
+              🔴 Blast triggered: <span style={{ color: T.blast }}>{stock.blast_triggered_date}</span>
+            </div>
+          )}
         </div>
         <div style={{ textAlign: "right", flexShrink: 0 }}>
           <div style={{ color: T.white, fontWeight: 700, fontSize: 17 }}>{curr(stock.price)}</div>
@@ -909,7 +934,7 @@ function App() {
               )}
               <div style={{ marginBottom: 14 }}>
                 <div style={{ fontWeight: 800, fontSize: 16, color: T.accent }}>🟢 End of Squeeze</div>
-                <div style={{ color: T.muted, fontSize: 11 }}>Entry signals · min 5% predicted return</div>
+                <div style={{ color: T.muted, fontSize: 11 }}>BB width &lt;3% + Stoch turning up · min 5% ATR-based return target</div>
               </div>
               {(scanData.squeeze_stocks || []).length === 0 && (
                 <div style={{ color: T.muted, textAlign: "center", padding: 28, background: T.card, borderRadius: 10, fontSize: 13 }}>
@@ -917,14 +942,14 @@ function App() {
                 </div>
               )}
               <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 26 }}>
-                {(scanData.squeeze_stocks || []).map(s => <SqueezeCard key={s.symbol} stock={s} onInvest={handleInvest} />)}
+                {(scanData.squeeze_stocks || []).map((s, i) => <SqueezeCard key={s.symbol} stock={s} onInvest={handleInvest} rank={i + 1} />)}
               </div>
               <div style={{ marginBottom: 14 }}>
                 <div style={{ fontWeight: 800, fontSize: 16, color: T.blast }}>🔴 End of Blast</div>
                 <div style={{ color: T.muted, fontSize: 11 }}>Exit signals · consider booking profits</div>
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                {(scanData.blast_stocks || []).map(s => <BlastCard key={s.symbol} stock={s} />)}
+                {(scanData.blast_stocks || []).map((s, i) => <BlastCard key={s.symbol} stock={s} rank={i + 1} />)}
               </div>
 
               {(scanData.watchlist_stocks || []).length > 0 && (
@@ -947,7 +972,7 @@ function App() {
                   </div>
                   {showWatchlist && (
                     <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 12 }}>
-                      {scanData.watchlist_stocks.map(s => <WatchlistCard key={s.symbol} stock={s} />)}
+                      {scanData.watchlist_stocks.map((s, i) => <WatchlistCard key={s.symbol} stock={s} rank={i + 1} />)}
                     </div>
                   )}
                 </div>
