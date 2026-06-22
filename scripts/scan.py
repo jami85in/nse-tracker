@@ -1043,20 +1043,19 @@ def run(backfill_days: int = 0, allow_weekend: bool = False):
     # less likely to hide a real signal while the SQUEEZE-side fix is
     # the priority — adjust BLAST_RETENTION_DAYS if you want a tighter
     # or looser natural bound instead of a count-based cap.
+    # BLAST: uncapped — every open exit signal is shown. Naturally
+    # self-bounding by BLAST_RETENTION_DAYS (10-day auto-drop).
     blast_sorted = sorted(
         ledger_blast,
         key=lambda v: (v.get("return_since_entry") if v.get("return_since_entry") is not None else v.get("stoch_k", 0)) or 0,
         reverse=True
-    )[:10]
+    )
 
-    # WATCHLIST: capped more tightly (15) since this is explicitly a
-    # lower-confidence, higher-volume tier by design — it's meant to
-    # surface "worth keeping an eye on," not to compete with the
-    # SQUEEZE list for attention. Sorted by BB width ascending (tightest
-    # = closest to a real signal, shown first).
+    # WATCHLIST: uncapped — show all forming setups, sorted by BB width
+    # ascending (tightest = closest to a real signal, shown first).
     watchlist_sorted = sorted(
         ledger_watchlist, key=lambda v: v.get("bb_width", 999) or 999
-    )[:15]
+    )
 
     # Only ask Claude about entries that don't already have stored
     # commentary from a previous scan — keeps the API call minimal even
