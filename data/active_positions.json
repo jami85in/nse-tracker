@@ -741,7 +741,7 @@
     "first_seen": "2026-06-15",
     "blast_triggered_date": "2026-06-15",
     "confidence": "HIGH",
-    "reason": "Up 46.34% over 28 days; stoch 96/96 confirms strong blast momentum"
+    "reason": "Up 46.34% over 28 trading days since squeeze entry, momentum extreme."
   },
   "AEGISVOPAK": {
     "symbol": "AEGISVOPAK",
@@ -772,7 +772,7 @@
     "first_seen": "2026-06-15",
     "blast_triggered_date": "2026-06-15",
     "confidence": "HIGH",
-    "reason": "Up 25.56% over 24 days; stoch 98/99 with BB doubling confirms breakout"
+    "reason": "Up 25.56% over 24 trading days, stoch at 98.9/99.3 confirming strength."
   },
   "ABDL": {
     "symbol": "ABDL",
@@ -865,7 +865,7 @@
     "first_seen": "2026-06-15",
     "blast_triggered_date": "2026-06-15",
     "confidence": "HIGH",
-    "reason": "Up 29.0% over 27 days; stoch 90/88 with solid EMA separation intact"
+    "reason": "Up 29.0% over 27 trading days since squeeze entry, sustained breakout."
   },
   "APTUS": {
     "symbol": "APTUS",
@@ -1237,7 +1237,7 @@
     "first_seen": "2026-06-15",
     "blast_triggered_date": "2026-06-15",
     "confidence": "HIGH",
-    "reason": "Up 20.2% over 14 days; stoch 95/92 with strong EMA10 above EMA30"
+    "reason": "Up 20.2% over 14 trading days, stoch at 95.7/92.5 solidly bullish."
   },
   "CGCL": {
     "symbol": "CGCL",
@@ -1299,7 +1299,7 @@
     "first_seen": "2026-06-15",
     "blast_triggered_date": "2026-06-15",
     "confidence": "HIGH",
-    "reason": "Up 43.25% over 20 days; stoch 89/94 with widening BB supports trend"
+    "reason": "Up 43.25% over 20 trading days since squeeze entry, trend accelerating."
   },
   "CHOLAFIN": {
     "symbol": "CHOLAFIN",
@@ -1330,7 +1330,7 @@
     "first_seen": "2026-06-15",
     "blast_triggered_date": "2026-06-15",
     "confidence": "HIGH",
-    "reason": "Up 18.05% over 14 days; stoch at 100/99 with BB nearly doubling width"
+    "reason": "Up 18.05% over 14 trading days, stoch at max 100/99.9 confirming."
   },
   "CUB": {
     "symbol": "CUB",
@@ -2107,7 +2107,7 @@
     "first_seen": "2026-06-15",
     "blast_triggered_date": "2026-06-15",
     "confidence": "MEDIUM",
-    "reason": "Up 18.55% over 12 days; stoch 81/83 slightly softer but EMAs aligned"
+    "reason": "Up 18.55% over 12 trading days, stoch at 81.4/83.5 slightly softening."
   },
   "TATACAP": {
     "symbol": "TATACAP",
@@ -2666,7 +2666,7 @@
     "first_seen": "2026-06-16",
     "blast_triggered_date": "2026-06-16",
     "confidence": "HIGH",
-    "reason": "Up 17.44% over 14 days; stoch 100/90 with BB width nearly tripled"
+    "reason": "Up 17.44% over 14 trading days, BB nearly tripled from tight 6.3%."
   },
   "INDHOTEL": {
     "symbol": "INDHOTEL",
@@ -2915,7 +2915,7 @@
     "first_seen": "2026-06-16",
     "blast_triggered_date": "2026-06-16",
     "confidence": "HIGH",
-    "reason": "Up 18.14% over 17 days; stoch 99/98 with BB expanding from tight squeeze"
+    "reason": "Up 18.14% over 17 trading days, stoch near perfect 99.7/98.6."
   },
   "MOTILALOFS": {
     "symbol": "MOTILALOFS",
@@ -2977,7 +2977,7 @@
     "first_seen": "2026-06-16",
     "blast_triggered_date": "2026-06-16",
     "confidence": "HIGH",
-    "reason": "Up 17.42% over 10 days; stoch 99/99 with BB width 3.5x confirms explosion"
+    "reason": "Up 17.42% over 10 trading days, BB exploded from 8.2%, stoch 99.6/99.9."
   },
   "PETRONET": {
     "symbol": "PETRONET",
@@ -4409,7 +4409,7 @@
     "first_seen": "2026-06-18",
     "blast_triggered_date": "2026-06-18",
     "confidence": "HIGH",
-    "reason": "Up 22.84% over 14 days; stoch 96/94 with BB width more than doubled"
+    "reason": "Up 22.84% over 14 trading days since squeeze entry, rapid momentum."
   },
   "PARADEEP": {
     "symbol": "PARADEEP",
@@ -4629,7 +4629,7 @@
     "first_seen": "2026-06-18",
     "blast_triggered_date": "2026-06-18",
     "confidence": "HIGH",
-    "reason": "Up 27.62% over 28 days; stoch pegged at 100/100 signals extreme strength"
+    "reason": "Up 27.62% over 28 trading days, stoch pegged at perfect 100/100."
   },
   "UNOMINDA": {
     "symbol": "UNOMINDA",
@@ -4692,7 +4692,7 @@
     "first_seen": "2026-06-18",
     "blast_triggered_date": "2026-06-18",
     "confidence": "HIGH",
-    "reason": "Up 19.33% over 11 days; BB width tripled with stoch 91/88 confirming"
+    "reason": "Up 19.33% over 11 trading days, BB expanded sharply from tight 8.3%."
   },
   "YESBANK": {
     "symbol": "YESBANK",
@@ -4738,7 +4738,7 @@
     "pivot_r2": 1090.933349609375,
     "pivot_s1": 1062.86669921875,
     "predicted_return": 6.42,
-    "setup": "WATCHLIST",
+    "setup": "SQUEEZE",
     "entry_price": 1085.5,
     "entry_date": "2026-06-23",
     "target_price": 1155.16,
@@ -4750,12 +4750,14 @@
     "holding_period_days": null,
     "return_since_entry": null,
     "last_seen": "2026-06-23",
-    "status": "WATCHLIST",
+    "status": "SQUEEZE",
     "first_seen": "2026-06-18",
     "watchlist_first_seen": "2026-06-18",
     "watchlist_first_price": 1074.4000244140625,
-    "reason": "BB width 4.318550379774771% tightening, stoch_k 17 turning up \u2014 not yet confirmed (needs <3.0% width)",
-    "confidence": "WATCHING"
+    "promoted_from_watchlist": true,
+    "promoted_date": "2026-06-23",
+    "confidence": "HIGH",
+    "reason": "BB squeezed to 4.3% from 9.1%, stoch turning up from oversold 17/10."
   },
   "ADANIENT": {
     "symbol": "ADANIENT",
@@ -4880,8 +4882,8 @@
     "status": "BLAST",
     "first_seen": "2026-06-19",
     "blast_triggered_date": "2026-06-19",
-    "confidence": "MEDIUM",
-    "reason": "Up 16.07% over 18 days; stoch 87/77 diverging slightly, modest BB expansion"
+    "confidence": "HIGH",
+    "reason": "Up 16.1% over 18d since entry at None, stoch_k 88 overbought"
   },
   "FINCABLES": {
     "symbol": "FINCABLES",
@@ -6192,7 +6194,7 @@
     "first_seen": "2026-06-22",
     "blast_triggered_date": "2026-06-22",
     "confidence": "MEDIUM",
-    "reason": "Up 17.32% over 20 days; stoch 77/65 is weakest reading among all setups"
+    "reason": "Up 17.32% over 20 trading days, stoch at 77.4/65.6 showing mild divergence."
   },
   "ETERNAL": {
     "symbol": "ETERNAL",
