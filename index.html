@@ -403,6 +403,36 @@ async function fetchMarketStatus() {
   try { return await fetchFile("market_status.json"); } catch { return null; }
 }
 
+// ── Live price feed ──────────────────────────────────────────────────────────
+// Yahoo Finance v8 API works fine from the browser (not blocked by CORS).
+// We fetch in batches of 20 to avoid URL length limits.
+async function fetchLivePrices(symbols) {
+  if (!symbols || symbols.length === 0) return {};
+  const prices = {};
+  const BATCH = 20;
+  for (let i = 0; i < symbols.length; i += BATCH) {
+    const batch = symbols.slice(i, i + BATCH);
+    const tickers = batch.map(s => s + ".NS").join(",");
+    try {
+      const url = `https://query1.finance.yahoo.com/v8/finance/chart/${batch[0]}.NS?interval=1d&range=1d`;
+      // v7 quote API supports multiple symbols
+      const res = await fetch(
+        `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${tickers}&fields=regularMarketPrice,symbol`,
+        { cache: "no-store", headers: { "Accept": "application/json" } }
+      );
+      if (res.ok) {
+        const data = await res.json();
+        const quotes = data?.quoteResponse?.result || [];
+        quotes.forEach(q => {
+          const sym = q.symbol.replace(".NS", "");
+          if (q.regularMarketPrice) prices[sym] = q.regularMarketPrice;
+        });
+      }
+    } catch {}
+  }
+  return prices;
+}
+
 // ── Utility ───────────────────────────────────────────────────────────────────
 const fmt = (n, d = 2) => (typeof n === "number" ? n.toFixed(d) : "—");
 const pct = n => (n >= 0 ? "+" : "") + fmt(n) + "%";
@@ -460,10 +490,11 @@ function PullToRefresh({ onRefresh, children, refreshing }) {
   );
 }
 
-function SqueezeCard({ stock, onInvest, rank }) {
+function SqueezeCard({ stock, onInvest, rank, livePrice }) {
   const [expanded, setExpanded] = useState(false);
+  const price = livePrice || stock.price;
   const daysTracked = stock.entry_date ? Math.max(0, Math.round((new Date() - new Date(stock.entry_date)) / 86400000)) : null;
-  const liveReturn = (stock.entry_price && stock.price) ? ((stock.price - stock.entry_price) / stock.entry_price) * 100 : null;
+  const liveReturn = (stock.entry_price && price) ? ((price - stock.entry_price) / stock.entry_price) * 100 : null;
   return (
     <div style={{ background: T.card, border: `1px solid ${T.accent}44`, borderLeft: `3px solid ${T.accent}`, borderRadius: 10, padding: 14, cursor: "pointer" }}
       onClick={() => setExpanded(e => !e)}>
@@ -485,7 +516,7 @@ function SqueezeCard({ stock, onInvest, rank }) {
           )}
         </div>
         <div style={{ textAlign: "right", flexShrink: 0 }}>
-          <div style={{ color: T.white, fontWeight: 700, fontSize: 17 }}>{curr(stock.price)}</div>
+          <div style={{ color: T.white, fontWeight: 700, fontSize: 17 }}>{curr(price)}{livePrice && <span style={{ color: T.accent, fontSize: 9, marginLeft: 3 }}>●live</span>}</div>
           {liveReturn != null && (
             <div style={{ color: liveReturn >= 0 ? T.green : T.red, fontSize: 13, fontWeight: 700 }}>{pct(liveReturn)} since entry</div>
           )}
@@ -508,7 +539,7 @@ function SqueezeCard({ stock, onInvest, rank }) {
         <div style={{ color: T.muted, fontSize: 14 }}>→</div>
         <div style={{ flex: 1, textAlign: "center" }}>
           <div style={{ color: T.muted, fontSize: 9, letterSpacing: 0.6, textTransform: "uppercase" }}>Current</div>
-          <div style={{ color: T.text, fontSize: 13, fontWeight: 700 }}>{curr(stock.price)}</div>
+          <div style={{ color: T.text, fontSize: 13, fontWeight: 700 }}>{curr(price)}</div>
         </div>
         <div style={{ color: T.muted, fontSize: 14 }}>→</div>
         <div style={{ flex: 1, textAlign: "right" }}>
@@ -570,8 +601,10 @@ function WatchlistCard({ stock, rank }) {
   );
 }
 
-function BlastCard({ stock, rank }) {
+function BlastCard({ stock, rank, livePrice }) {
+  const price = livePrice || stock.price;
   const hasEntry = stock.blast_entry_price != null && stock.return_since_entry != null;
+  const liveReturn = (stock.blast_entry_price && price) ? ((price - stock.blast_entry_price) / stock.blast_entry_price) * 100 : stock.return_since_entry;
   return (
     <div style={{ background: T.card, border: `1px solid ${T.blast}44`, borderLeft: `3px solid ${T.blast}`, borderRadius: 10, padding: 14 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
@@ -589,7 +622,7 @@ function BlastCard({ stock, rank }) {
           )}
         </div>
         <div style={{ textAlign: "right", flexShrink: 0 }}>
-          <div style={{ color: T.white, fontWeight: 700, fontSize: 17 }}>{curr(stock.price)}</div>
+          <div style={{ color: T.white, fontWeight: 700, fontSize: 17 }}>{curr(price)}{livePrice && <span style={{ color: T.blast, fontSize: 9, marginLeft: 3 }}>●live</span>}</div>
           <div style={{ color: T.blast, fontSize: 12, fontWeight: 700 }}>Stoch {fmt(stock.stoch_k)}</div>
         </div>
       </div>
@@ -610,7 +643,7 @@ function BlastCard({ stock, rank }) {
           <div style={{ color: T.muted, fontSize: 14 }}>→</div>
           <div style={{ flex: 1, textAlign: "right" }}>
             <div style={{ color: T.muted, fontSize: 9, letterSpacing: 0.6, textTransform: "uppercase" }}>Current</div>
-            <div style={{ color: T.text, fontSize: 13, fontWeight: 700 }}>{curr(stock.price)}</div>
+            <div style={{ color: T.text, fontSize: 13, fontWeight: 700 }}>{curr(price)}</div>
           </div>
         </div>
       )}
@@ -618,10 +651,10 @@ function BlastCard({ stock, rank }) {
       {hasEntry && (
         <div style={{ display: "flex", justifyContent: "center", marginTop: 8 }}>
           <div style={{
-            color: stock.return_since_entry >= 0 ? T.green : T.red, fontSize: 16, fontWeight: 800,
-            background: (stock.return_since_entry >= 0 ? T.green : T.red) + "22", borderRadius: 6, padding: "4px 14px",
+            color: liveReturn >= 0 ? T.green : T.red, fontSize: 16, fontWeight: 800,
+            background: (liveReturn >= 0 ? T.green : T.red) + "22", borderRadius: 6, padding: "4px 14px",
           }}>
-            {pct(stock.return_since_entry)} total since entry
+            {pct(liveReturn)} total since entry
           </div>
         </div>
       )}
@@ -1005,7 +1038,9 @@ function App() {
   const [showWatchlist, setShowWatchlist] = useState(false);
   const [showAllBlast, setShowAllBlast] = useState(false);
   const [showAddHolding, setShowAddHolding] = useState(false);
-  const [portfolioTab, setPortfolioTab] = useState("swing"); // "swing" | "longterm"
+  const [portfolioTab, setPortfolioTab] = useState("swing");
+  const [livePrices, setLivePrices] = useState({});   // symbol → live price
+  const [priceUpdated, setPriceUpdated] = useState(null); // last live price fetch time
   const BLAST_DISPLAY_CAP = 20;
   const [holdings, setHoldings] = useState(() => {
     try { return JSON.parse(localStorage.getItem("nse_lt_holdings") || "[]"); } catch { return []; }
@@ -1035,12 +1070,45 @@ function App() {
       setMarketStatus(status);
       setNextPoll(Date.now() + 30 * 60 * 1000);
       if (silent) showToast(`✓ Fetched · scan was ${data.scan_time}`);
+      // Kick off live price fetch for all tracked symbols
+      const allSyms = [
+        ...(data.squeeze_stocks || []).map(s => s.symbol),
+        ...(data.blast_stocks || []).map(s => s.symbol),
+        ...(data.watchlist_stocks || []).map(s => s.symbol),
+      ];
+      fetchLivePrices(allSyms).then(prices => {
+        if (Object.keys(prices).length > 0) {
+          setLivePrices(prices);
+          setPriceUpdated(new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" }));
+        }
+      });
     } catch (e) {
       setError(e.message);
     } finally {
       setLoading(false);
     }
   }, []);
+
+  // Refresh live prices every 5 minutes independently of the main scan reload
+  const livePriceRef = useRef(null);
+  useEffect(() => {
+    if (!scanData) return;
+    const refreshPrices = () => {
+      const allSyms = [
+        ...(scanData.squeeze_stocks || []).map(s => s.symbol),
+        ...(scanData.blast_stocks || []).map(s => s.symbol),
+        ...(scanData.watchlist_stocks || []).map(s => s.symbol),
+      ];
+      fetchLivePrices(allSyms).then(prices => {
+        if (Object.keys(prices).length > 0) {
+          setLivePrices(prices);
+          setPriceUpdated(new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" }));
+        }
+      });
+    };
+    livePriceRef.current = setInterval(refreshPrices, 5 * 60 * 1000);
+    return () => clearInterval(livePriceRef.current);
+  }, [scanData]);
 
   useEffect(() => {
     loadData();
@@ -1146,14 +1214,14 @@ function App() {
                 </div>
               )}
               <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 26 }}>
-                {(scanData.squeeze_stocks || []).map((s, i) => <SqueezeCard key={s.symbol} stock={s} onInvest={handleInvest} rank={i + 1} />)}
+                {(scanData.squeeze_stocks || []).map((s, i) => <SqueezeCard key={s.symbol} stock={s} onInvest={handleInvest} rank={i + 1} livePrice={livePrices[s.symbol]} />)}
               </div>
               <div style={{ marginBottom: 14 }}>
                 <div style={{ fontWeight: 800, fontSize: 16, color: T.blast }}>🔴 End of Blast</div>
                 <div style={{ color: T.muted, fontSize: 11 }}>Exit signals · consider booking profits · {(scanData.blast_stocks || []).length} active</div>
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                {((showAllBlast ? scanData.blast_stocks : (scanData.blast_stocks || []).slice(0, BLAST_DISPLAY_CAP)) || []).map((s, i) => <BlastCard key={s.symbol} stock={s} rank={i + 1} />)}
+                {((showAllBlast ? scanData.blast_stocks : (scanData.blast_stocks || []).slice(0, BLAST_DISPLAY_CAP)) || []).map((s, i) => <BlastCard key={s.symbol} stock={s} rank={i + 1} livePrice={livePrices[s.symbol]} />)}
               </div>
               {(scanData.blast_stocks || []).length > BLAST_DISPLAY_CAP && (
                 <button onClick={() => setShowAllBlast(v => !v)}
@@ -1192,6 +1260,7 @@ function App() {
 
               <div style={{ marginTop: 22, color: T.muted, fontSize: 11, textAlign: "center" }}>
                 Last scan: {scanData.scan_time} · {scanData.scanned_count} stocks scanned · fetched {new Date().toLocaleTimeString("en-IN", {hour:"2-digit", minute:"2-digit"})}
+                {priceUpdated && <span style={{ color: T.accent }}> · prices live {priceUpdated}</span>}
               </div>
             </div>
           )}
