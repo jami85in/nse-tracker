@@ -538,7 +538,7 @@ function WatchlistCard({ stock, rank }) {
       <div style={{ display: "flex", gap: 12, marginTop: 5, flexWrap: "wrap" }}>
         <span style={{ color: T.muted, fontSize: 11 }}>BB {fmt(stock.bb_width)}%</span>
         <span style={{ color: T.muted, fontSize: 11 }}>Stoch {fmt(stock.stoch_k)}</span>
-        <span style={{ color: T.muted, fontSize: 11 }}>needs &lt;4.5% BB + 15% ATR target to confirm</span>
+        <span style={{ color: T.muted, fontSize: 11 }}>needs &lt;4.5% BB + Stoch turning up to confirm</span>
       </div>
       {stock.watchlist_first_seen && (
         <div style={{ color: T.muted, fontSize: 10, marginTop: 4 }}>
@@ -1117,7 +1117,7 @@ function App() {
               )}
                 <div style={{ marginBottom: 14 }}>
                 <div style={{ fontWeight: 800, fontSize: 16, color: T.accent }}>🟢 In Play — Post-Squeeze</div>
-                <div style={{ color: T.muted, fontSize: 11 }}>BB &lt;4.5% + Stoch turning up · min 15% ATR-based return target</div>
+                <div style={{ color: T.muted, fontSize: 11 }}>BB &lt;4.5% + Stoch turning up · ATR target shown per card</div>
               </div>
               {(scanData.squeeze_stocks || []).length === 0 && (
                 <div style={{ color: T.muted, textAlign: "center", padding: 28, background: T.card, borderRadius: 10, fontSize: 13, lineHeight: 1.6, marginBottom: 26 }}>
@@ -1303,7 +1303,7 @@ function App() {
               {[
                 { title: "📲 Using this on your phone", color: T.accent, body: "Tap the ↻ button top-right anytime. 'Reload latest data' is instant and free. 'Run a fresh scan now' opens GitHub to manually trigger a brand-new scan.\n\nYou can also pull down from the top to reload, like any phone app." },
                 { title: "🏠 Install as a home-screen app", color: T.warn, body: "In Chrome on Android: tap the ⋮ menu → 'Add to Home screen' or 'Install app'. This gives you an app icon that opens full-screen, no browser bar. Your portfolio is saved on this device only." },
-                { title: "🟢 What is In Play?", color: T.accent, body: "A stock enters 'In Play' when it earns a confirmed squeeze signal: BB Width below 4.5% with Stochastic K turning up from below 50, and an ATR-based predicted return of ≥15%. This is your ENTRY point. The stock stays here until it triggers a Blast exit signal — it's your live portfolio of squeeze-entry positions running toward their target." },
+                { title: "🟢 What is In Play?", color: T.accent, body: "A stock enters 'In Play' when it earns a confirmed squeeze signal: BB Width below 4.5% with Stochastic K turning up from below 50. This is your ENTRY point. The ATR-based return target shown on each card is informational — it shows the expected near-term move based on current volatility, not a hard filter. Historical blast returns from these setups have ranged from 15–46%." },
                 { title: "🔴 What is End of Blast?", color: T.blast, body: "BB bands expand and Stochastic K exceeds 75 while price holds above EMA10. This is the EXIT signal — book profits before the next correction." },
                 { title: "👀 What is the Watchlist?", color: T.warn, body: "A looser, earlier tier for stocks that are visibly tightening (BB width under 9%) and turning up, but haven't yet cleared the strict 4.5% squeeze threshold or the 15% return target. Nothing here is a confirmed signal — it's a heads-up that a stock is forming. When a watchlist stock later earns a real squeeze signal, it's marked 'GRADUATED' with its full history." },
                 { title: "🔴 What is End of Blast?", color: T.blast, body: "BB bands expand and Stochastic K exceeds 75 while price holds above EMA10. This is the EXIT signal — book profits before the next correction." },
