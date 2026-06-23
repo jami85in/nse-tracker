@@ -71,7 +71,7 @@ HEADERS = {
     "Accept-Language": "en-US,en;q=0.9",
 }
 
-MIN_PREDICTED_RETURN = 5.0  # % — hard floor for squeeze candidates
+MIN_PREDICTED_RETURN = 15.0  # % — hard floor for squeeze candidates (4.5% BB width threshold)
 
 
 def fetch_nifty500_universe(session: requests.Session) -> list:
@@ -470,7 +470,7 @@ def diagnose(symbol: str, df: pd.DataFrame, scan_date: str = None) -> dict:
     atr_return = round(((price + 3 * atr14) - price) / price * 100, 2) if atr14 and atr14 > 0 else 0
 
     checks = {
-        "bb_tight": bb_width < 3.0,
+        "bb_tight": bb_width < 4.5,
         "bb_near_recent_low": bb_width <= bb_width_5d_min * 1.6,
         "stoch_oversold_zone": stoch_k < 45,
         "stoch_turning_up": stoch_k > stoch_d,
@@ -490,7 +490,7 @@ def diagnose(symbol: str, df: pd.DataFrame, scan_date: str = None) -> dict:
         "checks": checks,
         "checks_passed": f"{passed}/5",
         "would_be_squeeze": passed == 5,
-        "would_be_watchlist": (passed < 5 and bb_width < 8.0 and stoch_k < 50 and stoch_k > stoch_d),
+        "would_be_watchlist": (passed < 5 and bb_width < 9.0 and stoch_k < 50 and stoch_k > stoch_d),
     }
 
 
@@ -562,9 +562,9 @@ def classify(symbol: str, df: pd.DataFrame, scan_date: str = None):
     # textbook squeeze-then-breakout pattern scripted into the data.
     bb_width_5d_min = float(df["bb_width_pct"].iloc[-5:].min()) if len(df) >= 5 else bb_width
     is_squeeze = (
-        bb_width < 3.0
+        bb_width < 4.5
         and bb_width <= bb_width_5d_min * 1.6  # still close to the recent squeeze low
-        and stoch_k < 45
+        and stoch_k < 50
         and stoch_k > stoch_d  # turning up
         and atr_predicted_return >= MIN_PREDICTED_RETURN
     )
@@ -577,13 +577,13 @@ def classify(symbol: str, df: pd.DataFrame, scan_date: str = None):
     # condition (stoch turning up, target return) was already satisfied —
     # this tier surfaces exactly that population, so a stock can be seen
     # "forming" before it actually triggers. WATCHLIST_BB_WIDTH_MAX is
-    # set above the strict 3.0% threshold but well below the typical
+    # set above the strict 4.5% threshold but well below the typical
     # already-blasting range (BLAST stocks in practice run 9-20%+ wide),
     # keeping this tier meaningfully selective rather than just "most of
     # the market." A stock only ever shows here if it does NOT already
     # qualify as SQUEEZE — this is a strictly lower tier, not an
     # alternative path to the same signal.
-    WATCHLIST_BB_WIDTH_MAX = 8.0
+    WATCHLIST_BB_WIDTH_MAX = 9.0
     is_watchlist = (
         not is_squeeze
         and bb_width < WATCHLIST_BB_WIDTH_MAX
