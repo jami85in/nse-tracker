@@ -357,26 +357,42 @@ const RAW_BASE = `https://raw.githubusercontent.com/${GITHUB_USER}/${GITHUB_REPO
 const GITHUB_APP_ACTIONS_URL = `https://github.com/${GITHUB_USER}/${GITHUB_REPO}/actions/workflows/scan.yml`;
 
 async function fetchFile(filename) {
-  // Try GitHub API first — always fresh, no CDN layer
+  const ts = Date.now();
+
+  // Try GitHub API first — always fresh, no CDN layer, no browser cache issue
   try {
     const apiRes = await fetch(
-      `${GITHUB_API_BASE}/${filename}?t=${Date.now()}`,
-      { headers: { "Accept": "application/vnd.github.v3+json" }, cache: "no-store" }
+      `${GITHUB_API_BASE}/${filename}?ts=${ts}`,
+      {
+        method: "GET",
+        headers: {
+          "Accept": "application/vnd.github.v3+json",
+          "Cache-Control": "no-cache, no-store, must-revalidate",
+          "Pragma": "no-cache"
+        },
+        cache: "no-store"
+      }
     );
     if (apiRes.ok) {
       const envelope = await apiRes.json();
-      // Rate limit response has no 'content' field — fall through to raw
       if (envelope.content) {
         return JSON.parse(atob(envelope.content.replace(/\n/g, "")));
       }
+      // Rate limited or unexpected response — fall through
     }
   } catch {}
 
-  // Fallback: raw URL. GitHub CDN caches for ~5min but that's acceptable —
-  // worst case the dashboard is 5min behind the actual scan, which runs once/day.
+  // Fallback: raw URL. Vary the full URL path with timestamp so browser
+  // cannot serve from cache even if it ignores Cache-Control headers.
   const rawRes = await fetch(
-    `${RAW_BASE}/${filename}?t=${Date.now()}`,
-    { cache: "no-store" }
+    `${RAW_BASE}/${filename}?nocache=${ts}&r=${Math.random()}`,
+    {
+      cache: "no-store",
+      headers: {
+        "Cache-Control": "no-cache, no-store, must-revalidate",
+        "Pragma": "no-cache"
+      }
+    }
   );
   if (!rawRes.ok) throw new Error(`Failed to fetch ${filename} (${rawRes.status})`);
   return rawRes.json();
@@ -1018,7 +1034,7 @@ function App() {
       setScanData(data);
       setMarketStatus(status);
       setNextPoll(Date.now() + 30 * 60 * 1000);
-      if (silent) showToast("✓ Updated with latest data");
+      if (silent) showToast(`✓ Fetched · scan was ${data.scan_time}`);
     } catch (e) {
       setError(e.message);
     } finally {
@@ -1071,10 +1087,10 @@ function App() {
           <div onClick={e => e.stopPropagation()} style={{ background: T.card, width: "100%", borderTopLeftRadius: 18, borderTopRightRadius: 18, padding: "18px 18px calc(18px + env(safe-area-inset-bottom))" }}>
             <div style={{ width: 36, height: 4, background: T.border, borderRadius: 2, margin: "0 auto 16px" }} />
             <div style={{ color: T.text, fontWeight: 700, fontSize: 15, marginBottom: 14 }}>Refresh options</div>
-            <button onClick={() => { setShowRefreshMenu(false); loadData(); }}
+            <button onClick={() => { setShowRefreshMenu(false); loadData(true); }}
               style={{ width: "100%", textAlign: "left", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, padding: 14, marginBottom: 10, color: T.text, cursor: "pointer" }}>
               <div style={{ fontWeight: 700, fontSize: 14, color: T.accent }}>↻ Reload latest data</div>
-              <div style={{ color: T.muted, fontSize: 12, marginTop: 3 }}>Pulls whatever the last automatic scan produced (free, instant)</div>
+              <div style={{ color: T.muted, fontSize: 12, marginTop: 3 }}>Pulls whatever the last automatic scan produced — toast will confirm which scan time was received</div>
             </button>
             <a href={GITHUB_APP_ACTIONS_URL} target="_blank" rel="noreferrer"
               style={{ display: "block", textDecoration: "none", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, padding: 14, color: T.text }}
