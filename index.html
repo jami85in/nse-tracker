@@ -347,40 +347,44 @@ const T = {
   green: "#22C55E", red: "#EF4444", white: "#FFFFFF",
 };
 
-// ── Config ───────────────────────────────────────────────────────────────────
+// ── Data fetching ─────────────────────────────────────────────────────────────
+// GitHub Contents API as primary — returns base64-encoded JSON, bypasses CDN
+// caching entirely. Falls back to raw URL with aggressive cache-busting.
 const GITHUB_USER = "jami85in";
 const GITHUB_REPO = "nse-tracker";
-// jsDelivr mirrors GitHub and respects Cache-Control headers properly.
-// Adding @main forces the latest commit ref; ?v= cache-busts on each load.
-const CDN_SCAN_URL = `https://cdn.jsdelivr.net/gh/${GITHUB_USER}/${GITHUB_REPO}@main/data/scan_latest.json`;
-const CDN_STATUS_URL = `https://cdn.jsdelivr.net/gh/${GITHUB_USER}/${GITHUB_REPO}@main/data/market_status.json`;
+const GITHUB_API_BASE = `https://api.github.com/repos/${GITHUB_USER}/${GITHUB_REPO}/contents/data`;
+const RAW_BASE = `https://raw.githubusercontent.com/${GITHUB_USER}/${GITHUB_REPO}/main/data`;
 const GITHUB_APP_ACTIONS_URL = `https://github.com/${GITHUB_USER}/${GITHUB_REPO}/actions/workflows/scan.yml`;
-// Fallback: raw GitHub URL
-const RAW_SCAN_URL = `https://raw.githubusercontent.com/${GITHUB_USER}/${GITHUB_REPO}/main/data/scan_latest.json`;
-const RAW_STATUS_URL = `https://raw.githubusercontent.com/${GITHUB_USER}/${GITHUB_REPO}/main/data/market_status.json`;
 
-async function fetchJSON(primaryUrl, fallbackUrl) {
-  const bust = `?v=${Date.now()}`;
+async function fetchFile(filename) {
+  // Try GitHub API first — always fresh, no CDN layer
   try {
-    const res = await fetch(primaryUrl + bust, { cache: "no-store" });
-    if (res.ok) return res.json();
+    const apiRes = await fetch(
+      `${GITHUB_API_BASE}/${filename}?t=${Date.now()}`,
+      { headers: { "Accept": "application/vnd.github.v3+json" }, cache: "no-store" }
+    );
+    if (apiRes.ok) {
+      const envelope = await apiRes.json();
+      // Rate limit response has no 'content' field — fall through to raw
+      if (envelope.content) {
+        return JSON.parse(atob(envelope.content.replace(/\n/g, "")));
+      }
+    }
   } catch {}
-  // fallback to raw
-  const res2 = await fetch(fallbackUrl + bust, { cache: "no-store" });
-  if (!res2.ok) throw new Error(`Failed to fetch data (${res2.status})`);
-  return res2.json();
+
+  // Fallback: raw URL. GitHub CDN caches for ~5min but that's acceptable —
+  // worst case the dashboard is 5min behind the actual scan, which runs once/day.
+  const rawRes = await fetch(
+    `${RAW_BASE}/${filename}?t=${Date.now()}`,
+    { cache: "no-store" }
+  );
+  if (!rawRes.ok) throw new Error(`Failed to fetch ${filename} (${rawRes.status})`);
+  return rawRes.json();
 }
 
-async function fetchScanData() {
-  return fetchJSON(CDN_SCAN_URL, RAW_SCAN_URL);
-}
-
+async function fetchScanData() { return fetchFile("scan_latest.json"); }
 async function fetchMarketStatus() {
-  try {
-    return await fetchJSON(CDN_STATUS_URL, RAW_STATUS_URL);
-  } catch {
-    return null;
-  }
+  try { return await fetchFile("market_status.json"); } catch { return null; }
 }
 
 // ── Utility ───────────────────────────────────────────────────────────────────
@@ -1171,7 +1175,7 @@ function App() {
               )}
 
               <div style={{ marginTop: 22, color: T.muted, fontSize: 11, textAlign: "center" }}>
-                Last scan: {scanData.scan_time} · {scanData.scanned_count} stocks scanned
+                Last scan: {scanData.scan_time} · {scanData.scanned_count} stocks scanned · fetched {new Date().toLocaleTimeString("en-IN", {hour:"2-digit", minute:"2-digit"})}
               </div>
             </div>
           )}
