@@ -71,7 +71,11 @@ HEADERS = {
     "Accept-Language": "en-US,en;q=0.9",
 }
 
-MIN_PREDICTED_RETURN = 15.0  # % — hard floor for squeeze candidates (4.5% BB width threshold)
+MIN_PREDICTED_RETURN = 0.0  # No hard ATR floor — BB width + Stoch is the entry signal.
+# ATR target is shown on each card as information but does not gate the signal.
+# Historical blast returns (15-46%) come from the squeeze setup itself, not from
+# pre-filtering by ATR projection (which compresses in low-volatility environments
+# and would block all signals during calm trending markets).
 
 
 def fetch_nifty500_universe(session: requests.Session) -> list:
