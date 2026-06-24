@@ -476,9 +476,10 @@ def diagnose(symbol: str, df: pd.DataFrame, scan_date: str = None) -> dict:
     checks = {
         "bb_tight": bb_width < 4.5,
         "bb_near_recent_low": bb_width <= bb_width_5d_min * 1.6,
-        "stoch_oversold_zone": stoch_k < 45,
+        "stoch_oversold_zone": stoch_k < 50,
         "stoch_turning_up": stoch_k > stoch_d,
         "target_return_ok": atr_return >= MIN_PREDICTED_RETURN,
+        "target_above_price": atr_target_price > price,
     }
     passed = sum(checks.values())
 
@@ -492,9 +493,9 @@ def diagnose(symbol: str, df: pd.DataFrame, scan_date: str = None) -> dict:
         "stoch_d": round(stoch_d, 1),
         "atr_target_return_pct": atr_return,
         "checks": checks,
-        "checks_passed": f"{passed}/5",
-        "would_be_squeeze": passed == 5,
-        "would_be_watchlist": (passed < 5 and bb_width < 9.0 and stoch_k < 50 and stoch_k > stoch_d),
+        "checks_passed": f"{passed}/6",
+        "would_be_squeeze": passed == 6,
+        "would_be_watchlist": (passed < 6 and bb_width < 9.0 and stoch_k < 50 and stoch_k > stoch_d),
     }
 
 
@@ -571,6 +572,7 @@ def classify(symbol: str, df: pd.DataFrame, scan_date: str = None):
         and stoch_k < 50
         and stoch_k > stoch_d  # turning up
         and atr_predicted_return >= MIN_PREDICTED_RETURN
+        and atr_target_price > price  # target must be above current price — no point entering if upside is negative
     )
 
     # WATCHLIST (forming, not yet confirmed): a deliberately looser tier
