@@ -1165,6 +1165,23 @@ def run(backfill_days: int = 0, allow_weekend: bool = False):
     with open("data/scan_latest.json", "w") as f:
         json.dump(output, f, indent=2)
 
+    # Write a baseline prices_live.json from closing prices so the
+    # dashboard has price data immediately after the scan, before the
+    # intraday price workflow kicks in the next morning.
+    all_stocks = (
+        output.get("squeeze_stocks", []) +
+        output.get("blast_stocks", []) +
+        output.get("watchlist_stocks", [])
+    )
+    baseline_prices = {s["symbol"]: s["price"] for s in all_stocks if s.get("price")}
+    with open("data/prices_live.json", "w") as f:
+        json.dump({
+            "updated_at": datetime.datetime.now(IST).strftime("%Y-%m-%d %H:%M IST"),
+            "in_market_hours": False,
+            "count": len(baseline_prices),
+            "prices": baseline_prices
+        }, f)
+
     # Keep a dated history for backtesting prediction accuracy later
     os.makedirs("data/history", exist_ok=True)
     hist_path = f"data/history/scan_{datetime.date.today().isoformat()}.json"
