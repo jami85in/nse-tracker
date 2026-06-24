@@ -1,0 +1,35 @@
+name: NSE Live Price Update
+
+on:
+  schedule:
+    # Every 15 min during NSE market hours (9:15am–3:30pm IST = 3:45am–10:00am UTC)
+    # Runs Mon–Fri only. scan.py's is_market_hours() handles early/late no-ops.
+    - cron: "*/15 3-10 * * 1-5"
+  workflow_dispatch:  # allow manual trigger for testing
+
+permissions:
+  contents: write
+
+jobs:
+  prices:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install yfinance pandas
+
+      - name: Fetch live prices
+        run: python scripts/prices.py
+
+      - name: Commit price data
+        run: |
+          git config user.name "nse-tracker-bot"
+          git config user.email "actions@github.com"
+          git add data/prices_live.json
+          git diff --staged --quiet || git commit -m "prices: $(date -u +'%H:%M UTC')"
+          git push
