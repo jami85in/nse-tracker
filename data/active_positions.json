@@ -741,7 +741,7 @@
     "first_seen": "2026-06-15",
     "blast_triggered_date": "2026-06-15",
     "confidence": "HIGH",
-    "reason": "Up 47.63% over 28 trading days since squeeze entry with extreme momentum"
+    "reason": "up 47.63% over 28 trading days since squeeze entry, momentum intact"
   },
   "AEGISVOPAK": {
     "symbol": "AEGISVOPAK",
@@ -771,8 +771,8 @@
     "status": "BLAST",
     "first_seen": "2026-06-15",
     "blast_triggered_date": "2026-06-15",
-    "confidence": "HIGH",
-    "reason": "Up 18.66% over 25 trading days since squeeze entry with stoch near 96"
+    "confidence": "MEDIUM",
+    "reason": "up 18.66% over 25 trading days, stoch_d 96.7 flags overbought territory"
   },
   "ABDL": {
     "symbol": "ABDL",
@@ -865,7 +865,7 @@
     "first_seen": "2026-06-15",
     "blast_triggered_date": "2026-06-15",
     "confidence": "HIGH",
-    "reason": "Up 32.85% over 28 trading days since squeeze entry, stoch near 90"
+    "reason": "up 32.85% over 28 trading days since squeeze entry, stoch elevated"
   },
   "APTUS": {
     "symbol": "APTUS",
@@ -1237,7 +1237,7 @@
     "first_seen": "2026-06-15",
     "blast_triggered_date": "2026-06-15",
     "confidence": "HIGH",
-    "reason": "Up 18.0% over 15d since entry at None, stoch_k 96 overbought"
+    "reason": "up 18.00% over 15 trading days since squeeze entry, stoch_k 96 strong"
   },
   "CGCL": {
     "symbol": "CGCL",
@@ -1299,7 +1299,7 @@
     "first_seen": "2026-06-15",
     "blast_triggered_date": "2026-06-15",
     "confidence": "HIGH",
-    "reason": "Up 46.9% over 21 trading days since squeeze entry, stoch still elevated"
+    "reason": "up 46.90% over 21 trading days since squeeze entry, trend extending"
   },
   "CHOLAFIN": {
     "symbol": "CHOLAFIN",
@@ -1329,8 +1329,8 @@
     "status": "BLAST",
     "first_seen": "2026-06-15",
     "blast_triggered_date": "2026-06-15",
-    "confidence": "HIGH",
-    "reason": "Up 18.54% over 15 trading days, stoch_k and stoch_d both pinned at 100"
+    "confidence": "MEDIUM",
+    "reason": "up 18.54% over 15 trading days, stoch_k and stoch_d both at 100"
   },
   "CUB": {
     "symbol": "CUB",
@@ -2074,8 +2074,8 @@
     "status": "BLAST",
     "first_seen": "2026-06-15",
     "blast_triggered_date": "2026-06-15",
-    "confidence": "MEDIUM",
-    "reason": "Up 18.83% over 13 trading days, stoch_k 83 flat against stoch_d 83"
+    "confidence": "HIGH",
+    "reason": "up 18.83% over 13 trading days since squeeze entry, stoch steady 83"
   },
   "TATACAP": {
     "symbol": "TATACAP",
@@ -2601,8 +2601,8 @@
     "status": "BLAST",
     "first_seen": "2026-06-16",
     "blast_triggered_date": "2026-06-16",
-    "confidence": "HIGH",
-    "reason": "Up 18.62% over 15 trading days, stoch_k pegged at 100 signaling strength"
+    "confidence": "MEDIUM",
+    "reason": "up 18.62% over 15 trading days, stoch_k at 100 signals peak momentum"
   },
   "INDHOTEL": {
     "symbol": "INDHOTEL",
@@ -3941,8 +3941,8 @@
     "watchlist_first_price": 1842.0999755859375,
     "promoted_from_watchlist": true,
     "promoted_date": "2026-06-18",
-    "confidence": "MEDIUM",
-    "reason": "BB narrowed to 3.9%, stoch_k 46 surging above stoch_d 27 strongly"
+    "confidence": "HIGH",
+    "reason": "BB tightened to 3.91%, stoch_k surging 46 vs stoch_d 27"
   },
   "BATAINDIA": {
     "symbol": "BATAINDIA",
@@ -4347,7 +4347,7 @@
     "first_seen": "2026-06-18",
     "blast_triggered_date": "2026-06-18",
     "confidence": "MEDIUM",
-    "reason": "Up 21.09% over 15 trading days, stoch_k 84 rolling under stoch_d 92"
+    "reason": "up 21.09% over 15 trading days, stoch_d 92 hints near-term exhaustion"
   },
   "PARADEEP": {
     "symbol": "PARADEEP",
@@ -4566,8 +4566,8 @@
     "status": "BLAST",
     "first_seen": "2026-06-18",
     "blast_triggered_date": "2026-06-18",
-    "confidence": "HIGH",
-    "reason": "Up 19.87% over 28 trading days since squeeze entry with stoch near 97"
+    "confidence": "MEDIUM",
+    "reason": "up 19.87% over 28 trading days, stoch_d 97.6 signals overbought caution"
   },
   "UNOMINDA": {
     "symbol": "UNOMINDA",
@@ -4630,7 +4630,7 @@
     "first_seen": "2026-06-18",
     "blast_triggered_date": "2026-06-18",
     "confidence": "HIGH",
-    "reason": "Up 19.28% over 12 trading days since squeeze entry, rapid momentum expansion"
+    "reason": "up 19.28% over 12 trading days since squeeze entry, momentum accelerating"
   },
   "YESBANK": {
     "symbol": "YESBANK",
@@ -4695,7 +4695,7 @@
     "promoted_from_watchlist": true,
     "promoted_date": "2026-06-23",
     "confidence": "HIGH",
-    "reason": "BB collapsed to 4.3% from 9.1%, stoch_k 17 turning above stoch_d 10"
+    "reason": "BB crushed from 9.12% to 4.32%, stoch_k 17 beginning upward curl"
   },
   "ADANIENT": {
     "symbol": "ADANIENT",
@@ -6351,7 +6351,7 @@
     "promoted_from_watchlist": true,
     "promoted_date": "2026-06-18",
     "confidence": "MEDIUM",
-    "reason": "BB eased to 4.4% from 5.4%, stoch_k 37 rising above stoch_d 27 modestly"
+    "reason": "BB modestly tightened to 4.36%, stoch_k 37 above S1 resistance zone"
   },
   "NAUKRI": {
     "symbol": "NAUKRI",
@@ -6917,7 +6917,7 @@
     "status": "SQUEEZE",
     "first_seen": "2026-06-23",
     "confidence": "HIGH",
-    "reason": "BB halved to 3.5%, stoch turning up at 19.8 with bullish EMA stack"
+    "reason": "BB squeezed from 6.24% to 3.50%, stoch turning up at 19.8"
   },
   "SAMMAANCAP": {
     "symbol": "SAMMAANCAP",
@@ -7525,12 +7525,12 @@
   "VBL": {
     "symbol": "VBL",
     "price": 531.5499877929688,
-    "bb_width": 5.231514696496353,
-    "bb_width_5d_ago": 7.068867612067198,
+    "bb_width": 5.2315146964952834,
+    "bb_width_5d_ago": 7.068867612066451,
     "stoch_k": 45.47705440921245,
     "stoch_d": 44.130818919068304,
-    "ema10": 532.6075037712646,
-    "ema30": 520.6214808553384,
+    "ema10": 532.6075037713509,
+    "ema30": 520.6214809595992,
     "pivot_r1": 553.1999918619792,
     "pivot_r2": 562.3499959309896,
     "pivot_s1": 537.499979654948,
@@ -7551,7 +7551,7 @@
     "first_seen": "2026-06-17",
     "watchlist_first_seen": "2026-06-17",
     "watchlist_first_price": 544.0499877929688,
-    "reason": "BB width 5.231514696496353% tightening, stoch_k 45 turning up \u2014 not yet confirmed (needs <3.0% width)",
+    "reason": "BB width 5.2315146964952834% tightening, stoch_k 45 turning up \u2014 not yet confirmed (needs <3.0% width)",
     "confidence": "WATCHING"
   },
   "BSOFT": {
