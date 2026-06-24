@@ -374,33 +374,25 @@ async function fetchMarketStatus() {
 }
 
 // ── Live price feed ──────────────────────────────────────────────────────────
-// Yahoo Finance v8 API works fine from the browser (not blocked by CORS).
-// We fetch in batches of 20 to avoid URL length limits.
-async function fetchLivePrices(symbols) {
-  if (!symbols || symbols.length === 0) return {};
-  const prices = {};
-  const BATCH = 20;
-  for (let i = 0; i < symbols.length; i += BATCH) {
-    const batch = symbols.slice(i, i + BATCH);
-    const tickers = batch.map(s => s + ".NS").join(",");
-    try {
-      const url = `https://query1.finance.yahoo.com/v8/finance/chart/${batch[0]}.NS?interval=1d&range=1d`;
-      // v7 quote API supports multiple symbols
-      const res = await fetch(
-        `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${tickers}&fields=regularMarketPrice,symbol`,
-        { cache: "no-store", headers: { "Accept": "application/json" } }
-      );
-      if (res.ok) {
-        const data = await res.json();
-        const quotes = data?.quoteResponse?.result || [];
-        quotes.forEach(q => {
-          const sym = q.symbol.replace(".NS", "");
-          if (q.regularMarketPrice) prices[sym] = q.regularMarketPrice;
-        });
-      }
-    } catch {}
+// Prices come from data/prices_live.json — written by a separate GitHub Actions
+// workflow (prices.yml) that runs every 15 min during NSE market hours using
+// yfinance. This avoids all browser CORS/cookie issues with Yahoo Finance.
+async function fetchLivePrices() {
+  try {
+    const url = `${RAW_BASE}/prices_live.json?t=${Date.now()}&r=${Math.random().toString(36).slice(2)}`;
+    const res = await fetch(url);
+    if (!res.ok) return {};
+    const text = await res.text();
+    if (!text || text[0] !== '{') return {};
+    const data = JSON.parse(text);
+    return {
+      prices: data.prices || {},
+      updatedAt: data.updated_at || null,
+      inMarketHours: data.in_market_hours || false
+    };
+  } catch {
+    return { prices: {}, updatedAt: null, inMarketHours: false };
   }
-  return prices;
 }
 
 // ── Utility ───────────────────────────────────────────────────────────────────
@@ -1045,18 +1037,17 @@ function App() {
       setMarketStatus(status);
       setNextPoll(Date.now() + 30 * 60 * 1000);
       if (silent) showToast(`✓ Fetched · scan was ${data.scan_time}`);
-      // Kick off live price fetch for all tracked symbols including portfolio
-      const allSyms = [
+      // Kick off live price fetch from prices_live.json (updated every 15min by GitHub Actions)
+      const uniqueSyms = [...new Set([
         ...(data.squeeze_stocks || []).map(s => s.symbol),
         ...(data.blast_stocks || []).map(s => s.symbol),
         ...(data.watchlist_stocks || []).map(s => s.symbol),
         ...positions.filter(p => p.status === "OPEN").map(p => p.symbol),
-      ];
-      const uniqueSyms = [...new Set(allSyms)];
-      fetchLivePrices(uniqueSyms).then(prices => {
+      ])];
+      fetchLivePrices().then(({ prices, updatedAt, inMarketHours }) => {
         if (Object.keys(prices).length > 0) {
           setLivePrices(prices);
-          setPriceUpdated(new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" }));
+          setPriceUpdated(updatedAt || new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" }));
         }
       });
     } catch (e) {
@@ -1071,15 +1062,10 @@ function App() {
   useEffect(() => {
     if (!scanData) return;
     const refreshPrices = () => {
-      const allSyms = [
-        ...(scanData.squeeze_stocks || []).map(s => s.symbol),
-        ...(scanData.blast_stocks || []).map(s => s.symbol),
-        ...(scanData.watchlist_stocks || []).map(s => s.symbol),
-      ];
-      fetchLivePrices(allSyms).then(prices => {
+      fetchLivePrices().then(({ prices, updatedAt }) => {
         if (Object.keys(prices).length > 0) {
           setLivePrices(prices);
-          setPriceUpdated(new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" }));
+          setPriceUpdated(updatedAt || new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" }));
         }
       });
     };
