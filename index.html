@@ -352,50 +352,20 @@ const T = {
 // caching entirely. Falls back to raw URL with aggressive cache-busting.
 const GITHUB_USER = "jami85in";
 const GITHUB_REPO = "nse-tracker";
-const GITHUB_API_BASE = `https://api.github.com/repos/${GITHUB_USER}/${GITHUB_REPO}/contents/data`;
 const RAW_BASE = `https://raw.githubusercontent.com/${GITHUB_USER}/${GITHUB_REPO}/main/data`;
 const GITHUB_APP_ACTIONS_URL = `https://github.com/${GITHUB_USER}/${GITHUB_REPO}/actions/workflows/scan.yml`;
 
 async function fetchFile(filename) {
-  const ts = Date.now();
-
-  // Try GitHub API first — always fresh, no CDN layer, no browser cache issue
-  try {
-    const apiRes = await fetch(
-      `${GITHUB_API_BASE}/${filename}?ts=${ts}`,
-      {
-        method: "GET",
-        headers: {
-          "Accept": "application/vnd.github.v3+json",
-          "Cache-Control": "no-cache, no-store, must-revalidate",
-          "Pragma": "no-cache"
-        },
-        cache: "no-store"
-      }
-    );
-    if (apiRes.ok) {
-      const envelope = await apiRes.json();
-      if (envelope.content) {
-        return JSON.parse(atob(envelope.content.replace(/\n/g, "")));
-      }
-      // Rate limited or unexpected response — fall through
-    }
-  } catch {}
-
-  // Fallback: raw URL. Vary the full URL path with timestamp so browser
-  // cannot serve from cache even if it ignores Cache-Control headers.
-  const rawRes = await fetch(
-    `${RAW_BASE}/${filename}?nocache=${ts}&r=${Math.random()}`,
-    {
-      cache: "no-store",
-      headers: {
-        "Cache-Control": "no-cache, no-store, must-revalidate",
-        "Pragma": "no-cache"
-      }
-    }
-  );
-  if (!rawRes.ok) throw new Error(`Failed to fetch ${filename} (${rawRes.status})`);
-  return rawRes.json();
+  // raw.githubusercontent.com is the most reliable source.
+  // We cache-bust with timestamp + random to defeat browser/CDN caching.
+  // Do NOT send custom Cache-Control headers — they trigger CORS preflight
+  // which raw.githubusercontent.com rejects, breaking the fetch on mobile.
+  const url = `${RAW_BASE}/${filename}?t=${Date.now()}&r=${Math.random().toString(36).slice(2)}`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`GitHub returned ${res.status} for ${filename}. Check the repo is public.`);
+  const text = await res.text();
+  if (!text || text[0] !== '{') throw new Error(`Unexpected response for ${filename} — may be a GitHub CDN cache miss. Try again in a moment.`);
+  return JSON.parse(text);
 }
 
 async function fetchScanData() { return fetchFile("scan_latest.json"); }
@@ -909,13 +879,15 @@ function LongTermRow({ holding, onDelete, scanData }) {
 }
 
 // ── Portfolio Row ─────────────────────────────────────────────────────────────
-function PortfolioRow({ pos, onClose }) {
+function PortfolioRow({ pos, onClose, livePrice }) {
   const [sellPrice, setSellPrice] = useState("");
   const [showSell, setShowSell] = useState(false);
   const isOpen = pos.status === "OPEN";
-  const liveReturn = ((pos.currentPrice - pos.entryPrice) / pos.entryPrice) * 100;
+  const currentPrice = (isOpen && livePrice) ? livePrice : pos.currentPrice;
+  const liveReturn = ((currentPrice - pos.entryPrice) / pos.entryPrice) * 100;
   const targetReturn = pos.targetPrice ? ((pos.targetPrice - pos.entryPrice) / pos.entryPrice) * 100 : pos.predicted_return;
   const achieved = pos.status === "CLOSED" ? ((pos.exitPrice - pos.entryPrice) / pos.entryPrice) * 100 : null;
+  const priceLabel = isOpen ? (livePrice ? `Live ${curr(currentPrice)} ●` : `Last ${curr(currentPrice)}`) : `Sold ${curr(pos.exitPrice)}`;
 
   return (
     <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: 14, marginBottom: 8 }}>
@@ -931,7 +903,7 @@ function PortfolioRow({ pos, onClose }) {
           <div style={{ color: isOpen ? (liveReturn >= 0 ? T.green : T.red) : achieved >= 0 ? T.green : T.red, fontWeight: 800, fontSize: 16 }}>
             {isOpen ? pct(liveReturn) : pct(achieved)}
           </div>
-          <div style={{ color: T.muted, fontSize: 11 }}>{isOpen ? `Live ${curr(pos.currentPrice)}` : `Sold ${curr(pos.exitPrice)}`}</div>
+          <div style={{ color: T.muted, fontSize: 11 }}>{priceLabel}</div>
         </div>
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(2,1fr)", gap: 8, marginTop: 10 }}>
@@ -968,12 +940,15 @@ function PortfolioRow({ pos, onClose }) {
   );
 }
 
-function PortfolioSummary({ positions }) {
+function PortfolioSummary({ positions, livePrices = {} }) {
   const closed = positions.filter(p => p.status === "CLOSED");
   const open = positions.filter(p => p.status === "OPEN");
   const totalInvested = positions.reduce((s, p) => s + p.invested, 0);
   const realizedPL = closed.reduce((s, p) => s + (p.exitPrice - p.entryPrice) * p.qty, 0);
-  const unrealizedPL = open.reduce((s, p) => s + (p.currentPrice - p.entryPrice) * p.qty, 0);
+  const unrealizedPL = open.reduce((s, p) => {
+    const price = livePrices[p.symbol] || p.currentPrice;
+    return s + (price - p.entryPrice) * p.qty;
+  }, 0);
   const winRate = closed.length ? ((closed.filter(p => p.exitPrice > p.entryPrice).length / closed.length) * 100).toFixed(0) : 0;
 
   return (
@@ -1070,13 +1045,15 @@ function App() {
       setMarketStatus(status);
       setNextPoll(Date.now() + 30 * 60 * 1000);
       if (silent) showToast(`✓ Fetched · scan was ${data.scan_time}`);
-      // Kick off live price fetch for all tracked symbols
+      // Kick off live price fetch for all tracked symbols including portfolio
       const allSyms = [
         ...(data.squeeze_stocks || []).map(s => s.symbol),
         ...(data.blast_stocks || []).map(s => s.symbol),
         ...(data.watchlist_stocks || []).map(s => s.symbol),
+        ...positions.filter(p => p.status === "OPEN").map(p => p.symbol),
       ];
-      fetchLivePrices(allSyms).then(prices => {
+      const uniqueSyms = [...new Set(allSyms)];
+      fetchLivePrices(uniqueSyms).then(prices => {
         if (Object.keys(prices).length > 0) {
           setLivePrices(prices);
           setPriceUpdated(new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" }));
@@ -1280,17 +1257,17 @@ function App() {
               {/* ── Swing Trades sub-tab ── */}
               {portfolioTab === "swing" && (
                 <>
-                  <PortfolioSummary positions={positions} />
+                  <PortfolioSummary positions={positions} livePrices={livePrices} />
                   {positions.filter(p => p.status === "OPEN").length > 0 && (
                     <>
                       <div style={{ color: T.text, fontWeight: 700, marginBottom: 10, fontSize: 14 }}>Open Positions</div>
-                      {positions.filter(p => p.status === "OPEN").map(p => <PortfolioRow key={p.id} pos={p} onClose={handleClosePosition} />)}
+                      {positions.filter(p => p.status === "OPEN").map(p => <PortfolioRow key={p.id} pos={p} onClose={handleClosePosition} livePrice={livePrices[p.symbol]} />)}
                     </>
                   )}
                   {positions.filter(p => p.status === "CLOSED").length > 0 && (
                     <>
                       <div style={{ color: T.muted, fontWeight: 700, marginTop: 18, marginBottom: 10, fontSize: 14 }}>Closed Trades</div>
-                      {positions.filter(p => p.status === "CLOSED").map(p => <PortfolioRow key={p.id} pos={p} onClose={handleClosePosition} />)}
+                      {positions.filter(p => p.status === "CLOSED").map(p => <PortfolioRow key={p.id} pos={p} onClose={handleClosePosition} livePrice={livePrices[p.symbol]} />)}
                     </>
                   )}
                   {positions.length === 0 && (
