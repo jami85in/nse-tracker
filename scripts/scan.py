@@ -1178,7 +1178,7 @@ def run(backfill_days: int = 0, allow_weekend: bool = False):
     baseline_prices = {s["symbol"]: s["price"] for s in all_stocks if s.get("price")}
     with open("data/prices_live.json", "w") as f:
         json.dump({
-            "updated_at": datetime.datetime.now(IST).strftime("%Y-%m-%d %H:%M IST"),
+            "updated_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M IST"),
             "in_market_hours": False,
             "count": len(baseline_prices),
             "prices": baseline_prices
