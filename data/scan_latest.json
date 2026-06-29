@@ -1,6 +1,6 @@
 {
-  "scan_time": "2026-06-29 14:25 IST",
-  "market_mood": "NEUTRAL",
+  "scan_time": "2026-06-29 17:27 IST",
+  "market_mood": "BULLISH \u2014 all 15 setups are active BLAST trades with strong realized returns across the board",
   "squeeze_stocks": [
     {
       "symbol": "SRF",
@@ -165,7 +165,7 @@
       "first_seen": "2026-06-29",
       "blast_triggered_date": "2026-06-29",
       "confidence": "MEDIUM",
-      "reason": "Up 24.0% over 27d since entry at None, stoch_k 80 overbought"
+      "reason": "Up 23.96% over 27 days; BB expanded from 21.2% to 24.5%."
     },
     {
       "symbol": "REDINGTON",
@@ -195,8 +195,8 @@
       "status": "BLAST",
       "first_seen": "2026-06-29",
       "blast_triggered_date": "2026-06-29",
-      "confidence": "HIGH",
-      "reason": "Up 22.8% over 31d since entry at None, stoch_k 87 overbought"
+      "confidence": "MEDIUM",
+      "reason": "Up 22.82% over 31 days; BB widened sharply from 25.8% to 32.7%."
     },
     {
       "symbol": "KIRLOSENG",
@@ -227,7 +227,7 @@
       "first_seen": "2026-06-24",
       "blast_triggered_date": "2026-06-24",
       "confidence": "HIGH",
-      "reason": "Up 22.6% over 10d since entry at None, stoch_k 93 overbought"
+      "reason": "Up 22.58% over 10 days; explosive BB expansion from 16.6% to 51.1%."
     },
     {
       "symbol": "CHOLAFIN",
@@ -258,7 +258,7 @@
       "first_seen": "2026-06-15",
       "blast_triggered_date": "2026-06-15",
       "confidence": "HIGH",
-      "reason": "Up 21.8% over 21d since entry at None, stoch_k 100 overbought"
+      "reason": "Up 21.84% over 21 days; stoch_k 99.68 near perfect momentum continuation."
     },
     {
       "symbol": "JSWINFRA",
@@ -289,7 +289,7 @@
       "first_seen": "2026-06-16",
       "blast_triggered_date": "2026-06-16",
       "confidence": "MEDIUM",
-      "reason": "Up 20.0% over 21d since entry at None, stoch_k 85 overbought"
+      "reason": "Up 19.97% over 21 days; BB expanded 17.1% to 29.1% cleanly."
     },
     {
       "symbol": "WELSPUNLIV",
@@ -319,8 +319,8 @@
       "status": "BLAST",
       "first_seen": "2026-06-18",
       "blast_triggered_date": "2026-06-18",
-      "confidence": "HIGH",
-      "reason": "Up 19.5% over 18d since entry at None, stoch_k 90 overbought"
+      "confidence": "MEDIUM",
+      "reason": "Up 19.54% over 18 days; stoch_k 90.3 with moderate BB expansion noted."
     },
     {
       "symbol": "MAXHEALTH",
@@ -351,7 +351,7 @@
       "first_seen": "2026-06-23",
       "blast_triggered_date": "2026-06-23",
       "confidence": "HIGH",
-      "reason": "Up 19.1% over 31d since entry at None, stoch_k 86 overbought"
+      "reason": "Up 19.15% over 31 days; tightest BB at 23.3% with strong stoch alignment."
     },
     {
       "symbol": "OLECTRA",
@@ -382,7 +382,7 @@
       "first_seen": "2026-06-18",
       "blast_triggered_date": "2026-06-18",
       "confidence": "MEDIUM",
-      "reason": "Up 18.9% over 21d since entry at None, stoch_k 79 overbought"
+      "reason": "Up 18.88% over 21 days; stoch_k 79.5 weakest momentum among blast setups."
     },
     {
       "symbol": "TRENT",
@@ -413,7 +413,7 @@
       "first_seen": "2026-06-19",
       "blast_triggered_date": "2026-06-19",
       "confidence": "HIGH",
-      "reason": "Up 18.5% over 19d since entry at None, stoch_k 96 overbought"
+      "reason": "Up 18.46% over 19 days; stoch_k 95.6 with clean BB expansion from 19.9%."
     },
     {
       "symbol": "INDIGO",
@@ -444,7 +444,7 @@
       "first_seen": "2026-06-19",
       "blast_triggered_date": "2026-06-19",
       "confidence": "HIGH",
-      "reason": "Up 18.1% over 18d since entry at None, stoch_k 98 overbought"
+      "reason": "Up 18.05% over 18 days; stoch_k 97.8 with strong BB expansion from 17.6%."
     },
     {
       "symbol": "TMCV",
@@ -475,7 +475,7 @@
       "first_seen": "2026-06-15",
       "blast_triggered_date": "2026-06-15",
       "confidence": "HIGH",
-      "reason": "Up 17.9% over 21d since entry at None, stoch_k 96 overbought"
+      "reason": "Up 17.87% over 21 days; stoch_k 96.3 with tight BB base at 18.8%."
     },
     {
       "symbol": "GABRIEL",
@@ -506,7 +506,7 @@
       "first_seen": "2026-06-17",
       "blast_triggered_date": "2026-06-17",
       "confidence": "HIGH",
-      "reason": "Up 17.3% over 28d since entry at None, stoch_k 100 overbought"
+      "reason": "Up 17.34% over 28 days; stoch_k perfect 100.0 with BB at 33.7%."
     },
     {
       "symbol": "ZENTEC",
@@ -568,7 +568,7 @@
       "first_seen": "2026-06-29",
       "blast_triggered_date": "2026-06-29",
       "confidence": "HIGH",
-      "reason": "Up 16.6% over 17d since entry at None, stoch_k 98 overbought"
+      "reason": "Up 16.59% over 17 days; tightest BB 20.2% with stoch_k surging to 97.9%."
     },
     {
       "symbol": "ITCHOTELS",
@@ -599,7 +599,7 @@
       "first_seen": "2026-06-16",
       "blast_triggered_date": "2026-06-16",
       "confidence": "HIGH",
-      "reason": "Up 16.2% over 21d since entry at None, stoch_k 94 overbought"
+      "reason": "Up 16.19% over 21 days; BB nearly doubled from 12.3% to 26.4% sharply."
     },
     {
       "symbol": "PRESTIGE",
@@ -630,7 +630,7 @@
       "first_seen": "2026-06-16",
       "blast_triggered_date": "2026-06-16",
       "confidence": "HIGH",
-      "reason": "Up 15.9% over 21d since entry at None, stoch_k 99 overbought"
+      "reason": "Up 15.95% over 21 days; stoch_k 99.4 with tight BB base at 24.4%."
     },
     {
       "symbol": "PWL",
