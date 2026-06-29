@@ -810,6 +810,18 @@ def update_ledger(ledger: dict, all_candidates: list, scan_date: str) -> dict:
             was_watchlist = existing and existing.get("status") == "WATCHLIST"
             cand_dict["status"] = "SQUEEZE"
             cand_dict["first_seen"] = existing.get("first_seen", scan_date) if existing else scan_date
+            if existing and existing.get("status") == "SQUEEZE":
+                # FREEZE all entry-time fields — these must never change once
+                # a position is open. Only live/indicator fields (price,
+                # bb_width, stoch_k, stoch_d, last_seen) are allowed to refresh.
+                cand_dict["entry_price"]      = existing["entry_price"]
+                cand_dict["entry_date"]       = existing["entry_date"]
+                cand_dict["target_price"]     = existing["target_price"]
+                cand_dict["target_return_pct"] = existing["target_return_pct"]
+                cand_dict["pivot_r1"]         = existing["pivot_r1"]
+                cand_dict["pivot_r2"]         = existing.get("pivot_r2", cand_dict.get("pivot_r2"))
+                cand_dict["pivot_s1"]         = existing["pivot_s1"]
+                cand_dict["predicted_return"] = existing.get("predicted_return", cand_dict.get("predicted_return"))
             if was_watchlist:
                 cand_dict["watchlist_first_seen"] = existing.get("watchlist_first_seen", existing.get("first_seen"))
                 cand_dict["watchlist_first_price"] = existing.get("watchlist_first_price", existing.get("price"))
