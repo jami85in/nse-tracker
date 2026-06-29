@@ -349,22 +349,37 @@ const T = {
 
 // ── Data fetching ─────────────────────────────────────────────────────────────
 // GitHub Contents API as primary — returns base64-encoded JSON, bypasses CDN
-// caching entirely. Falls back to raw URL with aggressive cache-busting.
+// caching entirely. Falls back to raw URL if API is rate-limited.
 const GITHUB_USER = "jami85in";
 const GITHUB_REPO = "nse-tracker";
-const RAW_BASE = `https://raw.githubusercontent.com/${GITHUB_USER}/${GITHUB_REPO}/main/data`;
+const GITHUB_API  = `https://api.github.com/repos/${GITHUB_USER}/${GITHUB_REPO}/contents/data`;
+const RAW_BASE    = `https://raw.githubusercontent.com/${GITHUB_USER}/${GITHUB_REPO}/main/data`;
 const GITHUB_APP_ACTIONS_URL = `https://github.com/${GITHUB_USER}/${GITHUB_REPO}/actions/workflows/scan.yml`;
 
 async function fetchFile(filename) {
-  // raw.githubusercontent.com is the most reliable source.
-  // We cache-bust with timestamp + random to defeat browser/CDN caching.
-  // Do NOT send custom Cache-Control headers — they trigger CORS preflight
-  // which raw.githubusercontent.com rejects, breaking the fetch on mobile.
-  const url = `${RAW_BASE}/${filename}?t=${Date.now()}&r=${Math.random().toString(36).slice(2)}`;
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`GitHub returned ${res.status} for ${filename}. Check the repo is public.`);
-  const text = await res.text();
-  if (!text || text[0] !== '{') throw new Error(`Unexpected response for ${filename} — may be a GitHub CDN cache miss. Try again in a moment.`);
+  // PRIMARY: GitHub Contents API — no CDN layer, always fresh.
+  try {
+    const apiRes = await fetch(
+      `${GITHUB_API}/${filename}?t=${Date.now()}`,
+      { headers: { "Accept": "application/vnd.github.v3+json" } }
+    );
+    if (apiRes.ok) {
+      const envelope = await apiRes.json();
+      if (envelope.content) {
+        return JSON.parse(atob(envelope.content.replace(/\n/g, "")));
+      }
+      // envelope.message means rate-limited — fall through to raw
+    }
+  } catch {}
+
+  // FALLBACK: raw URL — may be up to 5min stale due to GitHub CDN.
+  // No custom headers — they trigger CORS preflight on raw.githubusercontent.com.
+  const rawRes = await fetch(
+    `${RAW_BASE}/${filename}?t=${Date.now()}&r=${Math.random().toString(36).slice(2)}`
+  );
+  if (!rawRes.ok) throw new Error(`Failed to load ${filename} (${rawRes.status}). Is the repo public?`);
+  const text = await rawRes.text();
+  if (!text || text[0] !== "{") throw new Error(`Unexpected response for ${filename} — try again in a moment.`);
   return JSON.parse(text);
 }
 
