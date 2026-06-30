@@ -505,6 +505,7 @@ function SqueezeCard({ stock, onInvest, rank, livePrice }) {
           ⚠️ Target ₹{fmt(stock.target_price)} is below entry price — this signal was recorded before the upside check was added. Monitor manually.
         </div>
       )}
+      {stock.promoted_from_watchlist && stock.watchlist_first_seen && (
         <div style={{ color: T.warn, fontSize: 10, marginTop: 6, background: T.warn + "15", borderRadius: 6, padding: "5px 8px" }}>
           ⭐ Spotted on watchlist {stock.watchlist_first_seen} at {curr(stock.watchlist_first_price)} — confirmed entry {stock.promoted_date}
         </div>
