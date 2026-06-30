@@ -862,7 +862,7 @@ function LongTermRow({ holding, onDelete, scanData }) {
         {holding.targetExit && <Stat label="Target Exit" value={curr(holding.targetExit)} color={T.green} />}
         {targetPct && <Stat label="Target %" value={"+" + fmt(targetPct) + "%"} color={T.green} />}
         {holding.reentryPrice && <Stat label="Re-entry" value={curr(holding.reentryPrice)} color={T.accent} />}
-        {gainLoss != null && <Stat label="Gain/Loss" value={(gainLoss >= 0 ? "+" : "") + curr(Math.abs(gainLoss))} color={gainLoss >= 0 ? T.green : T.red} />}
+        {gainLoss != null && <Stat label="Gain/Loss" value={(gainLoss >= 0 ? "+" : "-") + curr(Math.abs(gainLoss))} color={gainLoss >= 0 ? T.green : T.red} />}
       </div>
 
       {holding.notes && <div style={{ color: T.muted, fontSize: 11, marginTop: 8 }}>📝 {holding.notes}</div>}
@@ -969,8 +969,8 @@ function PortfolioSummary({ positions, livePrices = {} }) {
       <div style={{ display: "grid", gridTemplateColumns: "repeat(2,1fr)", gap: 14 }}>
         <Stat label="Total Invested" value={curr(totalInvested)} />
         <Stat label="Win Rate" value={winRate + "%"} color={Number(winRate) > 60 ? T.green : T.warn} />
-        <Stat label="Realized P&L" value={(realizedPL >= 0 ? "+" : "") + curr(Math.abs(realizedPL))} color={realizedPL >= 0 ? T.green : T.red} />
-        <Stat label="Unrealized P&L" value={(unrealizedPL >= 0 ? "+" : "") + curr(Math.abs(unrealizedPL))} color={unrealizedPL >= 0 ? T.green : T.red} />
+        <Stat label="Realized P&L" value={(realizedPL >= 0 ? "+" : "-") + curr(Math.abs(realizedPL))} color={realizedPL >= 0 ? T.green : T.red} />
+        <Stat label="Unrealized P&L" value={(unrealizedPL >= 0 ? "+" : "-") + curr(Math.abs(unrealizedPL))} color={unrealizedPL >= 0 ? T.green : T.red} />
         <Stat label="Open" value={open.length} />
         <Stat label="Closed" value={closed.length} />
       </div>
