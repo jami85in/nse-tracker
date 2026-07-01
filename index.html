@@ -352,34 +352,35 @@ const T = {
 // caching entirely. Falls back to raw URL if API is rate-limited.
 const GITHUB_USER = "jami85in";
 const GITHUB_REPO = "nse-tracker";
-const GITHUB_API  = `https://api.github.com/repos/${GITHUB_USER}/${GITHUB_REPO}/contents/data`;
 const RAW_BASE    = `https://raw.githubusercontent.com/${GITHUB_USER}/${GITHUB_REPO}/main/data`;
 const GITHUB_APP_ACTIONS_URL = `https://github.com/${GITHUB_USER}/${GITHUB_REPO}/actions/workflows/scan.yml`;
 
-async function fetchFile(filename) {
-  // PRIMARY: GitHub Contents API — no CDN layer, always fresh.
+// ── Fetch helpers ─────────────────────────────────────────────────────────────
+// Strategy: fetch scan_version.txt first (tiny file, fast) to get the current
+// commit-time token. Use that token in the scan_latest.json URL so the CDN
+// sees a new URL on every scan and cannot serve stale content.
+// Falls back to plain timestamp cache-bust if version fetch fails.
+
+let _cachedVersion = null;
+
+async function fetchVersion() {
   try {
-    const apiRes = await fetch(
-      `${GITHUB_API}/${filename}?t=${Date.now()}`,
-      { headers: { "Accept": "application/vnd.github.v3+json" } }
-    );
-    if (apiRes.ok) {
-      const envelope = await apiRes.json();
-      if (envelope.content) {
-        return JSON.parse(atob(envelope.content.replace(/\n/g, "")));
-      }
-      // envelope.message means rate-limited — fall through to raw
+    const res = await fetch(`${RAW_BASE}/scan_version.txt?t=${Date.now()}`);
+    if (res.ok) {
+      const v = (await res.text()).trim();
+      if (v) { _cachedVersion = v; return v; }
     }
   } catch {}
+  return `t${Date.now()}`; // fallback: timestamp
+}
 
-  // FALLBACK: raw URL — may be up to 5min stale due to GitHub CDN.
-  // No custom headers — they trigger CORS preflight on raw.githubusercontent.com.
-  const rawRes = await fetch(
-    `${RAW_BASE}/${filename}?t=${Date.now()}&r=${Math.random().toString(36).slice(2)}`
-  );
-  if (!rawRes.ok) throw new Error(`Failed to load ${filename} (${rawRes.status}). Is the repo public?`);
-  const text = await rawRes.text();
-  if (!text || text[0] !== "{") throw new Error(`Unexpected response for ${filename} — try again in a moment.`);
+async function fetchFile(filename) {
+  const version = await fetchVersion();
+  const url = `${RAW_BASE}/${filename}?v=${encodeURIComponent(version)}`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Failed to load ${filename} (${res.status}). Is the repo public?`);
+  const text = await res.text();
+  if (!text || text[0] !== "{") throw new Error(`Unexpected response for ${filename} — CDN may be refreshing, try again in a moment.`);
   return JSON.parse(text);
 }
 
