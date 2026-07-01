@@ -1179,13 +1179,14 @@ def run(backfill_days: int = 0, allow_weekend: bool = False):
     with open("data/scan_latest.json", "w") as f:
         json.dump(output, f, indent=2)
 
-    # scan_version.txt — a tiny file whose content changes every scan.
-    # The dashboard fetches this first to get a unique cache-busting token,
-    # then uses it in the scan_latest.json URL. This defeats GitHub CDN
-    # caching without needing the GitHub API (which rate-limits aggressively).
-    version_str = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
-    with open("data/scan_version.txt", "w") as f:
-        f.write(version_str)
+    # scan_version.txt — tiny file whose content changes every scan.
+    # The dashboard fetches this first to get a cache-busting token.
+    try:
+        version_str = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
+        with open("data/scan_version.txt", "w") as f:
+            f.write(version_str)
+    except Exception as e:
+        print(f"Warning: could not write scan_version.txt: {e}")
 
     # Write a baseline prices_live.json from closing prices so the
     # dashboard has price data immediately after the scan, before the
