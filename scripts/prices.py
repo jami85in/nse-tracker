@@ -113,6 +113,11 @@ def main():
     for sym, p in list(prices.items())[:5]:
         print(f"    {sym}: ₹{p}")
 
+    if len(prices) == 0:
+        print("  ⚠ No prices fetched — preserving existing prices_live.json unchanged.")
+        print("  This is expected outside market hours or if NSE API is temporarily unavailable.")
+        return
+
     output = {
         "updated_at": now_ist.strftime("%Y-%m-%d %H:%M IST"),
         "market_open": market_open,
