@@ -1,6 +1,6 @@
 {
-  "scan_time": "2026-07-01 11:42 IST",
-  "market_mood": "BULLISH \u2014 13 BLAST setups with double-digit realized returns vastly outweigh 2 early-stage SQUEEZE setups",
+  "scan_time": "2026-07-01 12:53 IST",
+  "market_mood": "BULLISH \u2014 13 BLAST setups with double-digit realized returns dominate 2 early SQUEEZE setups",
   "squeeze_stocks": [
     {
       "symbol": "SRF",
@@ -30,7 +30,7 @@
       "status": "SQUEEZE",
       "first_seen": "2026-06-23",
       "confidence": "MEDIUM",
-      "reason": "BB width 4.19% expanding from 3.81%, stoch_k 46.66 crossing above stoch_d 37.24"
+      "reason": "BB width 4.19% expanding from 3.81%, stoch_k 46.7 crossing above stoch_d 37.2"
     },
     {
       "symbol": "SUNTV",
@@ -60,7 +60,7 @@
       "status": "SQUEEZE",
       "first_seen": "2026-07-01",
       "confidence": "MEDIUM",
-      "reason": "BB width 4.35% narrowing from 4.89%, but EMAs bearish with price below ema10 and ema30"
+      "reason": "BB width 4.35% narrowing from 4.89%, but EMA10 515 below EMA30 522 bearish"
     },
     {
       "symbol": "ADANIPORTS",
@@ -222,7 +222,7 @@
       "first_seen": "2026-06-15",
       "blast_triggered_date": "2026-06-15",
       "confidence": "HIGH",
-      "reason": "Up 23.85% over 23 trading days since squeeze entry with stoch_k at 99.42"
+      "reason": "Up 23.85% over 23 trading days since squeeze entry, stoch near 99"
     },
     {
       "symbol": "REDINGTON",
@@ -284,7 +284,7 @@
       "first_seen": "2026-06-16",
       "blast_triggered_date": "2026-06-16",
       "confidence": "HIGH",
-      "reason": "Up 22.42% over 23 trading days since squeeze entry with stoch_k at 99.94"
+      "reason": "Up 22.42% over 23 trading days since squeeze entry, stoch_k at 99.94"
     },
     {
       "symbol": "TMCV",
@@ -315,7 +315,7 @@
       "first_seen": "2026-06-15",
       "blast_triggered_date": "2026-06-15",
       "confidence": "HIGH",
-      "reason": "Up 20.2% over 23 trading days since squeeze entry with stoch_k at 91.87"
+      "reason": "Up 20.2% over 23 trading days since squeeze entry, strong EMA alignment"
     },
     {
       "symbol": "TRENT",
@@ -346,7 +346,7 @@
       "first_seen": "2026-06-19",
       "blast_triggered_date": "2026-06-19",
       "confidence": "HIGH",
-      "reason": "Up 19.62% over 21 trading days since squeeze entry with stoch_k at 99.92"
+      "reason": "Up 19.62% over 21 trading days since squeeze entry, stoch_k at 99.92"
     },
     {
       "symbol": "LTF",
@@ -377,7 +377,7 @@
       "first_seen": "2026-06-15",
       "blast_triggered_date": "2026-06-15",
       "confidence": "HIGH",
-      "reason": "Up 19.49% over 23 trading days since squeeze entry with stoch_k at 98.76"
+      "reason": "Up 19.49% over 23 trading days since squeeze entry, stoch_k flat at 98.76"
     },
     {
       "symbol": "ITCHOTELS",
@@ -408,7 +408,7 @@
       "first_seen": "2026-06-16",
       "blast_triggered_date": "2026-06-16",
       "confidence": "HIGH",
-      "reason": "Up 17.96% over 23 trading days since squeeze entry with stoch_k at 97.07"
+      "reason": "Up 17.96% over 23 trading days since squeeze entry, stoch_k at 97.07"
     },
     {
       "symbol": "GABRIEL",
@@ -439,7 +439,7 @@
       "first_seen": "2026-06-17",
       "blast_triggered_date": "2026-06-17",
       "confidence": "HIGH",
-      "reason": "Up 17.94% over 28 trading days since squeeze entry with stoch_k at 98.29"
+      "reason": "Up 17.94% over 28 trading days since squeeze entry, BB width 35.67%"
     },
     {
       "symbol": "KIRLOSENG",
@@ -470,7 +470,7 @@
       "first_seen": "2026-06-24",
       "blast_triggered_date": "2026-06-24",
       "confidence": "MEDIUM",
-      "reason": "Up 17.55% over 12 trading days but stoch_k 79.60 rolling below stoch_d 86.37"
+      "reason": "Up 17.55% over 12 trading days, stoch_k 79.6 dipping below stoch_d 86.4"
     },
     {
       "symbol": "HDBFS",
@@ -501,7 +501,7 @@
       "first_seen": "2026-06-16",
       "blast_triggered_date": "2026-06-16",
       "confidence": "HIGH",
-      "reason": "Up 17.54% over 26 trading days since squeeze entry with stoch_k at 99.94"
+      "reason": "Up 17.54% over 26 trading days since squeeze entry, stoch_k at 99.94"
     },
     {
       "symbol": "ZENTEC",
@@ -563,7 +563,7 @@
       "first_seen": "2026-06-16",
       "blast_triggered_date": "2026-06-16",
       "confidence": "HIGH",
-      "reason": "Up 16.89% over 23 trading days since squeeze entry with stoch_k at 99.66"
+      "reason": "Up 16.89% over 23 trading days since squeeze entry, stoch_k at 99.66"
     },
     {
       "symbol": "ETERNAL",
@@ -594,7 +594,7 @@
       "first_seen": "2026-06-22",
       "blast_triggered_date": "2026-06-22",
       "confidence": "HIGH",
-      "reason": "Up 16.64% over 21 trading days since squeeze entry with stoch_k at 100.0"
+      "reason": "Up 16.64% over 21 trading days since squeeze entry, stoch_k at 100.0"
     },
     {
       "symbol": "OFSS",
@@ -625,7 +625,7 @@
       "first_seen": "2026-06-29",
       "blast_triggered_date": "2026-06-29",
       "confidence": "HIGH",
-      "reason": "Up 16.46% over 19 trading days since squeeze entry with stoch_k at 100.0"
+      "reason": "Up 16.46% over 19 trading days, stoch_k and stoch_d both pegged at 100.0"
     },
     {
       "symbol": "AAVAS",
@@ -656,7 +656,7 @@
       "first_seen": "2026-06-17",
       "blast_triggered_date": "2026-06-17",
       "confidence": "HIGH",
-      "reason": "Up 16.34% over 29 trading days since squeeze entry with stoch_k at 98.50"
+      "reason": "Up 16.34% over 29 trading days since squeeze entry, stoch_k at 98.50"
     },
     {
       "symbol": "CHOICEIN",
