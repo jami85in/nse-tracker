@@ -2,10 +2,10 @@ name: NSE Live Price Update
 
 on:
   schedule:
-    # Every 15 min during NSE market hours (9:15am–3:30pm IST = 3:45am–10:00am UTC)
-    # Runs Mon–Fri only. scan.py's is_market_hours() handles early/late no-ops.
+    # Every 15 min during NSE market hours (9:15amâ€“3:30pm IST = 3:45amâ€“10:00am UTC)
+    # Runs Monâ€“Fri only.
     - cron: "*/15 3-10 * * 1-5"
-  workflow_dispatch:  # allow manual trigger for testing
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -21,9 +21,9 @@ jobs:
           python-version: "3.11"
 
       - name: Install dependencies
-        run: pip install yfinance pandas
+        run: pip install requests
 
-      - name: Fetch live prices
+      - name: Fetch live prices from NSE
         run: python scripts/prices.py
 
       - name: Commit price data
