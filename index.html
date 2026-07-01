@@ -352,35 +352,46 @@ const T = {
 // caching entirely. Falls back to raw URL if API is rate-limited.
 const GITHUB_USER = "jami85in";
 const GITHUB_REPO = "nse-tracker";
+const GITHUB_API  = `https://api.github.com/repos/${GITHUB_USER}/${GITHUB_REPO}/contents/data`;
 const RAW_BASE    = `https://raw.githubusercontent.com/${GITHUB_USER}/${GITHUB_REPO}/main/data`;
 const GITHUB_APP_ACTIONS_URL = `https://github.com/${GITHUB_USER}/${GITHUB_REPO}/actions/workflows/scan.yml`;
 
-// ── Fetch helpers ─────────────────────────────────────────────────────────────
-// Strategy: fetch scan_version.txt first (tiny file, fast) to get the current
-// commit-time token. Use that token in the scan_latest.json URL so the CDN
-// sees a new URL on every scan and cannot serve stale content.
-// Falls back to plain timestamp cache-bust if version fetch fails.
-
-let _cachedVersion = null;
+// ── Fetch strategy ────────────────────────────────────────────────────────────
+// Problem: raw.githubusercontent.com CDN caches files for ~5 minutes and
+// IGNORES query string cache-busting. GitHub API has no CDN but rate-limits
+// at 60 requests/hour per IP.
+//
+// Solution: use GitHub API ONLY for scan_version.txt (1 tiny request per
+// refresh, well within rate limit). The version string changes every scan,
+// so we use it as a cache-busting token in the raw URL for scan_latest.json.
+// Since the raw URL is now unique per scan, the CDN has no cached version.
 
 async function fetchVersion() {
   try {
-    const res = await fetch(`${RAW_BASE}/scan_version.txt?t=${Date.now()}`);
+    // GitHub API returns base64 content — no CDN, always current
+    const res = await fetch(
+      `${GITHUB_API}/scan_version.txt?t=${Date.now()}`,
+      { headers: { "Accept": "application/vnd.github.v3+json" } }
+    );
     if (res.ok) {
-      const v = (await res.text()).trim();
-      if (v) { _cachedVersion = v; return v; }
+      const envelope = await res.json();
+      if (envelope.content) {
+        return atob(envelope.content.replace(/\n/g, "")).trim();
+      }
+      // rate limited — fall through
     }
   } catch {}
-  return `t${Date.now()}`; // fallback: timestamp
+  return `t${Date.now()}`; // timestamp fallback — may serve stale data
 }
 
 async function fetchFile(filename) {
   const version = await fetchVersion();
+  // Use version as part of the URL path query — CDN sees a new URL each scan
   const url = `${RAW_BASE}/${filename}?v=${encodeURIComponent(version)}`;
   const res = await fetch(url);
   if (!res.ok) throw new Error(`Failed to load ${filename} (${res.status}). Is the repo public?`);
   const text = await res.text();
-  if (!text || text[0] !== "{") throw new Error(`Unexpected response for ${filename} — CDN may be refreshing, try again in a moment.`);
+  if (!text || text[0] !== "{") throw new Error(`Unexpected response for ${filename} — try again in a moment.`);
   return JSON.parse(text);
 }
 
