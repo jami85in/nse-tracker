@@ -405,8 +405,12 @@ async function fetchMarketStatus() {
 // workflow (prices.yml) that runs every 15 min during NSE market hours using
 // yfinance. This avoids all browser CORS/cookie issues with Yahoo Finance.
 async function fetchLivePrices() {
+  // prices_live.json is written by prices.py every 15 min during market hours
+  // using the NSE quote API — same session approach as scan.py.
+  // Covers all scanner symbols AND portfolio positions.
   try {
-    const url = `${RAW_BASE}/prices_live.json?t=${Date.now()}&r=${Math.random().toString(36).slice(2)}`;
+    const version = await fetchVersion();
+    const url = `${RAW_BASE}/prices_live.json?v=${encodeURIComponent(version)}`;
     const res = await fetch(url);
     if (!res.ok) return {};
     const text = await res.text();
@@ -415,10 +419,10 @@ async function fetchLivePrices() {
     return {
       prices: data.prices || {},
       updatedAt: data.updated_at || null,
-      inMarketHours: data.in_market_hours || false
+      marketOpen: data.market_open || false
     };
   } catch {
-    return { prices: {}, updatedAt: null, inMarketHours: false };
+    return { prices: {}, updatedAt: null, marketOpen: false };
   }
 }
 
@@ -1076,7 +1080,7 @@ function App() {
         ...(data.watchlist_stocks || []).map(s => s.symbol),
         ...positions.filter(p => p.status === "OPEN").map(p => p.symbol),
       ])];
-      fetchLivePrices().then(({ prices, updatedAt, inMarketHours }) => {
+      fetchLivePrices().then(({ prices, updatedAt, marketOpen }) => {
         if (Object.keys(prices).length > 0) {
           setLivePrices(prices);
           setPriceUpdated(updatedAt || new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" }));
@@ -1093,13 +1097,12 @@ function App() {
   const livePriceRef = useRef(null);
   useEffect(() => {
     if (!scanData) return;
-    const refreshPrices = () => {
-      fetchLivePrices().then(({ prices, updatedAt }) => {
-        if (Object.keys(prices).length > 0) {
-          setLivePrices(prices);
-          setPriceUpdated(updatedAt || new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" }));
-        }
-      });
+    const refreshPrices = async () => {
+      const { prices, updatedAt } = await fetchLivePrices();
+      if (Object.keys(prices).length > 0) {
+        setLivePrices(prices);
+        setPriceUpdated(updatedAt || new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" }));
+      }
     };
     livePriceRef.current = setInterval(refreshPrices, 5 * 60 * 1000);
     return () => clearInterval(livePriceRef.current);
