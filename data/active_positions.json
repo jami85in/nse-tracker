@@ -28,7 +28,7 @@
     "first_seen": "2026-06-19",
     "blast_triggered_date": "2026-06-19",
     "confidence": "HIGH",
-    "reason": "Up 15.24% over 27 trading days since squeeze entry, stoch K 98.33"
+    "reason": "Up 15.24% over 27 trading days since squeeze entry, stoch_k 98.33"
   },
   "ANANDRATHI": {
     "symbol": "ANANDRATHI",
@@ -90,7 +90,7 @@
     "first_seen": "2026-06-15",
     "blast_triggered_date": "2026-06-15",
     "confidence": "HIGH",
-    "reason": "Up 20.46% over 24 trading days since squeeze entry, stoch K 96.64"
+    "reason": "Up 20.46% over 24 trading days since squeeze entry, stoch_k 96.64"
   },
   "PAGEIND": {
     "symbol": "PAGEIND",
@@ -276,7 +276,7 @@
     "first_seen": "2026-06-16",
     "blast_triggered_date": "2026-06-16",
     "confidence": "HIGH",
-    "reason": "Up 17.56% over 27 trading days since squeeze entry, stoch K 99.11"
+    "reason": "Up 17.56% over 27 trading days since squeeze entry, stoch_k 99.11"
   },
   "CREDITACC": {
     "symbol": "CREDITACC",
@@ -307,7 +307,7 @@
     "first_seen": "2026-06-16",
     "blast_triggered_date": "2026-06-16",
     "confidence": "HIGH",
-    "reason": "Up 17.77% over 20 trading days since squeeze entry, stoch K 99.99"
+    "reason": "Up 17.77% over 20 trading days since squeeze entry, stoch_k 99.99"
   },
   "EMCURE": {
     "symbol": "EMCURE",
@@ -369,7 +369,7 @@
     "first_seen": "2026-06-16",
     "blast_triggered_date": "2026-06-16",
     "confidence": "HIGH",
-    "reason": "Up 26.1% over 24 trading days since squeeze entry, stoch K 99.94"
+    "reason": "Up 26.1% over 24 trading days since squeeze entry, stoch_k 99.94"
   },
   "SHRIRAMFIN": {
     "symbol": "SHRIRAMFIN",
@@ -400,7 +400,7 @@
     "first_seen": "2026-06-16",
     "blast_triggered_date": "2026-06-16",
     "confidence": "HIGH",
-    "reason": "Up 18.97% over 24 trading days since squeeze entry, stoch K 99.66"
+    "reason": "Up 18.97% over 24 trading days since squeeze entry, stoch_k 99.66"
   },
   "ABREL": {
     "symbol": "ABREL",
@@ -431,7 +431,7 @@
     "first_seen": "2026-06-17",
     "blast_triggered_date": "2026-06-17",
     "confidence": "HIGH",
-    "reason": "Up 16.84% over 23 trading days since squeeze entry, stoch K 99.28"
+    "reason": "Up 16.84% over 23 trading days since squeeze entry, stoch_k 99.28"
   },
   "ADANIPORTS": {
     "symbol": "ADANIPORTS",
@@ -746,7 +746,7 @@
     "first_seen": "2026-06-22",
     "blast_triggered_date": "2026-06-22",
     "confidence": "HIGH",
-    "reason": "Up 16.64% over 22 trading days since squeeze entry, stoch K 97.96"
+    "reason": "Up 16.64% over 22 trading days since squeeze entry, stoch_k 97.96"
   },
   "INDGN": {
     "symbol": "INDGN",
@@ -1306,7 +1306,7 @@
     "first_seen": "2026-06-23",
     "blast_triggered_date": "2026-06-23",
     "confidence": "HIGH",
-    "reason": "Up 17.81% over 27 trading days since squeeze entry, stoch K 94.16"
+    "reason": "Up 17.81% over 27 trading days, BB width surged from 9.18% to 21.89%"
   },
   "HONAUT": {
     "symbol": "HONAUT",
@@ -1958,7 +1958,7 @@
     "first_seen": "2026-06-29",
     "blast_triggered_date": "2026-06-29",
     "confidence": "HIGH",
-    "reason": "Up 17.78% over 20 trading days since squeeze entry, stoch K 100.0"
+    "reason": "Up 17.78% over 20 trading days since squeeze entry, stoch_k 100.0"
   },
   "RRKABEL": {
     "symbol": "RRKABEL",
@@ -2366,7 +2366,7 @@
     "first_seen": "2026-06-30",
     "blast_triggered_date": "2026-06-30",
     "confidence": "HIGH",
-    "reason": "Up 16.23% over 27 trading days since squeeze entry, stoch K 99.58"
+    "reason": "Up 16.23% over 27 trading days since squeeze entry, stoch_k 99.58"
   },
   "GRANULES": {
     "symbol": "GRANULES",
@@ -2680,7 +2680,7 @@
     "first_seen": "2026-06-30",
     "blast_triggered_date": "2026-06-30",
     "confidence": "MEDIUM",
-    "reason": "Up 15.49% over 28 trading days since squeeze entry, stoch K 91.94"
+    "reason": "Up 15.49% over 28 trading days, stoch_k 91.94 slightly below stoch_d 94.38"
   },
   "MSUMI": {
     "symbol": "MSUMI",
@@ -3150,7 +3150,7 @@
     "first_seen": "2026-07-01",
     "blast_triggered_date": "2026-07-01",
     "confidence": "MEDIUM",
-    "reason": "Up 14.71% over 22 trading days since squeeze entry, stoch K 83.64"
+    "reason": "Up 14.71% over 22 trading days, stoch_k 83.64 lags peers with wider k-d gap"
   },
   "EMAMILTD": {
     "symbol": "EMAMILTD",
@@ -4366,7 +4366,7 @@
     "first_seen": "2026-06-23",
     "blast_triggered_date": "2026-06-23",
     "confidence": "HIGH",
-    "reason": "Up 19.25% over 27 trading days since squeeze entry, stoch K 87.90"
+    "reason": "Up 19.25% over 27 trading days since squeeze entry, stoch_k 87.90"
   },
   "CDSL": {
     "symbol": "CDSL",
@@ -6353,7 +6353,7 @@
     "status": "SQUEEZE",
     "first_seen": "2026-07-02",
     "confidence": "MEDIUM",
-    "reason": "BB width 4.21% slightly wider than 5d ago, stoch K 35 turning up weakly"
+    "reason": "BB width 4.21% barely tighter than 5d ago, stoch_k 35 turning up weakly"
   },
   "SAREGAMA": {
     "symbol": "SAREGAMA",
