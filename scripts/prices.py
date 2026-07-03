@@ -2,6 +2,7 @@
 """
 Intraday price updater — every 15 min during NSE market hours.
 Uses NSE bulk APIs to fetch all prices efficiently.
+Only writes prices during actual market hours to avoid stale pre-open data.
 """
 import json, os, datetime, time, requests
 
@@ -19,11 +20,19 @@ HEADERS = {
 
 NSE_BASE = "https://www.nseindia.com"
 
+def is_market_hours():
+    """Strict check — only 9:15am to 3:30pm IST, Mon-Fri."""
+    now = datetime.datetime.now(IST)
+    if now.weekday() >= 5:
+        return False
+    open_  = now.replace(hour=9,  minute=15, second=0, microsecond=0)
+    close_ = now.replace(hour=15, minute=30, second=0, microsecond=0)
+    return open_ <= now <= close_
+
 def get_session():
     s = requests.Session()
     s.headers.update(HEADERS)
     try:
-        # Hit multiple pages to get full cookie set
         s.get(NSE_BASE, timeout=15)
         time.sleep(1)
         s.get("https://www.nseindia.com/market-data/live-equity-market", timeout=15)
@@ -33,13 +42,8 @@ def get_session():
     return s
 
 def fetch_all_eq_prices(session):
-    """
-    Fetch ALL equity prices in one shot using NSE's market data API.
-    Returns dict of symbol -> price.
-    """
     prices = {}
     try:
-        # NSE's full equity market data — returns all listed stocks at once
         url = "https://www.nseindia.com/api/equity-stockIndices?index=NIFTY%20500"
         r = session.get(url, timeout=20)
         print(f"  NIFTY 500 API: HTTP {r.status_code}")
@@ -53,16 +57,6 @@ def fetch_all_eq_prices(session):
             print(f"  Got {len(prices)} prices from NIFTY 500 index API")
     except Exception as e:
         print(f"  NIFTY 500 API failed: {e}")
-
-    if len(prices) < 10:
-        # Fallback: try the all-securities API
-        try:
-            url2 = "https://www.nseindia.com/api/allIndices"
-            r2 = session.get(url2, timeout=15)
-            print(f"  allIndices API: HTTP {r2.status_code}")
-        except Exception as e:
-            print(f"  allIndices fallback also failed: {e}")
-
     return prices
 
 def get_symbols():
@@ -85,49 +79,41 @@ def get_symbols():
         print(f"  Warning reading ledger: {e}")
     return sorted(symbols)
 
-def is_market_hours():
-    now = datetime.datetime.now(IST)
-    if now.weekday() >= 5:
-        return False
-    open_  = now.replace(hour=9,  minute=10, second=0, microsecond=0)
-    close_ = now.replace(hour=15, minute=35, second=0, microsecond=0)
-    return open_ <= now <= close_
-
 def main():
     now_ist = datetime.datetime.now(IST)
     print(f"=== NSE Price Update: {now_ist.strftime('%Y-%m-%d %H:%M IST')} ===")
 
     in_market = is_market_hours()
-    print(f"  In market hours: {in_market}")
+    print(f"  In market hours (9:15am-3:30pm IST): {in_market}")
+
+    if not in_market:
+        print("  Market is closed — skipping price fetch to preserve last known good prices.")
+        print("  Prices_live.json unchanged.")
+        return
 
     symbols = get_symbols()
     print(f"  Tracked symbols: {len(symbols)}")
 
     session = get_session()
-
-    # Fetch all prices in bulk
     all_prices = fetch_all_eq_prices(session)
 
-    # Filter to only tracked symbols
     prices = {sym: all_prices[sym] for sym in symbols if sym in all_prices}
     missing = [sym for sym in symbols if sym not in all_prices]
 
     print(f"  Matched: {len(prices)}/{len(symbols)}")
     if missing:
         print(f"  Missing ({len(missing)}): {missing[:10]}")
-
-    # Show sample
     for sym in list(prices.keys())[:5]:
         print(f"    {sym}: ₹{prices[sym]}")
 
     if len(prices) == 0:
-        print("  ⚠ No prices — preserving existing file.")
+        print("  ⚠ No prices fetched — preserving existing file.")
         return
 
     output = {
         "updated_at": now_ist.strftime("%Y-%m-%d %H:%M IST"),
-        "market_open": in_market,
-        "in_market_hours": in_market,
+        "market_open": True,
+        "in_market_hours": True,
         "count": len(prices),
         "prices": prices
     }
