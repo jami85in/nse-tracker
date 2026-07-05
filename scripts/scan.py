@@ -1077,6 +1077,33 @@ def run(backfill_days: int = 0, allow_weekend: bool = False):
     is_open, reason = is_trading_day(today, session)
     print(f"Market day check for {today.isoformat()}: {'OPEN' if is_open else 'CLOSED'} — {reason}")
 
+    # Pre-close guard: if this is a trading day and the market is STILL OPEN
+    # (before 15:30 IST), the daily candle is not yet settled. Running now
+    # would fetch partial/mixed daily bars — some stocks showing today's
+    # in-progress value, others still on yesterday's close — producing
+    # inconsistent prices and unreliable indicator values. Refuse unless
+    # this is a backfill (which uses historical settled data) or an explicit
+    # weekend override (market already closed, data is final).
+    # GitHub Actions runs in UTC; IST = UTC + 5:30.
+    utc_now = datetime.datetime.utcnow()
+    ist_now = utc_now + datetime.timedelta(hours=5, minutes=30)
+    # Market closes 15:30 IST; add a small buffer (settle to 15:35) before we
+    # consider the candle final.
+    is_before_close = (ist_now.hour < 15 or (ist_now.hour == 15 and ist_now.minute < 35))
+    if is_open and is_before_close and backfill_days == 0 and not allow_weekend:
+        print(f"IST now ~{ist_now.strftime('%H:%M')} — market still open, daily candle not settled.")
+        print(f"Skipping scan to avoid partial-candle data. Wait until after 15:35 IST,")
+        print(f"or use backfill/weekend override to force a run on settled historical data.")
+        os.makedirs("data", exist_ok=True)
+        with open("data/market_status.json", "w") as f:
+            json.dump({
+                "date": today.isoformat(),
+                "market_open": True,
+                "reason": "Market open — scan deferred until candle settles at 15:30 IST",
+                "checked_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M IST"),
+            }, f, indent=2)
+        return
+
     if not is_open and not allow_weekend and backfill_days == 0:
         # Write a lightweight status file so the frontend can show
         # "market closed today" instead of silently keeping stale data
