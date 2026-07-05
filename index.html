@@ -1009,6 +1009,7 @@ function Countdown({ nextAt }) {
 
 function BottomNav({ tab, setTab, scanCount, posCount }) {
   const items = [
+    { id: "monitor", icon: "📊", label: "Monitor" },
     { id: "scanner", icon: "🎯", label: "Scanner", badge: scanCount },
     { id: "portfolio", icon: "💼", label: "Portfolio", badge: posCount },
     { id: "guide", icon: "📖", label: "Guide" },
@@ -1025,6 +1026,189 @@ function BottomNav({ tab, setTab, scanCount, posCount }) {
           <span style={{ fontSize: 10, fontWeight: tab === it.id ? 700 : 500 }}>{it.label}</span>
         </button>
       ))}
+    </div>
+  );
+}
+
+// ── Monitor Page — comprehensive single-view dashboard ────────────────────────
+// Read-only aggregate view combining market overview, portfolio P&L, In Play
+// positions, blast exits, watchlist pipeline, and stop-loss alerts. Does not
+// modify any data — purely for monitoring everything in one place.
+function MonitorPage({ scanData, positions, holdings, livePrices, priceUpdated }) {
+  if (!scanData) {
+    return <div style={{ textAlign: "center", padding: 50, color: T.muted }}>Loading monitor data…</div>;
+  }
+
+  const px = sym => livePrices[sym] || null;
+
+  // ── Portfolio aggregates ──
+  const openPos = positions.filter(p => p.status === "OPEN");
+  const closedPos = positions.filter(p => p.status === "CLOSED");
+  const totalInvested = openPos.reduce((s, p) => s + p.invested, 0);
+  const unrealizedPL = openPos.reduce((s, p) => {
+    const price = px(p.symbol) || p.currentPrice;
+    return s + (price - p.entryPrice) * p.qty;
+  }, 0);
+  const realizedPL = closedPos.reduce((s, p) => s + (p.exitPrice - p.entryPrice) * p.qty, 0);
+
+  // ── Stop-loss & target alerts across open positions ──
+  const alerts = [];
+  openPos.forEach(p => {
+    const price = px(p.symbol);
+    if (!price) return;
+    if (p.stopLoss && price < p.stopLoss) {
+      alerts.push({ type: "stop", symbol: p.symbol, msg: `below stop ₹${fmt(p.stopLoss)} (now ₹${fmt(price)})`, color: T.red });
+    } else if (p.targetPrice && price >= p.targetPrice) {
+      alerts.push({ type: "target", symbol: p.symbol, msg: `hit target ₹${fmt(p.targetPrice)} (now ₹${fmt(price)})`, color: T.green });
+    }
+  });
+  // Long-term holdings exit/re-entry alerts from scan signals
+  (holdings || []).forEach(h => {
+    const inBlast = (scanData.blast_stocks || []).some(b => b.symbol === h.symbol);
+    const inSqueeze = (scanData.squeeze_stocks || []).some(s => s.symbol === h.symbol);
+    if (inBlast) alerts.push({ type: "exit", symbol: h.symbol, msg: "showing BLAST exit signal", color: T.blast });
+    else if (inSqueeze) alerts.push({ type: "reentry", symbol: h.symbol, msg: "showing SQUEEZE re-entry signal", color: T.accent });
+  });
+
+  const squeeze = scanData.squeeze_stocks || [];
+  const blast = scanData.blast_stocks || [];
+  const watchlist = scanData.watchlist_stocks || [];
+
+  const Section = ({ title, count, color, children }) => (
+    <div style={{ marginBottom: 22 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+        <span style={{ fontWeight: 800, fontSize: 15, color: color || T.text }}>{title}</span>
+        {count != null && <span style={{ color: T.muted, fontSize: 12 }}>({count})</span>}
+      </div>
+      {children}
+    </div>
+  );
+
+  const MiniRow = ({ sym, cols, borderColor }) => (
+    <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", background: T.card, borderLeft: `3px solid ${borderColor || T.border}`, borderRadius: 6, marginBottom: 6 }}>
+      <span style={{ fontFamily: "monospace", fontWeight: 700, fontSize: 13, color: T.text, minWidth: 90 }}>{sym}</span>
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", flex: 1, justifyContent: "flex-end" }}>
+        {cols.map((c, i) => (
+          <span key={i} style={{ fontSize: 12, color: c.color || T.muted, fontWeight: c.bold ? 700 : 400 }}>{c.text}</span>
+        ))}
+      </div>
+    </div>
+  );
+
+  return (
+    <div style={{ paddingBottom: 20 }}>
+      {/* Market overview strip */}
+      <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, padding: 14, marginBottom: 16 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+          <span style={{ fontWeight: 800, fontSize: 16, color: T.text }}>Market Monitor</span>
+          <Pill label={scanData.market_mood} />
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 10 }}>
+          <Stat label="Scanned" value={scanData.scanned_count} />
+          <Stat label="In Play" value={squeeze.length} color={T.accent} />
+          <Stat label="Blast Exits" value={blast.length} color={T.blast} />
+          <Stat label="Watchlist" value={watchlist.length} color={T.warn} />
+          <Stat label="Graduated" value={scanData.promoted_from_watchlist_today || 0} color={T.accent} />
+          <Stat label="Open Pos" value={openPos.length} />
+        </div>
+        <div style={{ color: T.muted, fontSize: 10, marginTop: 10, textAlign: "center" }}>
+          Scan {scanData.scan_time} · {priceUpdated ? `prices ${priceUpdated}` : "prices pending"}
+        </div>
+      </div>
+
+      {/* Alerts — the most important section, shown first */}
+      {alerts.length > 0 && (
+        <Section title="⚠️ Alerts" count={alerts.length} color={T.red}>
+          {alerts.map((a, i) => (
+            <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 12px", background: a.color + "18", border: `1px solid ${a.color}44`, borderRadius: 8, marginBottom: 6 }}>
+              <span style={{ fontFamily: "monospace", fontWeight: 700, fontSize: 13, color: a.color }}>{a.symbol}</span>
+              <span style={{ fontSize: 12, color: T.text }}>{a.msg}</span>
+            </div>
+          ))}
+        </Section>
+      )}
+
+      {/* Portfolio P&L summary */}
+      <Section title="💼 Portfolio" color={T.accent}>
+        <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: 14 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(2,1fr)", gap: 12 }}>
+            <Stat label="Invested" value={curr(totalInvested)} />
+            <Stat label="Unrealized P&L" value={(unrealizedPL >= 0 ? "+" : "-") + curr(Math.abs(unrealizedPL))} color={unrealizedPL >= 0 ? T.green : T.red} />
+            <Stat label="Realized P&L" value={(realizedPL >= 0 ? "+" : "-") + curr(Math.abs(realizedPL))} color={realizedPL >= 0 ? T.green : T.red} />
+            <Stat label="Long-term Holdings" value={(holdings || []).length} />
+          </div>
+        </div>
+        {openPos.length > 0 && (
+          <div style={{ marginTop: 10 }}>
+            {openPos.map(p => {
+              const price = px(p.symbol) || p.currentPrice;
+              const ret = ((price - p.entryPrice) / p.entryPrice) * 100;
+              return (
+                <MiniRow key={p.id} sym={p.symbol} borderColor={ret >= 0 ? T.green : T.red}
+                  cols={[
+                    { text: `${p.qty}sh @ ₹${fmt(p.entryPrice)}` },
+                    { text: `₹${fmt(price)}`, color: T.text },
+                    { text: pct(ret), color: ret >= 0 ? T.green : T.red, bold: true },
+                  ]} />
+              );
+            })}
+          </div>
+        )}
+      </Section>
+
+      {/* In Play */}
+      <Section title="🟢 In Play — Post-Squeeze" count={squeeze.length} color={T.accent}>
+        {squeeze.length === 0 ? (
+          <div style={{ color: T.muted, fontSize: 12, padding: "8px 0" }}>No open squeeze positions.</div>
+        ) : squeeze.map((s, i) => {
+          const price = px(s.symbol) || s.price;
+          const ret = s.entry_price ? ((price - s.entry_price) / s.entry_price) * 100 : null;
+          const belowStop = s.pivot_s1 && price < s.pivot_s1;
+          return (
+            <MiniRow key={s.symbol} sym={`${i + 1}. ${s.symbol}`} borderColor={belowStop ? T.red : T.accent}
+              cols={[
+                { text: `entry ₹${fmt(s.entry_price)}` },
+                { text: `₹${fmt(price)}`, color: T.text },
+                ret != null ? { text: pct(ret), color: ret >= 0 ? T.green : T.red, bold: true } : { text: "—" },
+                belowStop ? { text: "⚠ below stop", color: T.red, bold: true } : { text: `tgt ₹${fmt(s.target_price)}`, color: T.green },
+              ]} />
+          );
+        })}
+      </Section>
+
+      {/* Blast exits */}
+      <Section title="🔴 End of Blast" count={blast.length} color={T.blast}>
+        {blast.slice(0, 15).map((s, i) => {
+          const price = px(s.symbol) || s.price;
+          const ret = s.blast_entry_price ? ((price - s.blast_entry_price) / s.blast_entry_price) * 100 : s.return_since_entry;
+          return (
+            <MiniRow key={s.symbol} sym={`${i + 1}. ${s.symbol}`} borderColor={T.blast}
+              cols={[
+                { text: `₹${fmt(price)}`, color: T.text },
+                { text: pct(ret), color: ret >= 0 ? T.green : T.red, bold: true },
+                { text: `Stoch ${fmt(s.stoch_k, 0)}` },
+              ]} />
+          );
+        })}
+        {blast.length > 15 && <div style={{ color: T.muted, fontSize: 11, textAlign: "center", padding: 4 }}>+{blast.length - 15} more on Scanner tab</div>}
+      </Section>
+
+      {/* Watchlist pipeline */}
+      <Section title="👀 Watchlist" count={watchlist.length} color={T.warn}>
+        {watchlist.slice(0, 12).map((s, i) => (
+          <MiniRow key={s.symbol} sym={`${i + 1}. ${s.symbol}`} borderColor={T.warn}
+            cols={[
+              { text: `₹${fmt(px(s.symbol) || s.price)}`, color: T.text },
+              { text: `BB ${fmt(s.bb_width)}%`, color: s.bb_width < 5 ? T.warn : T.muted, bold: s.bb_width < 5 },
+              { text: `Stoch ${fmt(s.stoch_k, 0)}` },
+            ]} />
+        ))}
+        {watchlist.length > 12 && <div style={{ color: T.muted, fontSize: 11, textAlign: "center", padding: 4 }}>+{watchlist.length - 12} more on Scanner tab</div>}
+      </Section>
+
+      <div style={{ color: T.muted, fontSize: 10, textAlign: "center", marginTop: 10 }}>
+        Monitor view · read-only · all data from the same scan as other tabs
+      </div>
     </div>
   );
 }
@@ -1188,6 +1372,10 @@ function App() {
               <div style={{ color: T.accent, fontSize: 36 }}>⟳</div>
               <div style={{ color: T.muted, textAlign: "center", fontSize: 14 }}>Loading latest scan results…</div>
             </div>
+          )}
+
+          {tab === "monitor" && (
+            <MonitorPage scanData={scanData} positions={positions} holdings={holdings} livePrices={livePrices} priceUpdated={priceUpdated} />
           )}
 
           {tab === "scanner" && scanData && (
