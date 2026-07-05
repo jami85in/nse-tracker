@@ -653,6 +653,107 @@ def classify(symbol: str, df: pd.DataFrame, scan_date: str = None):
     return None
 
 
+def classify_short(symbol: str, df: pd.DataFrame, scan_date: str = None):
+    """
+    Detect SHORT candidates — the bearish mirror of the long scanner.
+    Returns a plain dict (not a Candidate) written to a separate
+    short_candidates field. Completely independent of classify() so the
+    long scanner is never affected.
+
+    Two short setups:
+    - SHORT_SqueeZE (bearish entry): tight bands (<4.5%), Stoch K turning
+      DOWN from a HIGH level (>50, K < D), price BELOW EMA30 (downtrend
+      context). This is a compression about to break DOWN.
+    - SHORT_BREAKDOWN (bearish blast / exit-cover): bands expanding,
+      Stoch K oversold (<25), price below EMA10 and falling — the
+      breakdown is underway, a short is running (or time to cover).
+    """
+    if len(df) < 35:
+        return None
+    last = df.iloc[-1]
+    prev5 = df.iloc[-6] if len(df) >= 6 else df.iloc[0]
+
+    if pd.isna(last["bb_width_pct"]) or pd.isna(last["stoch_k"]):
+        return None
+
+    price = float(last["close"])
+    bb_width = float(last["bb_width_pct"])
+    bb_width_5d = float(prev5["bb_width_pct"]) if not pd.isna(prev5["bb_width_pct"]) else bb_width
+    stoch_k = float(last["stoch_k"])
+    stoch_d = float(last["stoch_d"])
+    ema10 = float(last["ema10"])
+    ema30 = float(last["ema30"])
+    atr14 = float(last["atr14"]) if not pd.isna(last["atr14"]) else None
+
+    last_date = last["date"]
+    last_date_str = last_date.strftime("%Y-%m-%d") if hasattr(last_date, "strftime") else str(last_date)
+    if scan_date is None:
+        scan_date = last_date_str
+
+    bb_width_5d_min = float(df["bb_width_pct"].iloc[-5:].min()) if len(df) >= 5 else bb_width
+
+    # ATR-projected DOWNSIDE target for a bearish breakdown.
+    if atr14 and atr14 > 0:
+        atr_target_price = price - (3 * atr14)
+        atr_predicted_drop = round((price - atr_target_price) / price * 100, 2) if price else 0
+    else:
+        atr_target_price = None
+        atr_predicted_drop = 0
+
+    # SHORT SQUEEZE (bearish entry): tight compression, stoch rolling over
+    # from a high level, price below the trend line = likely downside break.
+    is_short_squeeze = (
+        bb_width < 4.5
+        and bb_width <= bb_width_5d_min * 1.6
+        and stoch_k > 50
+        and stoch_k < stoch_d       # turning DOWN
+        and price < ema30           # downtrend context
+        and atr_target_price is not None
+        and atr_target_price < price
+    )
+
+    # SHORT BREAKDOWN (bearish blast): bands expanding, deeply oversold
+    # stoch, price below EMA10 = active downside move.
+    is_short_breakdown = (
+        bb_width > bb_width_5d * 1.15
+        and stoch_k < 25
+        and price < ema10
+    )
+
+    if is_short_squeeze:
+        return {
+            "symbol": symbol,
+            "setup": "SHORT_SQUEEZE",
+            "price": round(price, 2),
+            "entry_price": round(price, 2),
+            "entry_date": scan_date,
+            "target_price": round(atr_target_price, 2),
+            "target_drop_pct": atr_predicted_drop,
+            "bb_width": round(bb_width, 2),
+            "stoch_k": round(stoch_k, 1),
+            "stoch_d": round(stoch_d, 1),
+            "ema10": round(ema10, 2),
+            "ema30": round(ema30, 2),
+            "stop_price": round(ema30, 2),  # a short's stop sits above, at the trend line
+        }
+
+    if is_short_breakdown:
+        return {
+            "symbol": symbol,
+            "setup": "SHORT_BREAKDOWN",
+            "price": round(price, 2),
+            "entry_price": round(price, 2),
+            "entry_date": scan_date,
+            "bb_width": round(bb_width, 2),
+            "stoch_k": round(stoch_k, 1),
+            "stoch_d": round(stoch_d, 1),
+            "ema10": round(ema10, 2),
+            "ema30": round(ema30, 2),
+        }
+
+    return None
+
+
 # ── Claude call: ONLY for the shortlist, ONLY for reasoning/ranking ──────
 def get_claude_commentary(candidates):
     """
@@ -929,6 +1030,7 @@ def scan_all_symbols(session: requests.Session, universe: list, as_of_date: str 
     backfilled day (fetch once, slice many times).
     """
     all_candidates = []
+    short_candidates = []  # bearish setups — separate list, never mixed with longs
     fetched_histories = histories if histories is not None else {}
 
     for symbol in universe:
@@ -954,7 +1056,17 @@ def scan_all_symbols(session: requests.Session, universe: list, as_of_date: str 
         cand = classify(symbol, df_ind, scan_date=as_of_date)
         if cand:
             all_candidates.append(cand)
+        # Independent short detection — a symbol can only be one or the
+        # other (the conditions are mutually exclusive by direction), but
+        # we run both so nothing in the long path is disturbed.
+        short = classify_short(symbol, df_ind, scan_date=as_of_date)
+        if short:
+            short_candidates.append(short)
 
+    # Stash shorts on the histories dict carrier isn't clean; instead we
+    # attach to a module-level holder read by run(). Simplest: return via
+    # a function attribute.
+    scan_all_symbols.last_short_candidates = short_candidates
     return all_candidates, fetched_histories
 
 
@@ -1161,18 +1273,35 @@ def run(backfill_days: int = 0, allow_weekend: bool = False):
     # producing real hits."
     promoted_today = [v for v in squeeze_sorted if v.get("promoted_date") == scan_date]
 
+    # Short candidates — collected in scan_all_symbols, stashed as a
+    # function attribute. Sorted: SHORT_SQUEEZE (fresh bearish entries)
+    # first, then SHORT_BREAKDOWN, each by tightest BB / most oversold.
+    short_candidates = getattr(scan_all_symbols, "last_short_candidates", [])
+    short_squeeze = sorted(
+        [s for s in short_candidates if s["setup"] == "SHORT_SQUEEZE"],
+        key=lambda s: s.get("bb_width", 999)
+    )
+    short_breakdown = sorted(
+        [s for s in short_candidates if s["setup"] == "SHORT_BREAKDOWN"],
+        key=lambda s: s.get("stoch_k", 100)
+    )
+
     output = {
         "scan_time": datetime.datetime.now().strftime("%Y-%m-%d %H:%M IST"),
         "market_mood": market_mood,
         "squeeze_stocks": squeeze_sorted,
         "blast_stocks": blast_sorted,
         "watchlist_stocks": watchlist_sorted,
+        "short_squeeze_stocks": short_squeeze,
+        "short_breakdown_stocks": short_breakdown,
         "scanned_count": len(universe),
         "candidates_found": len(all_candidates),
         "ledger_squeeze_total": len(ledger_squeeze),
         "ledger_blast_total": len(ledger_blast),
         "ledger_watchlist_total": len(ledger_watchlist),
         "promoted_from_watchlist_today": len(promoted_today),
+        "short_squeeze_total": len(short_squeeze),
+        "short_breakdown_total": len(short_breakdown),
     }
 
     os.makedirs("data", exist_ok=True)
@@ -1201,6 +1330,7 @@ def run(backfill_days: int = 0, allow_weekend: bool = False):
         json.dump({
             "updated_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M IST"),
             "in_market_hours": False,
+            "market_open": False,
             "count": len(baseline_prices),
             "prices": baseline_prices
         }, f)
