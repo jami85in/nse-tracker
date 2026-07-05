@@ -1007,10 +1007,11 @@ function Countdown({ nextAt }) {
   return <span style={{ color: T.muted, fontFamily: "monospace", fontSize: 11 }}>{m}m {s}s</span>;
 }
 
-function BottomNav({ tab, setTab, scanCount, posCount }) {
+function BottomNav({ tab, setTab, scanCount, posCount, shortCount }) {
   const items = [
     { id: "monitor", icon: "📊", label: "Monitor" },
-    { id: "scanner", icon: "🎯", label: "Scanner", badge: scanCount },
+    { id: "scanner", icon: "🎯", label: "Long", badge: scanCount },
+    { id: "shorts", icon: "🔻", label: "Short", badge: shortCount },
     { id: "portfolio", icon: "💼", label: "Portfolio", badge: posCount },
     { id: "guide", icon: "📖", label: "Guide" },
   ];
@@ -1034,7 +1035,7 @@ function BottomNav({ tab, setTab, scanCount, posCount }) {
 // Read-only aggregate view combining market overview, portfolio P&L, In Play
 // positions, blast exits, watchlist pipeline, and stop-loss alerts. Does not
 // modify any data — purely for monitoring everything in one place.
-function MonitorPage({ scanData, positions, holdings, livePrices, priceUpdated }) {
+function MonitorPage({ scanData, positions, holdings, livePrices, priceUpdated, pricesStale }) {
   if (!scanData) {
     return <div style={{ textAlign: "center", padding: 50, color: T.muted }}>Loading monitor data…</div>;
   }
@@ -1052,17 +1053,21 @@ function MonitorPage({ scanData, positions, holdings, livePrices, priceUpdated }
   const realizedPL = closedPos.reduce((s, p) => s + (p.exitPrice - p.entryPrice) * p.qty, 0);
 
   // ── Stop-loss & target alerts across open positions ──
+  // Only fire price-based alerts when prices are LIVE (market open). Stale
+  // weekend/overnight prices would trigger false stop-loss alarms.
   const alerts = [];
-  openPos.forEach(p => {
-    const price = px(p.symbol);
-    if (!price) return;
-    if (p.stopLoss && price < p.stopLoss) {
-      alerts.push({ type: "stop", symbol: p.symbol, msg: `below stop ₹${fmt(p.stopLoss)} (now ₹${fmt(price)})`, color: T.red });
-    } else if (p.targetPrice && price >= p.targetPrice) {
-      alerts.push({ type: "target", symbol: p.symbol, msg: `hit target ₹${fmt(p.targetPrice)} (now ₹${fmt(price)})`, color: T.green });
-    }
-  });
-  // Long-term holdings exit/re-entry alerts from scan signals
+  if (!pricesStale) {
+    openPos.forEach(p => {
+      const price = px(p.symbol);
+      if (!price) return;
+      if (p.stopLoss && price < p.stopLoss) {
+        alerts.push({ type: "stop", symbol: p.symbol, msg: `below stop ₹${fmt(p.stopLoss)} (now ₹${fmt(price)})`, color: T.red });
+      } else if (p.targetPrice && price >= p.targetPrice) {
+        alerts.push({ type: "target", symbol: p.symbol, msg: `hit target ₹${fmt(p.targetPrice)} (now ₹${fmt(price)})`, color: T.green });
+      }
+    });
+  }
+  // Signal-based alerts (from scan data) are always valid — not price-dependent
   (holdings || []).forEach(h => {
     const inBlast = (scanData.blast_stocks || []).some(b => b.symbol === h.symbol);
     const inSqueeze = (scanData.squeeze_stocks || []).some(s => s.symbol === h.symbol);
@@ -1114,6 +1119,11 @@ function MonitorPage({ scanData, positions, holdings, livePrices, priceUpdated }
         <div style={{ color: T.muted, fontSize: 10, marginTop: 10, textAlign: "center" }}>
           Scan {scanData.scan_time} · {priceUpdated ? `prices ${priceUpdated}` : "prices pending"}
         </div>
+        {pricesStale && (
+          <div style={{ background: T.warn + "18", border: `1px solid ${T.warn}44`, borderRadius: 8, padding: "8px 10px", marginTop: 10, fontSize: 11, color: T.warn, textAlign: "center" }}>
+            ⏸ Market closed — showing last available prices. Stop-loss and target alerts are paused to avoid false alarms.
+          </div>
+        )}
       </div>
 
       {/* Alerts — the most important section, shown first */}
@@ -1163,7 +1173,7 @@ function MonitorPage({ scanData, positions, holdings, livePrices, priceUpdated }
         ) : squeeze.map((s, i) => {
           const price = px(s.symbol) || s.price;
           const ret = s.entry_price ? ((price - s.entry_price) / s.entry_price) * 100 : null;
-          const belowStop = s.pivot_s1 && price < s.pivot_s1;
+          const belowStop = !pricesStale && s.pivot_s1 && price < s.pivot_s1;
           return (
             <MiniRow key={s.symbol} sym={`${i + 1}. ${s.symbol}`} borderColor={belowStop ? T.red : T.accent}
               cols={[
@@ -1213,6 +1223,129 @@ function MonitorPage({ scanData, positions, holdings, livePrices, priceUpdated }
   );
 }
 
+// ── Shorts Page — bearish short candidates ────────────────────────────────────
+// Monitors SHORT_SQUEEZE (bearish entry: tight bands rolling over below trend)
+// and SHORT_BREAKDOWN (active downside move). Purely for monitoring — mirrors
+// the long scanner logic in reverse. Read-only.
+function ShortsPage({ scanData, livePrices, pricesStale }) {
+  if (!scanData) {
+    return <div style={{ textAlign: "center", padding: 50, color: T.muted }}>Loading…</div>;
+  }
+  const px = sym => livePrices[sym] || null;
+  const shortSqueeze = scanData.short_squeeze_stocks || [];
+  const shortBreakdown = scanData.short_breakdown_stocks || [];
+
+  const ShortCard = ({ s, rank, isEntry }) => {
+    const price = px(s.symbol) || s.price;
+    const drop = s.entry_price ? ((s.entry_price - price) / s.entry_price) * 100 : null; // profit for a short = price falling
+    return (
+      <div style={{ background: T.card, border: `1px solid ${T.red}44`, borderLeft: `3px solid ${T.red}`, borderRadius: 10, padding: 13, marginBottom: 10 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+              {rank && <span style={{ color: T.muted, fontSize: 11, fontWeight: 700, fontFamily: "monospace" }}>#{rank}</span>}
+              <span style={{ color: T.red, fontWeight: 800, fontSize: 15, fontFamily: "monospace" }}>{s.symbol}</span>
+              <Pill label={isEntry ? "SHORT ENTRY" : "BREAKING DOWN"} color={T.red} />
+            </div>
+            <div style={{ color: T.muted, fontSize: 11, marginTop: 2 }}>
+              NSE · Daily chart{s.entry_date ? ` · flagged ${s.entry_date}` : ""}
+            </div>
+          </div>
+          <div style={{ textAlign: "right", flexShrink: 0 }}>
+            <div style={{ color: T.white, fontWeight: 700, fontSize: 16 }}>{curr(price)}{px(s.symbol) && !pricesStale && <span style={{ color: T.red, fontSize: 9, marginLeft: 3 }}>●live</span>}</div>
+            {drop != null && !pricesStale && (
+              <div style={{ color: drop >= 0 ? T.green : T.red, fontSize: 12, fontWeight: 700 }}>
+                {drop >= 0 ? "▼" : "▲"} {fmt(Math.abs(drop))}% {drop >= 0 ? "in favor" : "against"}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {isEntry && (
+          <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 11, background: T.surface, borderRadius: 8, padding: "8px 10px" }}>
+            <div style={{ flex: 1 }}>
+              <div style={{ color: T.muted, fontSize: 9, textTransform: "uppercase" }}>Entry</div>
+              <div style={{ color: T.text, fontSize: 13, fontWeight: 700 }}>{curr(s.entry_price)}</div>
+            </div>
+            <div style={{ color: T.muted }}>→</div>
+            <div style={{ flex: 1, textAlign: "center" }}>
+              <div style={{ color: T.muted, fontSize: 9, textTransform: "uppercase" }}>Target ↓</div>
+              <div style={{ color: T.red, fontSize: 13, fontWeight: 700 }}>{curr(s.target_price)}</div>
+              {s.target_drop_pct != null && <div style={{ color: T.red, fontSize: 9 }}>-{fmt(s.target_drop_pct)}%</div>}
+            </div>
+            <div style={{ color: T.muted }}>·</div>
+            <div style={{ flex: 1, textAlign: "right" }}>
+              <div style={{ color: T.muted, fontSize: 9, textTransform: "uppercase" }}>Stop ↑</div>
+              <div style={{ color: T.warn, fontSize: 13, fontWeight: 700 }}>{curr(s.stop_price)}</div>
+            </div>
+          </div>
+        )}
+
+        <div style={{ display: "flex", gap: 12, marginTop: 9, flexWrap: "wrap" }}>
+          <span style={{ color: T.muted, fontSize: 11 }}>BB {fmt(s.bb_width)}%</span>
+          <span style={{ color: T.muted, fontSize: 11 }}>Stoch K {fmt(s.stoch_k, 0)}</span>
+          <span style={{ color: T.muted, fontSize: 11 }}>EMA30 ₹{fmt(s.ema30)}</span>
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <div style={{ paddingBottom: 20 }}>
+      <div style={{ background: T.card, border: `1px solid ${T.red}33`, borderRadius: 12, padding: 14, marginBottom: 16 }}>
+        <div style={{ fontWeight: 800, fontSize: 16, color: T.red }}>🔻 Short Candidates</div>
+        <div style={{ color: T.muted, fontSize: 11, marginTop: 3 }}>
+          Bearish setups — the mirror of the long scanner. For monitoring only.
+        </div>
+        <div style={{ display: "flex", gap: 16, marginTop: 10 }}>
+          <Stat label="Short Entries" value={shortSqueeze.length} color={T.red} />
+          <Stat label="Breaking Down" value={shortBreakdown.length} color={T.blast} />
+        </div>
+      </div>
+
+      <div style={{ background: T.warn + "12", border: `1px solid ${T.warn}33`, borderRadius: 8, padding: "9px 12px", marginBottom: 16, fontSize: 11, color: T.warn }}>
+        ⚠️ Short selling carries higher risk — losses are theoretically unlimited if price rises. These are monitoring signals, not recommendations. Intraday/F&O shorting has margin and regulatory requirements.
+      </div>
+
+      <div style={{ marginBottom: 22 }}>
+        <div style={{ fontWeight: 800, fontSize: 15, color: T.red, marginBottom: 10 }}>
+          🔻 Short Entries — Bearish Squeeze ({shortSqueeze.length})
+        </div>
+        <div style={{ color: T.muted, fontSize: 11, marginBottom: 10 }}>
+          Tight bands rolling over below trend — likely downside break
+        </div>
+        {shortSqueeze.length === 0 ? (
+          <div style={{ color: T.muted, textAlign: "center", padding: 24, background: T.card, borderRadius: 10, fontSize: 13 }}>
+            No bearish squeeze setups right now.<br/>
+            <span style={{ fontSize: 11 }}>In a bull market this is expected — few stocks are compressing below their downtrend.</span>
+          </div>
+        ) : shortSqueeze.map((s, i) => <ShortCard key={s.symbol} s={s} rank={i + 1} isEntry={true} />)}
+      </div>
+
+      <div style={{ marginBottom: 22 }}>
+        <div style={{ fontWeight: 800, fontSize: 15, color: T.blast, marginBottom: 10 }}>
+          📉 Breaking Down — Active Downside ({shortBreakdown.length})
+        </div>
+        <div style={{ color: T.muted, fontSize: 11, marginBottom: 10 }}>
+          Bands expanding, deeply oversold, price below EMA10 — move underway
+        </div>
+        {shortBreakdown.length === 0 ? (
+          <div style={{ color: T.muted, textAlign: "center", padding: 24, background: T.card, borderRadius: 10, fontSize: 13 }}>
+            No active breakdowns right now.
+          </div>
+        ) : shortBreakdown.slice(0, 20).map((s, i) => <ShortCard key={s.symbol} s={s} rank={i + 1} isEntry={false} />)}
+        {shortBreakdown.length > 20 && (
+          <div style={{ color: T.muted, fontSize: 11, textAlign: "center" }}>+{shortBreakdown.length - 20} more</div>
+        )}
+      </div>
+
+      <div style={{ color: T.muted, fontSize: 10, textAlign: "center" }}>
+        Short signals from the same scan · updated {scanData.scan_time}
+      </div>
+    </div>
+  );
+}
+
 function App() {
   const [tab, setTab] = useState("scanner");
   const [loading, setLoading] = useState(false);
@@ -1228,6 +1361,7 @@ function App() {
   const [portfolioTab, setPortfolioTab] = useState("swing");
   const [livePrices, setLivePrices] = useState({});   // symbol → live price
   const [priceUpdated, setPriceUpdated] = useState(null); // last live price fetch time
+  const [pricesStale, setPricesStale] = useState(true); // true when prices aren't from an active market session
   const BLAST_DISPLAY_CAP = 20;
   const [holdings, setHoldings] = useState(() => {
     try { return JSON.parse(localStorage.getItem("nse_lt_holdings") || "[]"); } catch { return []; }
@@ -1268,6 +1402,7 @@ function App() {
         if (Object.keys(prices).length > 0) {
           setLivePrices(prices);
           setPriceUpdated(updatedAt || new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" }));
+          setPricesStale(!marketOpen);
         }
       });
     } catch (e) {
@@ -1282,10 +1417,11 @@ function App() {
   useEffect(() => {
     if (!scanData) return;
     const refreshPrices = async () => {
-      const { prices, updatedAt } = await fetchLivePrices();
+      const { prices, updatedAt, marketOpen } = await fetchLivePrices();
       if (Object.keys(prices).length > 0) {
         setLivePrices(prices);
         setPriceUpdated(updatedAt || new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" }));
+        setPricesStale(!marketOpen);
       }
     };
     livePriceRef.current = setInterval(refreshPrices, 5 * 60 * 1000);
@@ -1375,7 +1511,11 @@ function App() {
           )}
 
           {tab === "monitor" && (
-            <MonitorPage scanData={scanData} positions={positions} holdings={holdings} livePrices={livePrices} priceUpdated={priceUpdated} />
+            <MonitorPage scanData={scanData} positions={positions} holdings={holdings} livePrices={livePrices} priceUpdated={priceUpdated} pricesStale={pricesStale} />
+          )}
+
+          {tab === "shorts" && (
+            <ShortsPage scanData={scanData} livePrices={livePrices} pricesStale={pricesStale} />
           )}
 
           {tab === "scanner" && scanData && (
@@ -1598,6 +1738,7 @@ function App() {
 
       <BottomNav tab={tab} setTab={setTab}
         scanCount={scanData ? (scanData.blast_stocks?.length || 0) : 0}
+        shortCount={scanData ? ((scanData.short_squeeze_stocks?.length || 0) + (scanData.short_breakdown_stocks?.length || 0)) : 0}
         posCount={positions.filter(p => p.status === "OPEN").length + holdings.length} />
 
       {investTarget && <InvestModal stock={investTarget} onClose={() => setInvestTarget(null)} onConfirm={handleConfirmInvest} />}
