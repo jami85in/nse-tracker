@@ -2,29 +2,10 @@ name: NSE Squeeze & Blast Scan
 
 on:
   schedule:
-    # Runs Mon-Fri after market close. The cron itself can only express
-    # "weekdays", so scan.py does the real holiday-awareness check at
-    # runtime against NSE's live trading-holiday calendar (with a
-    # hardcoded fallback list) and exits immediately — before any data
-    # fetch or Claude API call — on actual NSE holidays that fall on a
-    # weekday (Republic Day, Diwali, etc.). It also supports the reverse
-    # case (a special trading session on an otherwise-closed Sat/Sun,
-    # e.g. Muhurat Trading or a Budget Day weekend session) via the
-    # NSE_SPECIAL_SESSIONS fallback list in scan.py, though the cron
-    # schedule below would need an extra weekend entry added to actually
-    # fire on such a day — see scan.py's is_trading_day() for details.
-    #
-    # Once per trading day, shortly after market close (15:30 IST), so
-    # the day's daily candle (the BB/EMA/Stoch RSI inputs) is fully
-    # formed and final rather than a still-moving intraday partial bar.
-    # (cron is UTC; IST = UTC+5:30)
     - cron: "15 10 * * 1-5"   # 15:45 IST weekdays — ~15 min after close, candle settled
-    - cron: "15 10 * * 0,6"   # 15:45 IST weekends — runs scan.py's is_trading_day()
-                                # check too; no-ops (zero cost) on an ordinary Sat/Sun,
-                                # but actually scans if NSE schedules a special weekend
-                                # session (Muhurat Trading, Budget Day, etc.) — covers
-                                # the reverse case without needing a code redeploy
-  workflow_dispatch:          # lets you trigger manually from the Actions tab / GitHub app
+    - cron: "15 10 * * 0,6"   # 15:45 IST weekends — no-ops on ordinary Sat/Sun,
+                                # scans if NSE schedules a special weekend session
+  workflow_dispatch:          # manual trigger from the Actions tab / GitHub app
     inputs:
       backfill_days:
         description: "Reconstruct the last N trading days into the ledger (0 = normal single-day scan)"
@@ -39,6 +20,14 @@ on:
         options:
           - "false"
           - "true"
+      force_weekend:
+        description: "Force the scan to run even on a weekend/holiday (for manual weekend analysis). Uses the most recent trading day's data."
+        required: false
+        default: "true"
+        type: choice
+        options:
+          - "true"
+          - "false"
 
 permissions:
   contents: write
@@ -61,9 +50,15 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           BACKFILL_DAYS: ${{ github.event.inputs.backfill_days || '0' }}
           DIAGNOSE: ${{ github.event.inputs.diagnose || 'false' }}
+          # Manual triggers (workflow_dispatch) default force_weekend=true so a
+          # weekend analysis run actually executes. Scheduled runs have no inputs,
+          # so this evaluates empty and the flag is not passed.
+          FORCE_WEEKEND: ${{ github.event.inputs.force_weekend }}
         run: |
           if [ "$DIAGNOSE" = "true" ]; then
             python scripts/scan.py --diagnose
+          elif [ "$FORCE_WEEKEND" = "true" ]; then
+            python scripts/scan.py --backfill-days "$BACKFILL_DAYS" --allow-weekend
           else
             python scripts/scan.py --backfill-days "$BACKFILL_DAYS"
           fi
