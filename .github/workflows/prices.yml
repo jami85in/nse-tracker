@@ -2,13 +2,20 @@ name: NSE Live Price Update
 
 on:
   schedule:
-    # Every 15 min during NSE market hours (9:15amâ€“3:30pm IST = 3:45amâ€“10:00am UTC)
-    # Runs Monâ€“Fri only.
-    - cron: "*/15 3-10 * * 1-5"
+    # Run frequently during market hours. GitHub often delays or drops
+    # scheduled jobs under load, so we schedule every ~7 min and let
+    # prices.py's own is_market_hours() guard no-op outside 9:15-15:30 IST.
+    # Window 3:00-10:59 UTC = 8:30am-4:29pm IST covers pre-open through close.
+    - cron: "2,9,16,23,30,37,44,51,58 3-10 * * 1-5"
   workflow_dispatch:
 
 permissions:
   contents: write
+
+# Prevent overlapping runs from racing on the git push
+concurrency:
+  group: nse-prices
+  cancel-in-progress: false
 
 jobs:
   prices:
@@ -30,6 +37,7 @@ jobs:
         run: |
           git config user.name "nse-tracker-bot"
           git config user.email "actions@github.com"
+          git pull --rebase --autostash origin main || true
           git add data/prices_live.json
-          git diff --staged --quiet || git commit -m "prices: $(date -u +'%H:%M UTC')"
+          git diff --staged --quiet || git commit -m "prices: $(TZ='Asia/Kolkata' date +'%H:%M IST')"
           git push
