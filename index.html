@@ -405,9 +405,10 @@ async function fetchMarketStatus() {
 // workflow (prices.yml) that runs every 15 min during NSE market hours using
 // yfinance. This avoids all browser CORS/cookie issues with Yahoo Finance.
 async function fetchLivePrices() {
-  // prices_live.json is written by prices.py every 15 min during market hours
-  // using the NSE quote API — same session approach as scan.py.
-  // Covers all scanner symbols AND portfolio positions.
+  // prices_live.json is the backend baseline (EOD/last close from scan.py).
+  // Browser-side live fetch (fetchBrowserPrices) supplements this with
+  // real-time prices when the market is open, since NSE blocks GitHub's
+  // servers but not the user's phone.
   try {
     const version = await fetchVersion();
     const url = `${RAW_BASE}/prices_live.json?v=${encodeURIComponent(version)}`;
@@ -424,6 +425,48 @@ async function fetchLivePrices() {
   } catch {
     return { prices: {}, updatedAt: null, marketOpen: false };
   }
+}
+
+// Browser-side live price fetch. The phone's IP is NOT blocked by NSE the way
+// GitHub's datacenter IPs are. We try several CORS-accessible sources and
+// return the first that yields prices. Each source is wrapped so one failing
+// never blocks the others.
+async function fetchBrowserPrices(symbols) {
+  if (!symbols || symbols.length === 0) return { prices: {}, source: null };
+
+  // Source 1: Yahoo Finance v7 quote (batch, CORS-open from browsers)
+  try {
+    const tickers = symbols.map(s => s + ".NS").join(",");
+    const res = await fetch(
+      `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${tickers}`,
+      { headers: { "Accept": "application/json" } }
+    );
+    if (res.ok) {
+      const data = await res.json();
+      const out = {};
+      for (const q of (data?.quoteResponse?.result || [])) {
+        if (q.regularMarketPrice) out[q.symbol.replace(".NS", "")] = q.regularMarketPrice;
+      }
+      if (Object.keys(out).length > 0) return { prices: out, source: "Yahoo" };
+    }
+  } catch {}
+
+  // Source 2: Yahoo via a public CORS proxy (in case direct is blocked)
+  try {
+    const tickers = symbols.map(s => s + ".NS").join(",");
+    const target = encodeURIComponent(`https://query1.finance.yahoo.com/v7/finance/quote?symbols=${tickers}`);
+    const res = await fetch(`https://corsproxy.io/?url=${target}`);
+    if (res.ok) {
+      const data = await res.json();
+      const out = {};
+      for (const q of (data?.quoteResponse?.result || [])) {
+        if (q.regularMarketPrice) out[q.symbol.replace(".NS", "")] = q.regularMarketPrice;
+      }
+      if (Object.keys(out).length > 0) return { prices: out, source: "Yahoo (proxy)" };
+    }
+  } catch {}
+
+  return { prices: {}, source: null };
 }
 
 // ── Utility ───────────────────────────────────────────────────────────────────
@@ -1435,18 +1478,32 @@ function App() {
       setMarketStatus(status);
       setNextPoll(Date.now() + 30 * 60 * 1000);
       if (silent) showToast(`✓ Fetched · scan was ${data.scan_time}`);
-      // Kick off live price fetch from prices_live.json (updated every 15min by GitHub Actions)
+      // Kick off live price fetch: backend baseline first, then supplement
+      // with browser-side live prices (phone IP isn't NSE-blocked).
       const uniqueSyms = [...new Set([
         ...(data.squeeze_stocks || []).map(s => s.symbol),
         ...(data.blast_stocks || []).map(s => s.symbol),
         ...(data.watchlist_stocks || []).map(s => s.symbol),
+        ...(data.short_squeeze_stocks || []).map(s => s.symbol),
+        ...(data.short_breakdown_stocks || []).map(s => s.symbol),
         ...positions.filter(p => p.status === "OPEN").map(p => p.symbol),
       ])];
-      fetchLivePrices().then(({ prices, updatedAt, marketOpen }) => {
-        if (Object.keys(prices).length > 0) {
-          setLivePrices(prices);
-          setPriceUpdated(updatedAt || new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" }));
+      fetchLivePrices().then(async ({ prices, updatedAt, marketOpen }) => {
+        // Set backend prices immediately so the UI isn't empty
+        let merged = { ...prices };
+        if (Object.keys(merged).length > 0) {
+          setLivePrices(merged);
+          setPriceUpdated(updatedAt || "");
           setPricesStale(!marketOpen);
+        }
+        // Then try browser-side live prices and overlay them
+        const { prices: live, source } = await fetchBrowserPrices(uniqueSyms);
+        if (Object.keys(live).length > 0) {
+          merged = { ...merged, ...live };
+          setLivePrices(merged);
+          const ts = new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
+          setPriceUpdated(`${ts} · live via ${source}`);
+          setPricesStale(false); // browser prices ARE live
         }
       });
     } catch (e) {
@@ -1462,13 +1519,30 @@ function App() {
     if (!scanData) return;
     const refreshPrices = async () => {
       const { prices, updatedAt, marketOpen } = await fetchLivePrices();
-      if (Object.keys(prices).length > 0) {
-        setLivePrices(prices);
-        setPriceUpdated(updatedAt || new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" }));
+      let merged = { ...prices };
+      if (Object.keys(merged).length > 0) {
+        setLivePrices(merged);
+        setPriceUpdated(updatedAt || "");
         setPricesStale(!marketOpen);
       }
+      const syms = [...new Set([
+        ...(scanData.squeeze_stocks || []).map(s => s.symbol),
+        ...(scanData.blast_stocks || []).map(s => s.symbol),
+        ...(scanData.watchlist_stocks || []).map(s => s.symbol),
+        ...(scanData.short_squeeze_stocks || []).map(s => s.symbol),
+        ...(scanData.short_breakdown_stocks || []).map(s => s.symbol),
+        ...positions.filter(p => p.status === "OPEN").map(p => p.symbol),
+      ])];
+      const { prices: live, source } = await fetchBrowserPrices(syms);
+      if (Object.keys(live).length > 0) {
+        merged = { ...merged, ...live };
+        setLivePrices(merged);
+        const ts = new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
+        setPriceUpdated(`${ts} · live via ${source}`);
+        setPricesStale(false);
+      }
     };
-    livePriceRef.current = setInterval(refreshPrices, 5 * 60 * 1000);
+    livePriceRef.current = setInterval(refreshPrices, 3 * 60 * 1000);  // every 3 min while app open
     return () => clearInterval(livePriceRef.current);
   }, [scanData]);
 
