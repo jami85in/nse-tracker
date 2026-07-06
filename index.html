@@ -1035,6 +1035,17 @@ function BottomNav({ tab, setTab, scanCount, posCount, shortCount }) {
 // Read-only aggregate view combining market overview, portfolio P&L, In Play
 // positions, blast exits, watchlist pipeline, and stop-loss alerts. Does not
 // modify any data — purely for monitoring everything in one place.
+// Is the NSE market open right now, based on IST clock? (9:15am-3:30pm, Mon-Fri)
+function isMarketOpenNow() {
+  const now = new Date();
+  // Convert to IST regardless of device timezone
+  const ist = new Date(now.getTime() + (now.getTimezoneOffset() * 60000) + (5.5 * 3600000));
+  const day = ist.getDay(); // 0=Sun, 6=Sat
+  if (day === 0 || day === 6) return false;
+  const mins = ist.getHours() * 60 + ist.getMinutes();
+  return mins >= (9 * 60 + 15) && mins <= (15 * 60 + 30);
+}
+
 function MonitorPage({ scanData, positions, holdings, livePrices, priceUpdated, pricesStale }) {
   if (!scanData) {
     return <div style={{ textAlign: "center", padding: 50, color: T.muted }}>Loading monitor data…</div>;
@@ -1120,9 +1131,15 @@ function MonitorPage({ scanData, positions, holdings, livePrices, priceUpdated, 
           Scan {scanData.scan_time} · {priceUpdated ? `prices ${priceUpdated}` : "prices pending"}
         </div>
         {pricesStale && (
-          <div style={{ background: T.warn + "18", border: `1px solid ${T.warn}44`, borderRadius: 8, padding: "8px 10px", marginTop: 10, fontSize: 11, color: T.warn, textAlign: "center" }}>
-            ⏸ Market closed — showing last available prices. Stop-loss and target alerts are paused to avoid false alarms.
-          </div>
+          isMarketOpenNow() ? (
+            <div style={{ background: T.accent + "18", border: `1px solid ${T.accent}44`, borderRadius: 8, padding: "8px 10px", marginTop: 10, fontSize: 11, color: T.accent, textAlign: "center" }}>
+              🔄 Market is open — live prices are catching up (updates every few minutes). Pull down to refresh. Alerts stay paused until fresh prices arrive.
+            </div>
+          ) : (
+            <div style={{ background: T.warn + "18", border: `1px solid ${T.warn}44`, borderRadius: 8, padding: "8px 10px", marginTop: 10, fontSize: 11, color: T.warn, textAlign: "center" }}>
+              ⏸ Market closed — showing last available prices. Stop-loss and target alerts are paused to avoid false alarms.
+            </div>
+          )
         )}
       </div>
 
