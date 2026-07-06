@@ -27,6 +27,18 @@ import numpy as np
 import pandas as pd
 import requests
 
+# ── IST time helper ───────────────────────────────────────────────────────
+# GitHub Actions runs in UTC. datetime.now() there returns UTC, so any
+# timestamp we label "IST" must be explicitly converted. This helper is the
+# single source of truth for the current IST time everywhere in this script.
+IST_TZ = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
+
+def now_ist():
+    return datetime.datetime.now(IST_TZ)
+
+def now_ist_str(fmt="%Y-%m-%d %H:%M IST"):
+    return now_ist().strftime(fmt)
+
 # ── Config ────────────────────────────────────────────────────────────────
 # Stock universe is fetched dynamically from NSE's official Nifty 500
 # constituent list at the start of each run (see fetch_nifty500_universe()
@@ -1085,8 +1097,7 @@ def run(backfill_days: int = 0, allow_weekend: bool = False):
     # this is a backfill (which uses historical settled data) or an explicit
     # weekend override (market already closed, data is final).
     # GitHub Actions runs in UTC; IST = UTC + 5:30.
-    utc_now = datetime.datetime.utcnow()
-    ist_now = utc_now + datetime.timedelta(hours=5, minutes=30)
+    ist_now = now_ist()
     # Market closes 15:30 IST; add a small buffer (settle to 15:35) before we
     # consider the candle final.
     is_before_close = (ist_now.hour < 15 or (ist_now.hour == 15 and ist_now.minute < 35))
@@ -1100,7 +1111,7 @@ def run(backfill_days: int = 0, allow_weekend: bool = False):
                 "date": today.isoformat(),
                 "market_open": True,
                 "reason": "Market open — scan deferred until candle settles at 15:30 IST",
-                "checked_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M IST"),
+                "checked_at": now_ist_str(),
             }, f, indent=2)
         return
 
@@ -1116,7 +1127,7 @@ def run(backfill_days: int = 0, allow_weekend: bool = False):
                 "date": today.isoformat(),
                 "market_open": False,
                 "reason": reason,
-                "checked_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M IST"),
+                "checked_at": now_ist_str(),
             }, f, indent=2)
         print(f"Skipping scan — {reason}. No data fetched, no Claude API call made.")
         return
@@ -1129,7 +1140,7 @@ def run(backfill_days: int = 0, allow_weekend: bool = False):
             "date": today.isoformat(),
             "market_open": is_open,
             "reason": reason,
-            "checked_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M IST"),
+            "checked_at": now_ist_str(),
         }, f, indent=2)
 
     # Fetch the live Nifty 500 universe once per run (falls back to the
@@ -1304,6 +1315,24 @@ def run(backfill_days: int = 0, allow_weekend: bool = False):
     # function attribute. Sorted: SHORT_SQUEEZE (fresh bearish entries)
     # first, then SHORT_BREAKDOWN, each by tightest BB / most oversold.
     short_candidates = getattr(scan_all_symbols, "last_short_candidates", [])
+    # CRITICAL: a stock that is an active LONG position (in the ledger as
+    # SQUEEZE, or currently showing as BLAST) must never appear as a short
+    # candidate — that would be a self-contradictory signal. The long
+    # ledger is frozen at entry, so a long position whose live indicators
+    # later roll over bearish would otherwise wrongly surface here. Also
+    # exclude anything in today's long squeeze/blast/watchlist output.
+    long_symbols = set()
+    for key, v in ledger.items():
+        status = v.get("status") if isinstance(v, dict) else None
+        if status in ("SQUEEZE", "BLAST", "WATCHLIST"):
+            long_symbols.add(key)  # ledger key IS the symbol
+    for lst in (squeeze_sorted, blast_sorted, watchlist_sorted):
+        for s in lst:
+            long_symbols.add(s.get("symbol"))
+    long_symbols.discard(None)
+
+    short_candidates = [s for s in short_candidates if s["symbol"] not in long_symbols]
+
     short_squeeze = sorted(
         [s for s in short_candidates if s["setup"] == "SHORT_SQUEEZE"],
         key=lambda s: s.get("bb_width", 999)
@@ -1314,7 +1343,7 @@ def run(backfill_days: int = 0, allow_weekend: bool = False):
     )
 
     output = {
-        "scan_time": datetime.datetime.now().strftime("%Y-%m-%d %H:%M IST"),
+        "scan_time": now_ist_str(),
         "market_mood": market_mood,
         "squeeze_stocks": squeeze_sorted,
         "blast_stocks": blast_sorted,
@@ -1338,7 +1367,7 @@ def run(backfill_days: int = 0, allow_weekend: bool = False):
     # scan_version.txt — tiny file whose content changes every scan.
     # The dashboard fetches this first to get a cache-busting token.
     try:
-        version_str = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
+        version_str = now_ist().strftime("%Y%m%d%H%M%S")
         with open("data/scan_version.txt", "w") as f:
             f.write(version_str)
     except Exception as e:
@@ -1355,7 +1384,7 @@ def run(backfill_days: int = 0, allow_weekend: bool = False):
     baseline_prices = {s["symbol"]: s["price"] for s in all_stocks if s.get("price")}
     with open("data/prices_live.json", "w") as f:
         json.dump({
-            "updated_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M IST"),
+            "updated_at": now_ist_str(),
             "in_market_hours": False,
             "market_open": False,
             "count": len(baseline_prices),
