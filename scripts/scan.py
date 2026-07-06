@@ -750,13 +750,33 @@ def classify_short(symbol: str, df: pd.DataFrame, scan_date: str = None):
         }
 
     if is_short_breakdown:
+        bb_lower = float(last["bb_lower"]) if not pd.isna(last["bb_lower"]) else None
+        # Cover target = where the downside move likely exhausts and a short
+        # should buy back to close. Two references, whichever is HIGHER (i.e.
+        # the nearer, more conservative cover level — you don't want to hold
+        # a short expecting it to fall to an over-optimistic floor):
+        #   1. Lower Bollinger Band — the classic mean-reversion floor; price
+        #      that has broken below it tends to snap back toward it.
+        #   2. ATR floor: price - 2*ATR — a volatility-based downside estimate.
+        # This cover zone is theoretically the HANDOFF point: where the short
+        # exits (bottom of the breakdown) is also where the stock begins
+        # compressing for a potential next LONG squeeze. We flag that here.
+        atr_floor = price - (2 * atr14) if (atr14 and atr14 > 0) else None
+        candidates_for_cover = [x for x in (bb_lower, atr_floor) if x is not None and x < price]
+        cover_target = max(candidates_for_cover) if candidates_for_cover else round(price * 0.95, 2)
+        cover_drop_pct = round((price - cover_target) / price * 100, 2) if price else 0
         return {
             "symbol": symbol,
             "setup": "SHORT_BREAKDOWN",
             "price": round(price, 2),
             "entry_price": round(price, 2),
             "entry_date": scan_date,
+            "cover_target": round(cover_target, 2),      # buy-back-to-close level
+            "cover_drop_pct": cover_drop_pct,            # expected further downside to cover
+            "stop_price": round(ema10, 2),               # short's stop: back above EMA10 = breakdown failing
+            "handoff_note": "Cover zone ≈ potential next long-squeeze formation",
             "bb_width": round(bb_width, 2),
+            "bb_lower": round(bb_lower, 2) if bb_lower else None,
             "stoch_k": round(stoch_k, 1),
             "stoch_d": round(stoch_d, 1),
             "ema10": round(ema10, 2),
