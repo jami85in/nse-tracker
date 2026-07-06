@@ -1,6 +1,6 @@
 {
-  "scan_time": "2026-07-06 06:23 IST",
-  "market_mood": "BULLISH \u2014 all 15 setups are confirmed BLAST winners with strong realized returns across the board.",
+  "scan_time": "2026-07-06 06:40 IST",
+  "market_mood": "BULLISH \u2014 all 15 setups are confirmed BLAST breakouts with strong double-digit realized returns",
   "squeeze_stocks": [
     {
       "symbol": "SUNTV",
@@ -157,7 +157,7 @@
       "first_seen": "2026-06-15",
       "blast_triggered_date": "2026-06-15",
       "confidence": "HIGH",
-      "reason": "Up 24.95% over 25 trading days since squeeze entry."
+      "reason": "Up 24.95% over 25 trading days since squeeze entry"
     },
     {
       "symbol": "RRKABEL",
@@ -281,7 +281,7 @@
       "first_seen": "2026-06-29",
       "blast_triggered_date": "2026-06-29",
       "confidence": "HIGH",
-      "reason": "Up 20.59% over 21 trading days; stoch_k/d at perfect 100."
+      "reason": "Up 20.59% over 21 trading days with stoch_k at perfect 100"
     },
     {
       "symbol": "CHOICEIN",
@@ -312,7 +312,7 @@
       "first_seen": "2026-06-16",
       "blast_triggered_date": "2026-06-16",
       "confidence": "HIGH",
-      "reason": "Up 20.55% over 28 trading days with stoch_k at 97.45."
+      "reason": "Up 20.55% over 28 trading days since squeeze entry"
     },
     {
       "symbol": "JSWINFRA",
@@ -498,7 +498,7 @@
       "first_seen": "2026-06-23",
       "blast_triggered_date": "2026-06-23",
       "confidence": "MEDIUM",
-      "reason": "Up 19.05% over 28 trading days; stoch_k softer at 81.28."
+      "reason": "Up 19.05% over 28 trading days with stoch_k at 81.28"
     },
     {
       "symbol": "ZYDUSWELL",
@@ -529,7 +529,7 @@
       "first_seen": "2026-06-23",
       "blast_triggered_date": "2026-06-23",
       "confidence": "HIGH",
-      "reason": "Up 18.57% over 28 days; bb_width surged from tight 9.29%."
+      "reason": "Up 18.57% over 28 days; bb_width surged from tight 9.29%"
     },
     {
       "symbol": "OBEROIRLTY",
@@ -560,7 +560,7 @@
       "first_seen": "2026-06-29",
       "blast_triggered_date": "2026-06-29",
       "confidence": "HIGH",
-      "reason": "Up 18.43% over 28 days; stoch_k/d pinned at 100/99.28."
+      "reason": "Up 18.43% over 28 days with stoch_k at perfect 100"
     },
     {
       "symbol": "AADHARHFC",
@@ -591,7 +591,7 @@
       "first_seen": "2026-06-16",
       "blast_triggered_date": "2026-06-16",
       "confidence": "HIGH",
-      "reason": "Up 18.25% over 23 trading days; stoch_k strong at 99.24."
+      "reason": "Up 18.25% over 23 trading days since squeeze entry"
     },
     {
       "symbol": "REDINGTON",
@@ -746,7 +746,7 @@
       "first_seen": "2026-06-15",
       "blast_triggered_date": "2026-06-19",
       "confidence": "MEDIUM",
-      "reason": "Up 17.59% over 28 trading days; stoch_k moderate at 86.23."
+      "reason": "Up 17.59% over 28 trading days with stoch_k at 86.23"
     },
     {
       "symbol": "HDBFS",
@@ -808,7 +808,7 @@
       "first_seen": "2026-06-22",
       "blast_triggered_date": "2026-06-22",
       "confidence": "HIGH",
-      "reason": "Up 17.45% over 23 days; bb_width expanded sharply from 11.95%."
+      "reason": "Up 17.45% over 23 days; bb_width expanded from tight 11.95%"
     },
     {
       "symbol": "DLF",
@@ -839,7 +839,7 @@
       "first_seen": "2026-07-03",
       "blast_triggered_date": "2026-07-03",
       "confidence": "MEDIUM",
-      "reason": "Up 17.0% over 28 trading days; stoch_k slightly soft at 86.36."
+      "reason": "Up 17.00% over 28 trading days with stoch_k at 86.36"
     },
     {
       "symbol": "SHRIRAMFIN",
@@ -901,7 +901,7 @@
       "first_seen": "2026-06-19",
       "blast_triggered_date": "2026-06-19",
       "confidence": "HIGH",
-      "reason": "Up 16.86% over 28 days; stoch_k firm at 95.04."
+      "reason": "Up 16.86% over 28 trading days with stoch_k at 95.04"
     },
     {
       "symbol": "AAVAS",
@@ -963,7 +963,7 @@
       "first_seen": "2026-06-30",
       "blast_triggered_date": "2026-06-30",
       "confidence": "HIGH",
-      "reason": "Up 16.04% over 28 trading days; stoch_k near peak at 97.36."
+      "reason": "Up 16.04% over 28 trading days with stoch_k at 97.36"
     },
     {
       "symbol": "NAM-INDIA",
@@ -994,7 +994,7 @@
       "first_seen": "2026-06-23",
       "blast_triggered_date": "2026-06-23",
       "confidence": "MEDIUM",
-      "reason": "Up 16.02% over 23 days; stoch_k at 88.94 trails stoch_d."
+      "reason": "Up 16.02% over 23 trading days with stoch_k at 88.94"
     },
     {
       "symbol": "PHOENIXLTD",
@@ -1025,7 +1025,7 @@
       "first_seen": "2026-06-15",
       "blast_triggered_date": "2026-06-17",
       "confidence": "MEDIUM",
-      "reason": "Up 15.97% over 23 days; stoch_k at 90.18 lags stoch_d."
+      "reason": "Up 15.97% over 23 trading days with stoch_k at 90.18"
     },
     {
       "symbol": "NYKAA",
@@ -1086,8 +1086,8 @@
       "status": "BLAST",
       "first_seen": "2026-06-17",
       "blast_triggered_date": "2026-06-17",
-      "confidence": "HIGH",
-      "reason": "Up 15.33% over 24 trading days; stoch_k solid at 91.04."
+      "confidence": "MEDIUM",
+      "reason": "Up 15.33% over 24 trading days with stoch_k at 91.04"
     },
     {
       "symbol": "BAJFINANCE",
@@ -5460,7 +5460,12 @@
       "price": 153.99,
       "entry_price": 153.99,
       "entry_date": "2026-07-06",
+      "cover_target": 145.69,
+      "cover_drop_pct": 5.39,
+      "stop_price": 161.96,
+      "handoff_note": "Cover zone \u2248 potential next long-squeeze formation",
       "bb_width": 12.63,
+      "bb_lower": 154.77,
       "stoch_k": 0.0,
       "stoch_d": 0.0,
       "ema10": 161.96,
@@ -5472,7 +5477,12 @@
       "price": 558.65,
       "entry_price": 558.65,
       "entry_date": "2026-07-06",
+      "cover_target": 499.53,
+      "cover_drop_pct": 10.58,
+      "stop_price": 651.43,
+      "handoff_note": "Cover zone \u2248 potential next long-squeeze formation",
       "bb_width": 39.2,
+      "bb_lower": 574.05,
       "stoch_k": 0.0,
       "stoch_d": 1.6,
       "ema10": 651.43,
@@ -5484,7 +5494,12 @@
       "price": 1879.2,
       "entry_price": 1879.2,
       "entry_date": "2026-07-06",
+      "cover_target": 1842.09,
+      "cover_drop_pct": 1.97,
+      "stop_price": 1927.69,
+      "handoff_note": "Cover zone \u2248 potential next long-squeeze formation",
       "bb_width": 12.76,
+      "bb_lower": 1842.09,
       "stoch_k": 0.1,
       "stoch_d": 9.7,
       "ema10": 1927.69,
@@ -5496,7 +5511,12 @@
       "price": 282.55,
       "entry_price": 282.55,
       "entry_date": "2026-07-06",
+      "cover_target": 275.96,
+      "cover_drop_pct": 2.33,
+      "stop_price": 294.13,
+      "handoff_note": "Cover zone \u2248 potential next long-squeeze formation",
       "bb_width": 21.08,
+      "bb_lower": 275.96,
       "stoch_k": 1.3,
       "stoch_d": 2.4,
       "ema10": 294.13,
@@ -5508,7 +5528,12 @@
       "price": 693.1,
       "entry_price": 693.1,
       "entry_date": "2026-07-06",
+      "cover_target": 687.91,
+      "cover_drop_pct": 0.75,
+      "stop_price": 712.48,
+      "handoff_note": "Cover zone \u2248 potential next long-squeeze formation",
       "bb_width": 10.03,
+      "bb_lower": 687.91,
       "stoch_k": 4.0,
       "stoch_d": 15.8,
       "ema10": 712.48,
@@ -5520,7 +5545,12 @@
       "price": 254.5,
       "entry_price": 254.5,
       "entry_date": "2026-07-06",
+      "cover_target": 251.71,
+      "cover_drop_pct": 1.09,
+      "stop_price": 261.59,
+      "handoff_note": "Cover zone \u2248 potential next long-squeeze formation",
       "bb_width": 13.05,
+      "bb_lower": 251.71,
       "stoch_k": 6.8,
       "stoch_d": 9.0,
       "ema10": 261.59,
@@ -5532,7 +5562,12 @@
       "price": 253.6,
       "entry_price": 253.6,
       "entry_date": "2026-07-06",
+      "cover_target": 246.62,
+      "cover_drop_pct": 2.75,
+      "stop_price": 255.41,
+      "handoff_note": "Cover zone \u2248 potential next long-squeeze formation",
       "bb_width": 9.74,
+      "bb_lower": 246.62,
       "stoch_k": 8.0,
       "stoch_d": 25.1,
       "ema10": 255.41,
@@ -5544,7 +5579,12 @@
       "price": 280.85,
       "entry_price": 280.85,
       "entry_date": "2026-07-06",
+      "cover_target": 268.53,
+      "cover_drop_pct": 4.39,
+      "stop_price": 284.28,
+      "handoff_note": "Cover zone \u2248 potential next long-squeeze formation",
       "bb_width": 16.83,
+      "bb_lower": 268.53,
       "stoch_k": 8.1,
       "stoch_d": 18.3,
       "ema10": 284.28,
@@ -5556,7 +5596,12 @@
       "price": 3678.9,
       "entry_price": 3678.9,
       "entry_date": "2026-07-06",
+      "cover_target": 3658.56,
+      "cover_drop_pct": 0.55,
+      "stop_price": 3849.77,
+      "handoff_note": "Cover zone \u2248 potential next long-squeeze formation",
       "bb_width": 17.1,
+      "bb_lower": 3658.56,
       "stoch_k": 8.8,
       "stoch_d": 10.8,
       "ema10": 3849.77,
@@ -5568,7 +5613,12 @@
       "price": 1385.0,
       "entry_price": 1385.0,
       "entry_date": "2026-07-06",
+      "cover_target": 1330.91,
+      "cover_drop_pct": 3.91,
+      "stop_price": 1423.17,
+      "handoff_note": "Cover zone \u2248 potential next long-squeeze formation",
       "bb_width": 20.9,
+      "bb_lower": 1330.91,
       "stoch_k": 9.6,
       "stoch_d": 8.6,
       "ema10": 1423.17,
@@ -5580,7 +5630,12 @@
       "price": 1643.8,
       "entry_price": 1643.8,
       "entry_date": "2026-07-06",
+      "cover_target": 1632.46,
+      "cover_drop_pct": 0.69,
+      "stop_price": 1701.15,
+      "handoff_note": "Cover zone \u2248 potential next long-squeeze formation",
       "bb_width": 12.81,
+      "bb_lower": 1632.46,
       "stoch_k": 10.1,
       "stoch_d": 16.1,
       "ema10": 1701.15,
@@ -5592,7 +5647,12 @@
       "price": 90.57,
       "entry_price": 90.57,
       "entry_date": "2026-07-06",
+      "cover_target": 87.57,
+      "cover_drop_pct": 3.32,
+      "stop_price": 92.51,
+      "handoff_note": "Cover zone \u2248 potential next long-squeeze formation",
       "bb_width": 15.54,
+      "bb_lower": 87.57,
       "stoch_k": 12.3,
       "stoch_d": 19.4,
       "ema10": 92.51,
@@ -5604,7 +5664,12 @@
       "price": 2859.2,
       "entry_price": 2859.2,
       "entry_date": "2026-07-06",
+      "cover_target": 2854.31,
+      "cover_drop_pct": 0.17,
+      "stop_price": 2941.8,
+      "handoff_note": "Cover zone \u2248 potential next long-squeeze formation",
       "bb_width": 9.98,
+      "bb_lower": 2854.31,
       "stoch_k": 12.7,
       "stoch_d": 20.8,
       "ema10": 2941.8,
@@ -5616,7 +5681,12 @@
       "price": 715.4,
       "entry_price": 715.4,
       "entry_date": "2026-07-06",
+      "cover_target": 684.44,
+      "cover_drop_pct": 4.33,
+      "stop_price": 718.5,
+      "handoff_note": "Cover zone \u2248 potential next long-squeeze formation",
       "bb_width": 14.36,
+      "bb_lower": 684.44,
       "stoch_k": 14.5,
       "stoch_d": 9.0,
       "ema10": 718.5,
@@ -5628,7 +5698,12 @@
       "price": 3401.2,
       "entry_price": 3401.2,
       "entry_date": "2026-07-06",
+      "cover_target": 3376.17,
+      "cover_drop_pct": 0.74,
+      "stop_price": 3537.42,
+      "handoff_note": "Cover zone \u2248 potential next long-squeeze formation",
       "bb_width": 11.6,
+      "bb_lower": 3376.17,
       "stoch_k": 14.5,
       "stoch_d": 25.2,
       "ema10": 3537.42,
@@ -5640,7 +5715,12 @@
       "price": 2170.1,
       "entry_price": 2170.1,
       "entry_date": "2026-07-06",
+      "cover_target": 2144.06,
+      "cover_drop_pct": 1.2,
+      "stop_price": 2201.59,
+      "handoff_note": "Cover zone \u2248 potential next long-squeeze formation",
       "bb_width": 7.65,
+      "bb_lower": 2144.06,
       "stoch_k": 16.5,
       "stoch_d": 23.5,
       "ema10": 2201.59,
@@ -5652,7 +5732,12 @@
       "price": 1558.1,
       "entry_price": 1558.1,
       "entry_date": "2026-07-06",
+      "cover_target": 1536.4,
+      "cover_drop_pct": 1.39,
+      "stop_price": 1589.41,
+      "handoff_note": "Cover zone \u2248 potential next long-squeeze formation",
       "bb_width": 10.93,
+      "bb_lower": 1536.4,
       "stoch_k": 16.9,
       "stoch_d": 33.1,
       "ema10": 1589.41,
@@ -5664,7 +5749,12 @@
       "price": 2646.1,
       "entry_price": 2646.1,
       "entry_date": "2026-07-06",
+      "cover_target": 2527.56,
+      "cover_drop_pct": 4.48,
+      "stop_price": 2657.69,
+      "handoff_note": "Cover zone \u2248 potential next long-squeeze formation",
       "bb_width": 15.76,
+      "bb_lower": 2525.46,
       "stoch_k": 18.5,
       "stoch_d": 12.2,
       "ema10": 2657.69,
@@ -5676,7 +5766,12 @@
       "price": 3206.2,
       "entry_price": 3206.2,
       "entry_date": "2026-07-06",
+      "cover_target": 3064.32,
+      "cover_drop_pct": 4.43,
+      "stop_price": 3219.09,
+      "handoff_note": "Cover zone \u2248 potential next long-squeeze formation",
       "bb_width": 14.07,
+      "bb_lower": 3064.32,
       "stoch_k": 19.7,
       "stoch_d": 15.0,
       "ema10": 3219.09,
@@ -5688,7 +5783,12 @@
       "price": 1025.9,
       "entry_price": 1025.9,
       "entry_date": "2026-07-06",
+      "cover_target": 1002.46,
+      "cover_drop_pct": 2.29,
+      "stop_price": 1027.76,
+      "handoff_note": "Cover zone \u2248 potential next long-squeeze formation",
       "bb_width": 5.82,
+      "bb_lower": 1002.46,
       "stoch_k": 20.6,
       "stoch_d": 28.8,
       "ema10": 1027.76,
@@ -5700,7 +5800,12 @@
       "price": 508.0,
       "entry_price": 508.0,
       "entry_date": "2026-07-06",
+      "cover_target": 494.34,
+      "cover_drop_pct": 2.69,
+      "stop_price": 508.9,
+      "handoff_note": "Cover zone \u2248 potential next long-squeeze formation",
       "bb_width": 9.16,
+      "bb_lower": 494.34,
       "stoch_k": 23.4,
       "stoch_d": 11.0,
       "ema10": 508.9,
@@ -5712,7 +5817,12 @@
       "price": 3228.7,
       "entry_price": 3228.7,
       "entry_date": "2026-07-06",
+      "cover_target": 3162.59,
+      "cover_drop_pct": 2.05,
+      "stop_price": 3319.23,
+      "handoff_note": "Cover zone \u2248 potential next long-squeeze formation",
       "bb_width": 15.0,
+      "bb_lower": 3162.59,
       "stoch_k": 24.4,
       "stoch_d": 19.3,
       "ema10": 3319.23,

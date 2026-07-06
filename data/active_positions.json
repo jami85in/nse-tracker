@@ -28,7 +28,7 @@
     "first_seen": "2026-06-19",
     "blast_triggered_date": "2026-06-19",
     "confidence": "HIGH",
-    "reason": "Up 16.86% over 28 days; stoch_k firm at 95.04."
+    "reason": "Up 16.86% over 28 trading days with stoch_k at 95.04"
   },
   "ANANDRATHI": {
     "symbol": "ANANDRATHI",
@@ -59,7 +59,7 @@
     "first_seen": "2026-06-15",
     "blast_triggered_date": "2026-06-19",
     "confidence": "MEDIUM",
-    "reason": "Up 17.59% over 28 trading days; stoch_k moderate at 86.23."
+    "reason": "Up 17.59% over 28 trading days with stoch_k at 86.23"
   },
   "LTF": {
     "symbol": "LTF",
@@ -90,7 +90,7 @@
     "first_seen": "2026-06-15",
     "blast_triggered_date": "2026-06-15",
     "confidence": "HIGH",
-    "reason": "Up 24.95% over 25 trading days since squeeze entry."
+    "reason": "Up 24.95% over 25 trading days since squeeze entry"
   },
   "PHOENIXLTD": {
     "symbol": "PHOENIXLTD",
@@ -121,7 +121,7 @@
     "first_seen": "2026-06-15",
     "blast_triggered_date": "2026-06-17",
     "confidence": "MEDIUM",
-    "reason": "Up 15.97% over 23 days; stoch_k at 90.18 lags stoch_d."
+    "reason": "Up 15.97% over 23 trading days with stoch_k at 90.18"
   },
   "RADICO": {
     "symbol": "RADICO",
@@ -183,7 +183,7 @@
     "first_seen": "2026-06-16",
     "blast_triggered_date": "2026-06-16",
     "confidence": "HIGH",
-    "reason": "Up 18.25% over 23 trading days; stoch_k strong at 99.24."
+    "reason": "Up 18.25% over 23 trading days since squeeze entry"
   },
   "CHOICEIN": {
     "symbol": "CHOICEIN",
@@ -214,7 +214,7 @@
     "first_seen": "2026-06-16",
     "blast_triggered_date": "2026-06-16",
     "confidence": "HIGH",
-    "reason": "Up 20.55% over 28 trading days with stoch_k at 97.45."
+    "reason": "Up 20.55% over 28 trading days since squeeze entry"
   },
   "ABREL": {
     "symbol": "ABREL",
@@ -244,8 +244,8 @@
     "status": "BLAST",
     "first_seen": "2026-06-17",
     "blast_triggered_date": "2026-06-17",
-    "confidence": "HIGH",
-    "reason": "Up 15.33% over 24 trading days; stoch_k solid at 91.04."
+    "confidence": "MEDIUM",
+    "reason": "Up 15.33% over 24 trading days with stoch_k at 91.04"
   },
   "ADANIPORTS": {
     "symbol": "ADANIPORTS",
@@ -529,7 +529,7 @@
     "first_seen": "2026-06-22",
     "blast_triggered_date": "2026-06-22",
     "confidence": "HIGH",
-    "reason": "Up 17.45% over 23 days; bb_width expanded sharply from 11.95%."
+    "reason": "Up 17.45% over 23 days; bb_width expanded from tight 11.95%"
   },
   "DELHIVERY": {
     "symbol": "DELHIVERY",
@@ -719,7 +719,7 @@
     "first_seen": "2026-06-23",
     "blast_triggered_date": "2026-06-23",
     "confidence": "HIGH",
-    "reason": "Up 18.57% over 28 days; bb_width surged from tight 9.29%."
+    "reason": "Up 18.57% over 28 days; bb_width surged from tight 9.29%"
   },
   "AUROPHARMA": {
     "symbol": "AUROPHARMA",
@@ -1029,7 +1029,7 @@
     "first_seen": "2026-06-29",
     "blast_triggered_date": "2026-06-29",
     "confidence": "HIGH",
-    "reason": "Up 18.43% over 28 days; stoch_k/d pinned at 100/99.28."
+    "reason": "Up 18.43% over 28 days with stoch_k at perfect 100"
   },
   "OFSS": {
     "symbol": "OFSS",
@@ -1060,7 +1060,7 @@
     "first_seen": "2026-06-29",
     "blast_triggered_date": "2026-06-29",
     "confidence": "HIGH",
-    "reason": "Up 20.59% over 21 trading days; stoch_k/d at perfect 100."
+    "reason": "Up 20.59% over 21 trading days with stoch_k at perfect 100"
   },
   "RRKABEL": {
     "symbol": "RRKABEL",
@@ -1372,7 +1372,7 @@
     "first_seen": "2026-06-30",
     "blast_triggered_date": "2026-06-30",
     "confidence": "HIGH",
-    "reason": "Up 16.04% over 28 trading days; stoch_k near peak at 97.36."
+    "reason": "Up 16.04% over 28 trading days with stoch_k at 97.36"
   },
   "GRANULES": {
     "symbol": "GRANULES",
@@ -2751,7 +2751,7 @@
     "first_seen": "2026-06-23",
     "blast_triggered_date": "2026-06-23",
     "confidence": "MEDIUM",
-    "reason": "Up 19.05% over 28 trading days; stoch_k softer at 81.28."
+    "reason": "Up 19.05% over 28 trading days with stoch_k at 81.28"
   },
   "NAM-INDIA": {
     "symbol": "NAM-INDIA",
@@ -2782,7 +2782,7 @@
     "first_seen": "2026-06-23",
     "blast_triggered_date": "2026-06-23",
     "confidence": "MEDIUM",
-    "reason": "Up 16.02% over 23 days; stoch_k at 88.94 trails stoch_d."
+    "reason": "Up 16.02% over 23 trading days with stoch_k at 88.94"
   },
   "SBIN": {
     "symbol": "SBIN",
@@ -4185,7 +4185,7 @@
     "first_seen": "2026-07-03",
     "blast_triggered_date": "2026-07-03",
     "confidence": "MEDIUM",
-    "reason": "Up 17.0% over 28 trading days; stoch_k slightly soft at 86.36."
+    "reason": "Up 17.00% over 28 trading days with stoch_k at 86.36"
   },
   "INDUSINDBK": {
     "symbol": "INDUSINDBK",
