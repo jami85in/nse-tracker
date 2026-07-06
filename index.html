@@ -427,14 +427,35 @@ async function fetchLivePrices() {
   }
 }
 
-// Browser-side live price fetch. The phone's IP is NOT blocked by NSE the way
-// GitHub's datacenter IPs are. We try several CORS-accessible sources and
-// return the first that yields prices. Each source is wrapped so one failing
-// never blocks the others.
+// ── Live price config ─────────────────────────────────────────────────────
+// After deploying the Cloudflare Worker (see cloudflare/worker.js), paste its
+// URL here. Leave as "" to skip and fall back to Yahoo. Example:
+//   const PRICE_PROXY_URL = "https://nse-prices.yourname.workers.dev";
+const PRICE_PROXY_URL = "";  // ← PASTE YOUR CLOUDFLARE WORKER URL HERE
+
+// Browser-side live price fetch. Tries, in order:
+//   1. Your Cloudflare Worker proxy (reliable — Cloudflare IPs aren't blocked)
+//   2. Yahoo Finance direct
+//   3. Yahoo via public CORS proxy
+// Returns the first that yields prices.
 async function fetchBrowserPrices(symbols) {
   if (!symbols || symbols.length === 0) return { prices: {}, source: null };
 
-  // Source 1: Yahoo Finance v7 quote (batch, CORS-open from browsers)
+  // Source 1: Cloudflare Worker proxy to NSE
+  if (PRICE_PROXY_URL) {
+    try {
+      const url = `${PRICE_PROXY_URL}?symbols=${encodeURIComponent(symbols.join(","))}&t=${Date.now()}`;
+      const res = await fetch(url);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.prices && Object.keys(data.prices).length > 0) {
+          return { prices: data.prices, source: "NSE" };
+        }
+      }
+    } catch {}
+  }
+
+  // Source 2: Yahoo Finance v7 quote (batch, direct)
   try {
     const tickers = symbols.map(s => s + ".NS").join(",");
     const res = await fetch(
@@ -451,7 +472,7 @@ async function fetchBrowserPrices(symbols) {
     }
   } catch {}
 
-  // Source 2: Yahoo via a public CORS proxy (in case direct is blocked)
+  // Source 3: Yahoo via public CORS proxy
   try {
     const tickers = symbols.map(s => s + ".NS").join(",");
     const target = encodeURIComponent(`https://query1.finance.yahoo.com/v7/finance/quote?symbols=${tickers}`);
