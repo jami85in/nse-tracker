@@ -1281,6 +1281,33 @@ function ShortsPage({ scanData, livePrices, pricesStale }) {
           </div>
         )}
 
+        {!isEntry && (
+          <>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 11, background: T.surface, borderRadius: 8, padding: "8px 10px" }}>
+              <div style={{ flex: 1 }}>
+                <div style={{ color: T.muted, fontSize: 9, textTransform: "uppercase" }}>Now</div>
+                <div style={{ color: T.text, fontSize: 13, fontWeight: 700 }}>{curr(px(s.symbol) || s.price)}</div>
+              </div>
+              <div style={{ color: T.muted }}>→</div>
+              <div style={{ flex: 1, textAlign: "center" }}>
+                <div style={{ color: T.muted, fontSize: 9, textTransform: "uppercase" }}>Cover ↓</div>
+                <div style={{ color: T.green, fontSize: 13, fontWeight: 700 }}>{curr(s.cover_target)}</div>
+                {s.cover_drop_pct != null && <div style={{ color: T.green, fontSize: 9 }}>-{fmt(s.cover_drop_pct)}% to cover</div>}
+              </div>
+              <div style={{ color: T.muted }}>·</div>
+              <div style={{ flex: 1, textAlign: "right" }}>
+                <div style={{ color: T.muted, fontSize: 9, textTransform: "uppercase" }}>Stop ↑</div>
+                <div style={{ color: T.warn, fontSize: 13, fontWeight: 700 }}>{curr(s.stop_price)}</div>
+              </div>
+            </div>
+            {s.handoff_note && (
+              <div style={{ marginTop: 8, background: T.accent + "12", border: `1px solid ${T.accent}33`, borderRadius: 7, padding: "6px 10px", fontSize: 10, color: T.accent }}>
+                🔄 {s.handoff_note} — watch for a long squeeze forming here as the move exhausts.
+              </div>
+            )}
+          </>
+        )}
+
         <div style={{ display: "flex", gap: 12, marginTop: 9, flexWrap: "wrap" }}>
           <span style={{ color: T.muted, fontSize: 11 }}>BB {fmt(s.bb_width)}%</span>
           <span style={{ color: T.muted, fontSize: 11 }}>Stoch K {fmt(s.stoch_k, 0)}</span>
@@ -1327,7 +1354,7 @@ function ShortsPage({ scanData, livePrices, pricesStale }) {
           📉 Breaking Down — Active Downside ({shortBreakdown.length})
         </div>
         <div style={{ color: T.muted, fontSize: 11, marginBottom: 10 }}>
-          Bands expanding, deeply oversold, price below EMA10 — move underway
+          Bands expanding, deeply oversold, price below EMA10 — move underway. Cover target ≈ where the fall exhausts and the next long squeeze may form.
         </div>
         {shortBreakdown.length === 0 ? (
           <div style={{ color: T.muted, textAlign: "center", padding: 24, background: T.card, borderRadius: 10, fontSize: 13 }}>
