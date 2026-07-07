@@ -413,8 +413,77 @@ class Candidate:
     holding_period_days: int = None   # calendar days, blast_entry_date -> exit_date
     return_since_entry: float = None  # % gained, blast_entry_price -> exit_price
 
+    # --- Conviction / contradiction flags (added after the SUNTV review) ---
+    # These are cheap, fully-automatable checks computed from data the
+    # scanner already has — no external data source needed. They exist to
+    # catch exactly the kind of thing that made the SUNTV squeeze signal
+    # weaker than its BB/Stoch numbers alone suggested: price sitting below
+    # both EMAs while a "bullish" signal fires, or a stoch crossover so
+    # thin it's within noise. This does NOT replace fundamental/news
+    # research — see conviction_note below, which says so explicitly.
+    trend_conflict: bool = False      # True if squeeze/short fires against the EMA trend
+    weak_crossover: bool = False      # True if stoch_k vs stoch_d gap is inside noise band
+    conviction_score: str = None      # "STRONG" | "MODERATE" | "WEAK" — see score_conviction()
+    conviction_note: str = None       # short human-readable explanation of the score
 
-def find_blast_entry(df: pd.DataFrame, lookback: int = 20):
+
+def score_conviction(price, ema10, ema30, stoch_k, stoch_d, direction="long"):
+    """
+    Computes a cheap, fully-automatable conviction score from data the
+    scanner already has (no external source needed). This is a TECHNICAL
+    sanity check only — it catches internal contradictions in the signal
+    itself (like the SUNTV case: a squeeze firing while price sits below
+    both EMAs), NOT fundamentals or news. A STRONG score here does not
+    mean "safe to buy" — it means the technical signal is internally
+    consistent. Always still worth checking financials/news yourself,
+    especially for anything not STRONG.
+
+    direction: "long" (squeeze/blast) or "short" (short squeeze/breakdown)
+    Returns (conviction_score, trend_conflict, weak_crossover, note).
+    """
+    if direction == "long":
+        # For a bullish signal, price should ideally be ABOVE its EMAs —
+        # that's what "uptrend, breaking out of consolidation" looks like.
+        # Price below both EMAs while a squeeze fires means you're betting
+        # against the prevailing trend structure, not with it.
+        above_ema10 = price > ema10
+        above_ema30 = price > ema30
+        trend_conflict = not above_ema10 and not above_ema30
+        trend_partial = above_ema10 != above_ema30  # mixed signal
+    else:
+        # Mirror logic for shorts: price should be BELOW its EMAs for a
+        # bearish signal to align with trend structure.
+        below_ema10 = price < ema10
+        below_ema30 = price < ema30
+        trend_conflict = not below_ema10 and not below_ema30
+        trend_partial = below_ema10 != below_ema30
+
+    # Stoch K/D crossover strength: a gap under 3 points is within typical
+    # day-to-day noise for this indicator and can flip back on the very
+    # next bar — treat it as "not yet confirmed" rather than a real signal.
+    crossover_gap = abs(stoch_k - stoch_d)
+    weak_crossover = crossover_gap < 3.0
+
+    if trend_conflict and weak_crossover:
+        score = "WEAK"
+        note = "Price against both EMAs AND a thin stoch crossover — signal is fighting the trend with minimal momentum confirmation."
+    elif trend_conflict:
+        score = "WEAK"
+        note = "Price sits against both EMA10 and EMA30 — this signal is a countertrend bet, not a breakout with the trend."
+    elif weak_crossover:
+        score = "MODERATE"
+        note = f"Stoch K/D crossover is thin ({crossover_gap:.1f} pts) — momentum shift not yet strongly confirmed."
+    elif trend_partial:
+        score = "MODERATE"
+        note = "Price is between EMA10 and EMA30 — trend structure is mixed, not clearly aligned."
+    else:
+        score = "STRONG"
+        note = "Price aligned with trend direction and stoch crossover has a clear gap — technically consistent signal."
+
+    return score, trend_conflict, weak_crossover, note
+
+
+
     """
     Walk backwards from the latest bar to find where the current blast began:
     the most recent local minimum in bb_width_pct before it started expanding
@@ -622,11 +691,16 @@ def classify(symbol: str, df: pd.DataFrame, scan_date: str = None):
         # independent of today's compressed range. predicted_return
         # field carries the same ATR-based % for consistency with the
         # MIN_PREDICTED_RETURN gate above.
+        conv_score, conv_trend_conflict, conv_weak_cross, conv_note = score_conviction(
+            price, ema10, ema30, stoch_k, stoch_d, direction="long"
+        )
         return Candidate(
             symbol, price, bb_width, bb_width_5d, stoch_k, stoch_d,
             ema10, ema30, r1, r2, s1, atr_predicted_return, "SQUEEZE",
             entry_price=round(price, 2), entry_date=scan_date,
             target_price=round(atr_target_price, 2), target_return_pct=atr_predicted_return,
+            trend_conflict=conv_trend_conflict, weak_crossover=conv_weak_cross,
+            conviction_score=conv_score, conviction_note=conv_note,
         )
 
     if is_watchlist:
@@ -733,6 +807,9 @@ def classify_short(symbol: str, df: pd.DataFrame, scan_date: str = None):
     )
 
     if is_short_squeeze:
+        conv_score, conv_trend_conflict, conv_weak_cross, conv_note = score_conviction(
+            price, ema10, ema30, stoch_k, stoch_d, direction="short"
+        )
         return {
             "symbol": symbol,
             "setup": "SHORT_SQUEEZE",
@@ -747,6 +824,10 @@ def classify_short(symbol: str, df: pd.DataFrame, scan_date: str = None):
             "ema10": round(ema10, 2),
             "ema30": round(ema30, 2),
             "stop_price": round(ema30, 2),  # a short's stop sits above, at the trend line
+            "trend_conflict": conv_trend_conflict,
+            "weak_crossover": conv_weak_cross,
+            "conviction_score": conv_score,
+            "conviction_note": conv_note,
         }
 
     if is_short_breakdown:
