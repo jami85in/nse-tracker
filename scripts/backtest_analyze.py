@@ -85,6 +85,60 @@ def find_cycles(dates, closes, bb_width, stoch_k, stoch_d):
     return cycles
 
 
+def zone_forward_returns(dates, closes, current_price, zone_pct=2.0, forward_days=10):
+    """
+    The exact analysis manually run for SUNTV: find every historical
+    instance where price was within `zone_pct`% of `current_price`, then
+    check what happened `forward_days` trading days later. Returns the
+    base rate and average return — a genuine, per-stock, data-backed
+    answer to "does this level tend to bounce?" instead of a guess.
+
+    Requires a MINIMUM of 15 historical instances to report a result —
+    below that, the sample is too small to mean anything and we say so
+    explicitly rather than returning a misleadingly precise-looking number.
+    """
+    if not current_price or current_price <= 0:
+        return None
+
+    lo = current_price * (1 - zone_pct / 100)
+    hi = current_price * (1 + zone_pct / 100)
+
+    instances = []
+    for i in range(len(closes) - forward_days):
+        if lo <= closes[i] <= hi:
+            fwd = closes[i + forward_days]
+            ret = (fwd - closes[i]) / closes[i] * 100
+            instances.append(ret)
+
+    if len(instances) < 15:
+        return {
+            "sample_size": len(instances),
+            "sufficient_sample": False,
+            "note": f"Only {len(instances)} historical instances near this price zone — "
+                    f"too few to draw a reliable conclusion (need 15+).",
+        }
+
+    positive = sum(1 for r in instances if r > 0)
+    big_positive = sum(1 for r in instances if r >= 5)
+    avg_return = statistics.mean(instances)
+
+    return {
+        "sample_size": len(instances),
+        "sufficient_sample": True,
+        "pct_higher_after": round(positive / len(instances) * 100, 1),
+        "pct_gained_5plus": round(big_positive / len(instances) * 100, 1),
+        "avg_forward_return_pct": round(avg_return, 2),
+        "forward_days": forward_days,
+        "zone_pct": zone_pct,
+        "note": (
+            f"{round(positive/len(instances)*100,1)}% of {len(instances)} historical instances "
+            f"near this price were higher {forward_days} days later; average forward return "
+            f"{avg_return:+.2f}%. This is descriptive history, not a prediction — it does not "
+            f"account for current fundamentals or news."
+        ),
+    }
+
+
 def analyze_symbol(path):
     with open(path) as f:
         series = json.load(f)
@@ -97,7 +151,15 @@ def analyze_symbol(path):
     bb_width, stoch_k, stoch_d = compute_indicators(closes)
     cycles = find_cycles(dates, closes, bb_width, stoch_k, stoch_d)
     if not cycles:
-        return {"cycles_found": 0}
+        # No complete squeeze->blast cycles, but the zone-based bounce
+        # check is still meaningful and doesn't depend on cycle detection.
+        latest_price = closes[-1]
+        return {
+            "cycles_found": 0,
+            "latest_price_in_history": latest_price,
+            "zone_forward_return_10d": zone_forward_returns(dates, closes, latest_price, zone_pct=2.0, forward_days=10),
+            "zone_forward_return_7d": zone_forward_returns(dates, closes, latest_price, zone_pct=3.0, forward_days=7),
+        }
 
     cycle_days = [c["cycle_days"] for c in cycles]
     returns = [c["return_pct"] for c in cycles]
@@ -121,6 +183,13 @@ def analyze_symbol(path):
     gap_std = statistics.stdev(gaps) if len(gaps) > 1 else None
     regularity = round(gap_mean / (gap_std + 1), 2) if gap_mean and gap_std is not None else None
 
+    # Zone-based forward-return check using the most recent price in this
+    # stock's collected history as the reference point — the same style
+    # of analysis manually run for SUNTV, now automatic for every stock.
+    latest_price = closes[-1]
+    zone_analysis_10d = zone_forward_returns(dates, closes, latest_price, zone_pct=2.0, forward_days=10)
+    zone_analysis_7d = zone_forward_returns(dates, closes, latest_price, zone_pct=3.0, forward_days=7)
+
     return {
         "cycles_found": len(cycles),
         "avg_cycle_days": round(statistics.mean(cycle_days)),
@@ -131,6 +200,9 @@ def analyze_symbol(path):
         "stable_across_halves": stable,
         "first_half_avg_days": round(fh_days) if fh_days else None,
         "second_half_avg_days": round(sh_days) if sh_days else None,
+        "latest_price_in_history": latest_price,
+        "zone_forward_return_10d": zone_analysis_10d,
+        "zone_forward_return_7d": zone_analysis_7d,
         "cycles": cycles,
     }
 
