@@ -1,19 +1,27 @@
 name: NSE Historical Backtest Collector
 
 # Incrementally builds a multi-year daily-close history for backtesting the
-# squeeze/blast strategy per stock. Runs every 15 min, fetches ONE small date
-# chunk per run (via the Cloudflare Worker, since only Cloudflare can reach
-# NSE's archives reliably), and commits the accumulated data back to the
-# repo. Fully resumable — safe to let run for a day or two unattended.
+# squeeze/blast strategy per stock. Each run now processes MULTIPLE date
+# chunks in a loop (see backtest_fetch.py) within an 8-minute time budget,
+# rather than just one chunk per invocation — since a single chunk only
+# takes a few seconds, this lets one run cover many chunks back-to-back.
 #
-# Prerequisite: set the repo secret BACKTEST_WORKER_URL to your deployed
-# nse-backtest Cloudflare Worker's base URL, e.g.
-#   https://nse-backtest.jami85in.workers.dev
-# (Settings -> Secrets and variables -> Actions -> New repository secret)
+# Scheduled every 5 minutes — GitHub's documented minimum interval for the
+# `schedule` trigger (anything more frequent is silently ignored/coalesced
+# by GitHub). Combined with multi-chunk-per-run, this should complete the
+# full collection significantly faster than the original one-chunk-per-run
+# design, while still respecting GitHub's platform limits.
+#
+# `concurrency` with cancel-in-progress:false ensures overlapping runs never
+# stomp on each other — if a run is still going when the next 5-min tick
+# fires, the new one waits in queue rather than racing.
+#
+# Prerequisite: repo secret BACKTEST_WORKER_URL set to your deployed
+# nse-backtest Cloudflare Worker's base URL.
 
 on:
   schedule:
-    - cron: "*/15 * * * *"   # every 15 minutes, all day — cheap, no Claude cost
+    - cron: "*/5 * * * *"    # every 5 minutes — GitHub's practical floor
   workflow_dispatch:          # manual trigger to kick off / retry immediately
 
 permissions:
@@ -21,11 +29,12 @@ permissions:
 
 concurrency:
   group: nse-backtest-collect
-  cancel-in-progress: false   # never cancel a run — let each chunk finish and commit
+  cancel-in-progress: false
 
 jobs:
   collect:
     runs-on: ubuntu-latest
+    timeout-minutes: 12   # safety margin above the 8-min in-script budget
     steps:
       - uses: actions/checkout@v4
 
@@ -33,18 +42,21 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Fetch next backtest chunk
+      - name: Fetch backtest chunks (loops for up to ~8 min per run)
         env:
           BACKTEST_WORKER_URL: ${{ secrets.BACKTEST_WORKER_URL }}
           BACKTEST_CHUNK_DAYS: "28"
-          BACKTEST_START_DATE: "2019-01-01"
+          BACKTEST_START_DATE: "2020-09-01"
+          BACKTEST_TIME_BUDGET_SECONDS: "480"   # 8 minutes of chunk-fetching
+          BACKTEST_PAUSE_SECONDS: "5"           # brief pause between chunks
         run: python scripts/backtest_fetch.py
 
       - name: Commit accumulated data
+        if: always()   # commit whatever was gathered even if the fetch step above hit its time budget mid-way
         run: |
           git config user.name "nse-tracker-bot"
           git config user.email "actions@github.com"
           git add data/backtest/
-          git diff --staged --quiet || git commit -m "backtest: chunk collected $(date -u +'%Y-%m-%d %H:%M UTC')"
+          git diff --staged --quiet || git commit -m "backtest: chunks collected $(date -u +'%Y-%m-%d %H:%M UTC')"
           git pull --rebase --autostash origin main || true
           git push
