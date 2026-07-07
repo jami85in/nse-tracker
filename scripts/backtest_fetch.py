@@ -17,7 +17,14 @@ import json, os, sys, time, datetime, urllib.request, urllib.error
 
 WORKER_URL = os.environ.get("BACKTEST_WORKER_URL", "").rstrip("/")
 CHUNK_DAYS = int(os.environ.get("BACKTEST_CHUNK_DAYS", "28"))  # calendar days per chunk
-START_DATE = os.environ.get("BACKTEST_START_DATE", "2019-01-01")  # how far back to go
+START_DATE = os.environ.get("BACKTEST_START_DATE", "2020-09-01")  # how far back to go
+# NOTE: NSE's sec_bhavdata_full_DDMMYYYY.csv URL scheme (used by this
+# pipeline, via the Cloudflare Worker) only exists from ~August 2020 onward.
+# Earlier dates return nothing no matter how many times we retry — this was
+# confirmed by an all-20-days-failed chunk when we tried Jan 2019. Don't set
+# BACKTEST_START_DATE earlier than 2020-09-01 or every chunk in that range
+# will fail permanently and stall the collector (see the retry-cap logic
+# below, which now catches this case rather than looping forever).
 DATA_DIR = "data/backtest"
 RAW_DIR = os.path.join(DATA_DIR, "raw_closes")
 PROGRESS_PATH = os.path.join(DATA_DIR, "progress.json")
@@ -79,10 +86,12 @@ def get_symbol_universe():
 
 
 def fetch_chunk(start_str, end_str, symbols):
-    """Call the Cloudflare Worker for one date-range chunk."""
+    """Call the Cloudflare Worker for one date-range chunk. Always requests
+    debug=1 so failures come with a diagnostic log automatically — no need
+    for a separate manual test when something goes wrong."""
     symbols_param = ",".join(symbols)
     url = (f"{WORKER_URL}/backtest?start={start_str}&end={end_str}"
-           f"&symbols={urllib.parse.quote(symbols_param)}")
+           f"&symbols={urllib.parse.quote(symbols_param)}&debug=1")
     req = urllib.request.Request(url, headers={"User-Agent": "nse-tracker-backtest/1.0"})
     with urllib.request.urlopen(req, timeout=60) as resp:
         return json.loads(resp.read().decode())
@@ -120,6 +129,8 @@ def main():
         "start_date": START_DATE,
         "next_chunk_start": START_DATE,
         "chunks_completed": 0,
+        "chunks_skipped": 0,
+        "current_chunk_failures": 0,
         "last_run": None,
         "done": False,
     })
@@ -162,14 +173,31 @@ def main():
           f"symbols_in_response={len(closes)}")
 
     if trading_days_fetched == 0:
-        # Nothing came back at all — could be a genuine NSE gap (unlikely for
-        # a whole ~20-day window) but far more likely a transient failure.
-        # Do NOT advance progress; let the next scheduled run retry this
-        # exact chunk instead of silently skipping it.
-        print(f"  WARNING: zero trading days fetched for {cs} -> {ce}. "
-              f"NOT advancing progress — will retry this chunk on the next run.")
-        if result.get("debug_log"):
-            print(f"  Worker debug log: {result['debug_log'][:10]}")
+        # Nothing came back at all. Track how many times THIS chunk has now
+        # failed in a row. A single failure is probably transient (network
+        # blip, Worker cold start) — retry as before. But if the SAME chunk
+        # fails repeatedly, that's a signal the data genuinely doesn't exist
+        # for this range (e.g. pre-Aug-2020 dates, or a permanent NSE gap) —
+        # in that case, retrying forever would stall the whole pipeline.
+        # After 4 consecutive failures, skip past this chunk and move on.
+        progress["current_chunk_failures"] = progress.get("current_chunk_failures", 0) + 1
+        if progress["current_chunk_failures"] >= 4:
+            print(f"  Chunk {cs} -> {ce} has failed {progress['current_chunk_failures']} times "
+                  f"in a row. Assuming this data genuinely doesn't exist on NSE and SKIPPING "
+                  f"past it (not retrying further).")
+            progress["next_chunk_start"] = (chunk_end + datetime.timedelta(days=1)).isoformat()
+            progress["chunks_skipped"] = progress.get("chunks_skipped", 0) + 1
+            progress["current_chunk_failures"] = 0
+            progress["last_run"] = datetime.datetime.now().isoformat()
+            save_json(PROGRESS_PATH, progress)
+        else:
+            print(f"  WARNING: zero trading days fetched for {cs} -> {ce} "
+                  f"(failure {progress['current_chunk_failures']}/4). "
+                  f"NOT advancing progress — will retry this chunk on the next run.")
+            progress["last_run"] = datetime.datetime.now().isoformat()
+            save_json(PROGRESS_PATH, progress)
+            if result.get("debug_log"):
+                print(f"  Worker debug log: {result['debug_log'][:10]}")
         sys.exit(0)
 
     updated_syms = merge_closes(closes)
@@ -189,6 +217,7 @@ def main():
     # whole pipeline resumable across failures/restarts.
     progress["next_chunk_start"] = (chunk_end + datetime.timedelta(days=1)).isoformat()
     progress["chunks_completed"] = progress.get("chunks_completed", 0) + 1
+    progress["current_chunk_failures"] = 0  # reset — this chunk succeeded
     progress["last_run"] = datetime.datetime.now().isoformat()
     save_json(PROGRESS_PATH, progress)
 
