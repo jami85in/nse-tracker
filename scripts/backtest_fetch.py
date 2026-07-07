@@ -2,16 +2,24 @@
 """
 Incremental historical backtest data collector.
 
-Runs on a schedule (every 15 min via GitHub Actions). Each run:
+Runs on a schedule (every 5 min via GitHub Actions — GitHub's documented
+minimum interval for scheduled workflows). Each invocation processes
+MULTIPLE date chunks in a loop (not just one), since a single chunk only
+takes a few seconds — this lets one run comfortably work through many
+chunks back-to-back within a time budget, rather than waiting on GitHub's
+scheduler (which is best-effort and often delayed) for every single chunk.
+
+Each chunk:
 1. Reads data/backtest/progress.json to find the next un-fetched date chunk
 2. Calls the Cloudflare Worker (nse-backtest) for that chunk's raw daily closes
 3. Merges the result into data/backtest/raw_closes/<SYMBOL>.json (one file
    per symbol, append-only, never overwritten wholesale)
-4. Updates progress.json so the next run picks up where this one left off
+4. Updates progress.json so the next chunk (or the next scheduled run, if
+   the time budget runs out) picks up where this one left off
 
-Designed to be safely interruptible and resumable: if a run fails partway,
-the next scheduled run just retries the same chunk (progress.json is only
-advanced on success).
+progress.json is saved to disk after EVERY chunk within a run (not just at
+the end), so even if the job is killed mid-run, nothing is lost — the
+workflow's commit step then pushes everything gathered so far.
 """
 import json, os, sys, time, datetime, urllib.request, urllib.error
 
@@ -112,6 +120,86 @@ def merge_closes(chunk_closes):
     return updated
 
 
+def process_one_chunk(symbols, progress):
+    """
+    Process exactly one chunk. Returns one of:
+      "done"       — reached today's date, collection complete
+      "advanced"   — chunk succeeded, progress moved forward
+      "skipped"    — chunk failed 4x in a row, skipped past it
+      "retry"      — chunk failed, will retry same chunk next call
+      "stall"      — days fetched but 0 symbols matched, needs investigation
+    Mutates `progress` in place; caller is responsible for saving it.
+    """
+    today = datetime.date.today()
+    chunk_start = datetime.date.fromisoformat(progress["next_chunk_start"])
+    chunk_end = min(chunk_start + datetime.timedelta(days=CHUNK_DAYS - 1), today - datetime.timedelta(days=1))
+
+    if chunk_start > today - datetime.timedelta(days=1):
+        progress["done"] = True
+        progress["last_run"] = datetime.datetime.now().isoformat()
+        print("Reached today's date. Marking collection complete.")
+        return "done"
+
+    cs, ce = chunk_start.isoformat(), chunk_end.isoformat()
+    print(f"Fetching chunk {cs} -> {ce} for {len(symbols)} symbols...")
+
+    try:
+        result = fetch_chunk(cs, ce, symbols)
+    except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError) as e:
+        print(f"  Chunk fetch FAILED: {e}. Will retry same chunk next call.")
+        return "retry"
+
+    if result.get("error"):
+        print(f"  Worker returned an error: {result['error']}. Will retry same chunk next call.")
+        return "retry"
+
+    closes = result.get("closes", {})
+    trading_days_fetched = result.get("trading_days_fetched", 0)
+    trading_days_failed = result.get("trading_days_failed", 0)
+
+    print(f"  Worker response: trading_days_fetched={trading_days_fetched}, "
+          f"trading_days_failed={trading_days_failed}, "
+          f"symbols_in_response={len(closes)}")
+
+    if trading_days_fetched == 0:
+        progress["current_chunk_failures"] = progress.get("current_chunk_failures", 0) + 1
+        if progress["current_chunk_failures"] >= 4:
+            print(f"  Chunk {cs} -> {ce} failed {progress['current_chunk_failures']}x in a row. "
+                  f"Assuming this data genuinely doesn't exist on NSE — skipping past it.")
+            progress["next_chunk_start"] = (chunk_end + datetime.timedelta(days=1)).isoformat()
+            progress["chunks_skipped"] = progress.get("chunks_skipped", 0) + 1
+            progress["current_chunk_failures"] = 0
+            progress["last_run"] = datetime.datetime.now().isoformat()
+            return "skipped"
+        else:
+            print(f"  WARNING: zero trading days fetched for {cs} -> {ce} "
+                  f"(failure {progress['current_chunk_failures']}/4). Will retry.")
+            progress["last_run"] = datetime.datetime.now().isoformat()
+            if result.get("debug_log"):
+                print(f"  Worker debug log: {result['debug_log'][:10]}")
+            return "retry"
+
+    updated_syms = merge_closes(closes)
+    print(f"  merged data for {len(updated_syms)} symbols this chunk")
+
+    if len(updated_syms) == 0:
+        print(f"  WARNING: {trading_days_fetched} days fetched but 0 symbols merged — "
+              f"possible symbol-matching mismatch. Not advancing; investigate.")
+        return "stall"
+
+    progress["next_chunk_start"] = (chunk_end + datetime.timedelta(days=1)).isoformat()
+    progress["chunks_completed"] = progress.get("chunks_completed", 0) + 1
+    progress["current_chunk_failures"] = 0
+    progress["last_run"] = datetime.datetime.now().isoformat()
+
+    total_days_est = (today - datetime.date.fromisoformat(START_DATE)).days
+    done_days = (chunk_end - datetime.date.fromisoformat(START_DATE)).days
+    pct = round(done_days / total_days_est * 100, 1) if total_days_est > 0 else 100
+    print(f"  Progress: {pct}% ({progress['chunks_completed']} chunks done, "
+          f"next chunk starts {progress['next_chunk_start']})")
+    return "advanced"
+
+
 def main():
     if not WORKER_URL:
         print("ERROR: BACKTEST_WORKER_URL not set. Add it as a repo secret or workflow env var.")
@@ -119,9 +207,8 @@ def main():
 
     symbols = get_symbol_universe()
     if not symbols:
-        print("ERROR: no symbol universe found (data/backtest/symbols.json empty and "
-              "data/scan_latest.json has no candidates yet). Seed symbols.json manually "
-              "with the full Nifty 500 list to proceed.")
+        print("ERROR: no symbol universe found. Seed data/backtest/symbols.json with the "
+              "full Nifty 500 list to proceed.")
         sys.exit(1)
     print(f"Tracking {len(symbols)} symbols.")
 
@@ -140,92 +227,62 @@ def main():
         print("(Delete or edit progress.json's 'done' flag to extend the range.)")
         return
 
-    today = datetime.date.today()
-    chunk_start = datetime.date.fromisoformat(progress["next_chunk_start"])
-    chunk_end = min(chunk_start + datetime.timedelta(days=CHUNK_DAYS - 1), today - datetime.timedelta(days=1))
+    # Process multiple chunks per invocation instead of just one — each
+    # chunk only takes a few seconds (mostly small polite delays talking to
+    # NSE via the Worker), so a single ~10-minute GitHub Actions run can
+    # comfortably work through many chunks back-to-back. This dramatically
+    # speeds up total collection time versus waiting for GitHub's scheduler
+    # to fire a fresh run for every single chunk (schedule intervals are
+    # inherently best-effort and often delayed under load).
+    #
+    # TIME_BUDGET_SECONDS keeps us safely under typical Actions job limits
+    # (well under the 6-hour hard cap, and under any shorter limits your
+    # plan might have) with margin for the final commit step.
+    TIME_BUDGET_SECONDS = int(os.environ.get("BACKTEST_TIME_BUDGET_SECONDS", "480"))  # 8 min
+    PAUSE_BETWEEN_CHUNKS_SECONDS = int(os.environ.get("BACKTEST_PAUSE_SECONDS", "5"))
 
-    if chunk_start > today - datetime.timedelta(days=1):
-        progress["done"] = True
-        progress["last_run"] = datetime.datetime.now().isoformat()
-        save_json(PROGRESS_PATH, progress)
-        print(f"Reached today's date. Marking collection complete.")
-        return
+    start_time = time.time()
+    chunks_this_run = 0
+    consecutive_stalls = 0
 
-    cs, ce = chunk_start.isoformat(), chunk_end.isoformat()
-    print(f"Fetching chunk {cs} -> {ce} for {len(symbols)} symbols...")
+    while True:
+        elapsed = time.time() - start_time
+        if elapsed > TIME_BUDGET_SECONDS:
+            print(f"\nTime budget ({TIME_BUDGET_SECONDS}s) reached after {chunks_this_run} "
+                  f"chunk(s) this run. Saving progress and stopping — the next scheduled "
+                  f"run will continue from here.")
+            break
 
-    try:
-        result = fetch_chunk(cs, ce, symbols)
-    except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError) as e:
-        print(f"Chunk fetch FAILED: {e}. Will retry same chunk next run (progress not advanced).")
-        sys.exit(0)  # exit cleanly — don't fail the whole Action, just skip this run
+        status = process_one_chunk(symbols, progress)
+        save_json(PROGRESS_PATH, progress)  # save after EVERY chunk — nothing is ever lost
 
-    if result.get("error"):
-        print(f"Worker returned an error: {result['error']}. Will retry same chunk next run.")
-        sys.exit(0)
+        if status == "done":
+            break
+        elif status == "advanced":
+            chunks_this_run += 1
+            consecutive_stalls = 0
+        elif status == "skipped":
+            chunks_this_run += 1
+            consecutive_stalls = 0
+        elif status == "stall":
+            # Don't loop forever on a genuine data-integrity issue — bail
+            # after a couple of stalls so a human can investigate.
+            consecutive_stalls += 1
+            if consecutive_stalls >= 2:
+                print("Multiple consecutive stalls — stopping this run for investigation.")
+                break
+        elif status == "retry":
+            # Transient failure — brief pause then try again, but don't
+            # hammer the Worker in a tight loop if NSE/Worker is having a
+            # bad moment. A few retries within THIS run is fine; if it
+            # keeps failing, current_chunk_failures will eventually trigger
+            # the skip logic inside process_one_chunk itself.
+            pass
 
-    closes = result.get("closes", {})
-    trading_days_fetched = result.get("trading_days_fetched", 0)
-    trading_days_failed = result.get("trading_days_failed", 0)
+        time.sleep(PAUSE_BETWEEN_CHUNKS_SECONDS)
 
-    print(f"  Worker response: trading_days_fetched={trading_days_fetched}, "
-          f"trading_days_failed={trading_days_failed}, "
-          f"symbols_in_response={len(closes)}")
-
-    if trading_days_fetched == 0:
-        # Nothing came back at all. Track how many times THIS chunk has now
-        # failed in a row. A single failure is probably transient (network
-        # blip, Worker cold start) — retry as before. But if the SAME chunk
-        # fails repeatedly, that's a signal the data genuinely doesn't exist
-        # for this range (e.g. pre-Aug-2020 dates, or a permanent NSE gap) —
-        # in that case, retrying forever would stall the whole pipeline.
-        # After 4 consecutive failures, skip past this chunk and move on.
-        progress["current_chunk_failures"] = progress.get("current_chunk_failures", 0) + 1
-        if progress["current_chunk_failures"] >= 4:
-            print(f"  Chunk {cs} -> {ce} has failed {progress['current_chunk_failures']} times "
-                  f"in a row. Assuming this data genuinely doesn't exist on NSE and SKIPPING "
-                  f"past it (not retrying further).")
-            progress["next_chunk_start"] = (chunk_end + datetime.timedelta(days=1)).isoformat()
-            progress["chunks_skipped"] = progress.get("chunks_skipped", 0) + 1
-            progress["current_chunk_failures"] = 0
-            progress["last_run"] = datetime.datetime.now().isoformat()
-            save_json(PROGRESS_PATH, progress)
-        else:
-            print(f"  WARNING: zero trading days fetched for {cs} -> {ce} "
-                  f"(failure {progress['current_chunk_failures']}/4). "
-                  f"NOT advancing progress — will retry this chunk on the next run.")
-            progress["last_run"] = datetime.datetime.now().isoformat()
-            save_json(PROGRESS_PATH, progress)
-            if result.get("debug_log"):
-                print(f"  Worker debug log: {result['debug_log'][:10]}")
-        sys.exit(0)
-
-    updated_syms = merge_closes(closes)
-    print(f"  merged data for {len(updated_syms)} symbols this chunk")
-
-    if len(updated_syms) == 0:
-        # Days were fetched but somehow no symbol matched — likely a symbol
-        # list mismatch (e.g. an old symbols.json vs how the Worker matches
-        # names). Flag it loudly rather than quietly advancing.
-        print(f"  WARNING: {trading_days_fetched} days fetched but 0 symbols "
-              f"merged. This suggests a symbol-matching mismatch between "
-              f"symbols.json and the Worker's parsed CSV symbols. NOT "
-              f"advancing progress — investigate before the next run.")
-        sys.exit(0)
-
-    # Only advance progress on a successful chunk — this is what makes the
-    # whole pipeline resumable across failures/restarts.
-    progress["next_chunk_start"] = (chunk_end + datetime.timedelta(days=1)).isoformat()
-    progress["chunks_completed"] = progress.get("chunks_completed", 0) + 1
-    progress["current_chunk_failures"] = 0  # reset — this chunk succeeded
-    progress["last_run"] = datetime.datetime.now().isoformat()
-    save_json(PROGRESS_PATH, progress)
-
-    total_days_est = (today - datetime.date.fromisoformat(START_DATE)).days
-    done_days = (chunk_end - datetime.date.fromisoformat(START_DATE)).days
-    pct = round(done_days / total_days_est * 100, 1) if total_days_est > 0 else 100
-    print(f"Progress: {pct}% ({progress['chunks_completed']} chunks done, "
-          f"next chunk starts {progress['next_chunk_start']})")
+    print(f"\nRun summary: {chunks_this_run} chunk(s) processed in "
+          f"{time.time() - start_time:.0f}s this invocation.")
 
 
 if __name__ == "__main__":
