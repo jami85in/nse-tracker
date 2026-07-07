@@ -483,7 +483,7 @@ def score_conviction(price, ema10, ema30, stoch_k, stoch_d, direction="long"):
     return score, trend_conflict, weak_crossover, note
 
 
-
+def find_blast_entry(df: pd.DataFrame, lookback: int = 20):
     """
     Walk backwards from the latest bar to find where the current blast began:
     the most recent local minimum in bb_width_pct before it started expanding
