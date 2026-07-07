@@ -1,0 +1,47 @@
+name: NSE Live Price Update (Kite Connect)
+
+# Uses Zerodha Kite Connect — official, licensed, reliable NSE data.
+# Requires today's access token to already exist (see the daily manual
+# login step in "Kite Daily Token Refresh"). If that hasn't happened yet,
+# this exits cleanly and preserves existing prices.
+
+on:
+  schedule:
+    - cron: "*/5 3-10 * * 1-5"   # every 5 min, 8:30am-4:29pm IST, weekdays
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: nse-prices-kite
+  cancel-in-progress: false
+
+jobs:
+  prices:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install kiteconnect
+
+      - name: Fetch live prices via Kite Connect
+        env:
+          KITE_API_KEY: ${{ secrets.KITE_API_KEY }}
+          SECRETS_REPO_PAT: ${{ secrets.SECRETS_REPO_PAT }}
+          SECRETS_REPO: ${{ secrets.SECRETS_REPO }}
+        run: python scripts/prices_kite.py
+
+      - name: Commit price data
+        run: |
+          git config user.name "nse-tracker-bot"
+          git config user.email "actions@github.com"
+          git add data/prices_live.json
+          git diff --staged --quiet || git commit -m "prices(kite): $(date -u +'%H:%M UTC')"
+          git pull --rebase --autostash origin main || true
+          git push
