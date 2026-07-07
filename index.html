@@ -400,6 +400,26 @@ async function fetchMarketStatus() {
   try { return await fetchFile("market_status.json"); } catch { return null; }
 }
 
+// ── Backtest report (per-stock historical zone/cycle stats) ────────────────────
+// Fetches data/backtest/report.json, written by backtest_analyze.py, which
+// includes the zone-based forward-return analysis for every stock with
+// enough collected history. Cached once per app load — this file only
+// updates once daily, no need to re-fetch on every price refresh.
+let _backtestReportCache = null;
+async function fetchBacktestReport() {
+  if (_backtestReportCache) return _backtestReportCache;
+  try {
+    const url = `${RAW_BASE}/backtest/report.json?t=${Date.now()}`;
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    const data = await res.json();
+    _backtestReportCache = data;
+    return data;
+  } catch {
+    return null;
+  }
+}
+
 // ── Live price feed ──────────────────────────────────────────────────────────
 // Prices come from data/prices_live.json — written by a separate GitHub Actions
 // workflow (prices.yml) that runs every 15 min during NSE market hours using
@@ -547,7 +567,7 @@ function PullToRefresh({ onRefresh, children, refreshing }) {
   );
 }
 
-function SqueezeCard({ stock, onInvest, rank, livePrice }) {
+function SqueezeCard({ stock, onInvest, rank, livePrice, zoneStats }) {
   const [expanded, setExpanded] = useState(false);
   const price = livePrice || stock.price;
   const daysTracked = stock.entry_date ? Math.max(0, Math.round((new Date() - new Date(stock.entry_date)) / 86400000)) : null;
@@ -561,6 +581,12 @@ function SqueezeCard({ stock, onInvest, rank, livePrice }) {
             {rank && <span style={{ color: T.muted, fontSize: 11, fontWeight: 700, fontFamily: "monospace", minWidth: 18 }}>#{rank}</span>}
             <span style={{ color: T.accent, fontWeight: 800, fontSize: 16, fontFamily: "monospace" }}>{stock.symbol}</span>
             <Pill label={stock.confidence} />
+            {stock.conviction_score && (
+              <Pill label={stock.conviction_score} color={
+                stock.conviction_score === "STRONG" ? T.green :
+                stock.conviction_score === "MODERATE" ? T.warn : T.red
+              } />
+            )}
             {stock.promoted_from_watchlist && <Pill label="GRADUATED" color={T.warn} />}
           </div>
           <div style={{ color: T.muted, fontSize: 11, marginTop: 2 }}>
@@ -620,11 +646,36 @@ function SqueezeCard({ stock, onInvest, rank, livePrice }) {
       {expanded && (
         <div style={{ marginTop: 12, paddingTop: 12, borderTop: `1px solid ${T.border}` }}>
           <div style={{ color: T.muted, fontSize: 12, marginBottom: 10, lineHeight: 1.5 }}>{stock.reason}</div>
+          {stock.conviction_note && (
+            <div style={{
+              background: (stock.conviction_score === "STRONG" ? T.green : stock.conviction_score === "MODERATE" ? T.warn : T.red) + "15",
+              border: `1px solid ${(stock.conviction_score === "STRONG" ? T.green : stock.conviction_score === "MODERATE" ? T.warn : T.red)}33`,
+              borderRadius: 8, padding: "8px 10px", marginBottom: 10, fontSize: 11, lineHeight: 1.5,
+              color: stock.conviction_score === "STRONG" ? T.green : stock.conviction_score === "MODERATE" ? T.warn : T.red,
+            }}>
+              <b>Technical conviction: {stock.conviction_score}.</b> {stock.conviction_note}
+            </div>
+          )}
+          {zoneStats && zoneStats.sufficient_sample && (
+            <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, padding: "8px 10px", marginBottom: 10, fontSize: 11, lineHeight: 1.5, color: T.muted }}>
+              <b style={{ color: T.text }}>History at this price ({zoneStats.sample_size} instances):</b> {zoneStats.pct_higher_after}% higher after {zoneStats.forward_days} days, avg {zoneStats.avg_forward_return_pct >= 0 ? "+" : ""}{zoneStats.avg_forward_return_pct}%. Descriptive only — doesn't account for current news/earnings.
+            </div>
+          )}
+          {zoneStats && !zoneStats.sufficient_sample && (
+            <div style={{ color: T.muted, fontSize: 10, marginBottom: 10, fontStyle: "italic" }}>
+              {zoneStats.note}
+            </div>
+          )}
           <div style={{ display: "grid", gridTemplateColumns: "repeat(2,1fr)", gap: 10, marginBottom: 12 }}>
             <Stat label="EMA 10" value={curr(stock.ema10)} />
             <Stat label="EMA 30" value={curr(stock.ema30)} />
             <Stat label="Target R2" value={curr(stock.pivot_r2)} color={T.green} />
           </div>
+          <a href={`https://www.google.com/search?q=${encodeURIComponent(stock.symbol + " NSE stock latest earnings results news")}`}
+            target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()}
+            style={{ display: "block", textAlign: "center", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, padding: "10px 0", fontSize: 12, fontWeight: 700, color: T.text, textDecoration: "none", marginBottom: 8 }}>
+            🔍 Deep Check — recent earnings & news for {stock.symbol}
+          </a>
           <button onClick={e => { e.stopPropagation(); onInvest(stock); }}
             style={{ background: T.accent, color: "#000", border: "none", borderRadius: 8, padding: "12px 18px", fontWeight: 800, fontSize: 14, cursor: "pointer", width: "100%" }}>
             📈 Add to Portfolio
@@ -1416,7 +1467,7 @@ function MonitorPage({ scanData, positions, holdings, livePrices, priceUpdated, 
 // Monitors SHORT_SQUEEZE (bearish entry: tight bands rolling over below trend)
 // and SHORT_BREAKDOWN (active downside move). Purely for monitoring — mirrors
 // the long scanner logic in reverse. Read-only.
-function ShortsPage({ scanData, livePrices, pricesStale }) {
+function ShortsPage({ scanData, livePrices, pricesStale, backtestReport }) {
   if (!scanData) {
     return <div style={{ textAlign: "center", padding: 50, color: T.muted }}>Loading…</div>;
   }
@@ -1425,6 +1476,7 @@ function ShortsPage({ scanData, livePrices, pricesStale }) {
   const shortBreakdown = scanData.short_breakdown_stocks || [];
 
   const ShortCard = ({ s, rank, isEntry }) => {
+    const zoneStats = backtestReport?.report?.[s.symbol]?.zone_forward_return_10d;
     const price = px(s.symbol) || s.price;
     const drop = s.entry_price ? ((s.entry_price - price) / s.entry_price) * 100 : null; // profit for a short = price falling
     return (
@@ -1435,6 +1487,12 @@ function ShortsPage({ scanData, livePrices, pricesStale }) {
               {rank && <span style={{ color: T.muted, fontSize: 11, fontWeight: 700, fontFamily: "monospace" }}>#{rank}</span>}
               <span style={{ color: T.red, fontWeight: 800, fontSize: 15, fontFamily: "monospace" }}>{s.symbol}</span>
               <Pill label={isEntry ? "SHORT ENTRY" : "BREAKING DOWN"} color={T.red} />
+              {s.conviction_score && (
+                <Pill label={s.conviction_score} color={
+                  s.conviction_score === "STRONG" ? T.green :
+                  s.conviction_score === "MODERATE" ? T.warn : T.red
+                } />
+              )}
             </div>
             <div style={{ color: T.muted, fontSize: 11, marginTop: 2 }}>
               NSE · Daily chart{s.entry_date ? ` · flagged ${s.entry_date}` : ""}
@@ -1502,6 +1560,26 @@ function ShortsPage({ scanData, livePrices, pricesStale }) {
           <span style={{ color: T.muted, fontSize: 11 }}>Stoch K {fmt(s.stoch_k, 0)}</span>
           <span style={{ color: T.muted, fontSize: 11 }}>EMA30 ₹{fmt(s.ema30)}</span>
         </div>
+        {s.conviction_note && (
+          <div style={{
+            background: (s.conviction_score === "STRONG" ? T.green : s.conviction_score === "MODERATE" ? T.warn : T.red) + "15",
+            border: `1px solid ${(s.conviction_score === "STRONG" ? T.green : s.conviction_score === "MODERATE" ? T.warn : T.red)}33`,
+            borderRadius: 8, padding: "8px 10px", marginTop: 9, fontSize: 11, lineHeight: 1.5,
+            color: s.conviction_score === "STRONG" ? T.green : s.conviction_score === "MODERATE" ? T.warn : T.red,
+          }}>
+            <b>Technical conviction: {s.conviction_score}.</b> {s.conviction_note}
+          </div>
+        )}
+        {zoneStats && zoneStats.sufficient_sample && (
+          <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, padding: "8px 10px", marginTop: 9, fontSize: 11, lineHeight: 1.5, color: T.muted }}>
+            <b style={{ color: T.text }}>History at this price ({zoneStats.sample_size} instances):</b> {zoneStats.pct_higher_after}% higher after {zoneStats.forward_days} days, avg {zoneStats.avg_forward_return_pct >= 0 ? "+" : ""}{zoneStats.avg_forward_return_pct}%. Descriptive only — doesn't account for current news/earnings.
+          </div>
+        )}
+        <a href={`https://www.google.com/search?q=${encodeURIComponent(s.symbol + " NSE stock latest earnings results news")}`}
+          target="_blank" rel="noopener noreferrer"
+          style={{ display: "block", textAlign: "center", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, padding: "9px 0", fontSize: 11, fontWeight: 700, color: T.text, textDecoration: "none", marginTop: 9 }}>
+          🔍 Deep Check — recent earnings & news for {s.symbol}
+        </a>
       </div>
     );
   };
@@ -1576,6 +1654,7 @@ function App() {
   const [showAddHolding, setShowAddHolding] = useState(false);
   const [portfolioTab, setPortfolioTab] = useState("swing");
   const [livePrices, setLivePrices] = useState({});   // symbol → live price
+  const [backtestReport, setBacktestReport] = useState(null);
   const [priceUpdated, setPriceUpdated] = useState(null); // last live price fetch time
   const [pricesStale, setPricesStale] = useState(true); // true when prices aren't from an active market session
   const BLAST_DISPLAY_CAP = 20;
@@ -1680,6 +1759,10 @@ function App() {
     intervalRef.current = setInterval(() => loadData(true), 30 * 60 * 1000);
     return () => clearInterval(intervalRef.current);
   }, [loadData]);
+
+  useEffect(() => {
+    fetchBacktestReport().then(r => { if (r) setBacktestReport(r); });
+  }, []);
 
   const [showRefreshMenu, setShowRefreshMenu] = useState(false);
   const handleRefreshClick = () => setShowRefreshMenu(true);
@@ -1814,7 +1897,7 @@ function App() {
           )}
 
           {tab === "shorts" && (
-            <ShortsPage scanData={scanData} livePrices={livePrices} pricesStale={pricesStale} />
+            <ShortsPage scanData={scanData} livePrices={livePrices} pricesStale={pricesStale} backtestReport={backtestReport} />
           )}
 
           {tab === "scanner" && scanData && (
@@ -1839,7 +1922,7 @@ function App() {
                 </div>
               )}
               <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 26 }}>
-                {(scanData.squeeze_stocks || []).map((s, i) => <SqueezeCard key={s.symbol} stock={s} onInvest={handleInvest} rank={i + 1} livePrice={livePrices[s.symbol]} />)}
+                {(scanData.squeeze_stocks || []).map((s, i) => <SqueezeCard key={s.symbol} stock={s} onInvest={handleInvest} rank={i + 1} livePrice={livePrices[s.symbol]} zoneStats={backtestReport?.report?.[s.symbol]?.zone_forward_return_10d} />)}
               </div>
               <div style={{ marginBottom: 14 }}>
                 <div style={{ fontWeight: 800, fontSize: 16, color: T.blast }}>🔴 End of Blast</div>
