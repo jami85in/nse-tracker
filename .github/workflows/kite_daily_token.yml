@@ -1,0 +1,68 @@
+name: Kite Daily Token Refresh
+
+# Zerodha's Kite Connect access tokens expire daily (SEBI security rule —
+# every broker's API works this way, not a Zerodha limitation). This
+# workflow is the daily "activate today's token" step:
+#
+# 1. Each morning, open this URL in your browser to get the login link:
+#      https://kite.zerodha.com/connect/login?api_key=YOUR_KEY&v=3
+#    (Or just trigger this workflow with request_token left blank — the
+#    log will print the exact login URL for you to open.)
+# 2. Log in to Zerodha, get redirected to a URL containing request_token=...
+# 3. Copy that token
+# 4. Come back here, trigger this workflow again (Actions tab -> Run
+#    workflow), paste the request_token into the input box
+# 5. This exchanges it for a real access_token and commits it (encrypted
+#    nowhere — see note below) to data/kite_token.json for the rest of
+#    today's scans/prices to use
+#
+# NOTE ON SECURITY: data/kite_token.json contains a live, sensitive access
+# token valid for the rest of the trading day. Since this repo may be
+# public, consider making the repo PRIVATE if you proceed with this
+# integration, or explore GitHub's encrypted secrets + a private data
+# branch if you want to keep the main repo public. This tradeoff is worth
+# discussing before wiring this in for real.
+
+on:
+  workflow_dispatch:
+    inputs:
+      request_token:
+        description: "Paste the request_token from today's Zerodha login redirect URL (leave blank to just get the login link)"
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+jobs:
+  refresh_token:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install kiteconnect
+        run: pip install kiteconnect
+
+      - name: Generate or print login link
+        env:
+          KITE_API_KEY: ${{ secrets.KITE_API_KEY }}
+          KITE_API_SECRET: ${{ secrets.KITE_API_SECRET }}
+        run: |
+          if [ -z "${{ github.event.inputs.request_token }}" ]; then
+            python3 scripts/kite_generate_token.py
+          else
+            python3 scripts/kite_generate_token.py "${{ github.event.inputs.request_token }}"
+          fi
+
+      - name: Commit token (only if generated)
+        run: |
+          git config user.name "nse-tracker-bot"
+          git config user.email "actions@github.com"
+          git add data/kite_token.json 2>/dev/null || true
+          git diff --staged --quiet || git commit -m "kite: token refreshed $(date -u +'%Y-%m-%d %H:%M UTC')"
+          git pull --rebase --autostash origin main || true
+          git push || true
