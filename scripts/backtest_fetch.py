@@ -154,10 +154,36 @@ def main():
         sys.exit(0)
 
     closes = result.get("closes", {})
+    trading_days_fetched = result.get("trading_days_fetched", 0)
+    trading_days_failed = result.get("trading_days_failed", 0)
+
+    print(f"  Worker response: trading_days_fetched={trading_days_fetched}, "
+          f"trading_days_failed={trading_days_failed}, "
+          f"symbols_in_response={len(closes)}")
+
+    if trading_days_fetched == 0:
+        # Nothing came back at all — could be a genuine NSE gap (unlikely for
+        # a whole ~20-day window) but far more likely a transient failure.
+        # Do NOT advance progress; let the next scheduled run retry this
+        # exact chunk instead of silently skipping it.
+        print(f"  WARNING: zero trading days fetched for {cs} -> {ce}. "
+              f"NOT advancing progress — will retry this chunk on the next run.")
+        if result.get("debug_log"):
+            print(f"  Worker debug log: {result['debug_log'][:10]}")
+        sys.exit(0)
+
     updated_syms = merge_closes(closes)
-    print(f"  fetched={result.get('trading_days_fetched')}, "
-          f"failed={result.get('trading_days_failed')}, "
-          f"symbols_with_data_this_chunk={len(updated_syms)}")
+    print(f"  merged data for {len(updated_syms)} symbols this chunk")
+
+    if len(updated_syms) == 0:
+        # Days were fetched but somehow no symbol matched — likely a symbol
+        # list mismatch (e.g. an old symbols.json vs how the Worker matches
+        # names). Flag it loudly rather than quietly advancing.
+        print(f"  WARNING: {trading_days_fetched} days fetched but 0 symbols "
+              f"merged. This suggests a symbol-matching mismatch between "
+              f"symbols.json and the Worker's parsed CSV symbols. NOT "
+              f"advancing progress — investigate before the next run.")
+        sys.exit(0)
 
     # Only advance progress on a successful chunk — this is what makes the
     # whole pipeline resumable across failures/restarts.
