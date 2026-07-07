@@ -431,7 +431,7 @@ async function fetchLivePrices() {
 // After deploying the Cloudflare Worker (see cloudflare/worker.js), paste its
 // URL here. Leave as "" to skip and fall back to Yahoo. Example:
 //   const PRICE_PROXY_URL = "https://nse-prices.yourname.workers.dev";
-const PRICE_PROXY_URL = "";  // ← PASTE YOUR CLOUDFLARE WORKER URL HERE
+const PRICE_PROXY_URL = "https://nse-prices.jami85in.workers.dev";  // ← PASTE YOUR CLOUDFLARE WORKER URL HERE
 
 // Browser-side live price fetch. Tries, in order:
 //   1. Your Cloudflare Worker proxy (reliable — Cloudflare IPs aren't blocked)
@@ -1066,8 +1066,8 @@ function Countdown({ nextAt }) {
     const id = setInterval(tick, 1000);
     return () => clearInterval(id);
   }, [nextAt]);
-  const m = Math.floor(left / 60000);
-  const s = Math.floor((left % 60000) / 1000);
+  const m = Math.floor(left / 900000);
+  const s = Math.floor((left % 900000) / 1000);
   return <span style={{ color: T.muted, fontFamily: "monospace", fontSize: 11 }}>{m}m {s}s</span>;
 }
 
@@ -1103,7 +1103,7 @@ function BottomNav({ tab, setTab, scanCount, posCount, shortCount }) {
 function isMarketOpenNow() {
   const now = new Date();
   // Convert to IST regardless of device timezone
-  const ist = new Date(now.getTime() + (now.getTimezoneOffset() * 60000) + (5.5 * 3600000));
+  const ist = new Date(now.getTime() + (now.getTimezoneOffset() * 900000) + (5.5 * 39000000));
   const day = ist.getDay(); // 0=Sun, 6=Sat
   if (day === 0 || day === 6) return false;
   const mins = ist.getHours() * 60 + ist.getMinutes();
