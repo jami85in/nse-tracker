@@ -1,0 +1,50 @@
+name: NSE Historical Backtest Collector
+
+# Incrementally builds a multi-year daily-close history for backtesting the
+# squeeze/blast strategy per stock. Runs every 15 min, fetches ONE small date
+# chunk per run (via the Cloudflare Worker, since only Cloudflare can reach
+# NSE's archives reliably), and commits the accumulated data back to the
+# repo. Fully resumable — safe to let run for a day or two unattended.
+#
+# Prerequisite: set the repo secret BACKTEST_WORKER_URL to your deployed
+# nse-backtest Cloudflare Worker's base URL, e.g.
+#   https://nse-backtest.jami85in.workers.dev
+# (Settings -> Secrets and variables -> Actions -> New repository secret)
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"   # every 15 minutes, all day — cheap, no Claude cost
+  workflow_dispatch:          # manual trigger to kick off / retry immediately
+
+permissions:
+  contents: write
+
+concurrency:
+  group: nse-backtest-collect
+  cancel-in-progress: false   # never cancel a run — let each chunk finish and commit
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Fetch next backtest chunk
+        env:
+          BACKTEST_WORKER_URL: ${{ secrets.BACKTEST_WORKER_URL }}
+          BACKTEST_CHUNK_DAYS: "28"
+          BACKTEST_START_DATE: "2019-01-01"
+        run: python scripts/backtest_fetch.py
+
+      - name: Commit accumulated data
+        run: |
+          git config user.name "nse-tracker-bot"
+          git config user.email "actions@github.com"
+          git add data/backtest/
+          git diff --staged --quiet || git commit -m "backtest: chunk collected $(date -u +'%Y-%m-%d %H:%M UTC')"
+          git pull --rebase --autostash origin main || true
+          git push

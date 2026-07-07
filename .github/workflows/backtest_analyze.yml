@@ -1,0 +1,37 @@
+name: NSE Historical Backtest Analysis
+
+# Runs the squeeze/blast cycle analysis over whatever historical data has
+# been collected so far (data/backtest/raw_closes/). Safe to run on partial
+# data — you'll get an early, incomplete-but-informative look while the
+# collector workflow is still filling in history. Re-run anytime; it always
+# reflects the current state of collected data.
+
+on:
+  schedule:
+    - cron: "30 18 * * *"   # once daily, 6:30pm UTC (~midnight IST, after collection for the day)
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Run cycle analysis
+        run: python scripts/backtest_analyze.py
+
+      - name: Commit report
+        run: |
+          git config user.name "nse-tracker-bot"
+          git config user.email "actions@github.com"
+          git add data/backtest/report.json
+          git diff --staged --quiet || git commit -m "backtest: analysis report $(date -u +'%Y-%m-%d')"
+          git pull --rebase --autostash origin main || true
+          git push
