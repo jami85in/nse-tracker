@@ -431,7 +431,7 @@ async function fetchLivePrices() {
 // After deploying the Cloudflare Worker (see cloudflare/worker.js), paste its
 // URL here. Leave as "" to skip and fall back to Yahoo. Example:
 //   const PRICE_PROXY_URL = "https://nse-prices.yourname.workers.dev";
-const PRICE_PROXY_URL = "https://nse-prices.jami85in.workers.dev";  // ← PASTE YOUR CLOUDFLARE WORKER URL HERE
+const PRICE_PROXY_URL = "";  // ← PASTE YOUR CLOUDFLARE WORKER URL HERE
 
 // Browser-side live price fetch. Tries, in order:
 //   1. Your Cloudflare Worker proxy (reliable — Cloudflare IPs aren't blocked)
@@ -441,10 +441,7 @@ const PRICE_PROXY_URL = "https://nse-prices.jami85in.workers.dev";  // ← PASTE
 async function fetchBrowserPrices(symbols) {
   if (!symbols || symbols.length === 0) return { prices: {}, source: null };
 
-  // Source 1: Cloudflare Worker proxy — NSE official bhavcopy (settled EOD
-  // prices, once daily after close). NOT live/intraday. We label it as such
-  // so stop-loss/target alerts correctly stay paused (avoids false alarms
-  // from a price that's really still yesterday's/today's settled close).
+  // Source 1: Cloudflare Worker proxy to NSE
   if (PRICE_PROXY_URL) {
     try {
       const url = `${PRICE_PROXY_URL}?symbols=${encodeURIComponent(symbols.join(","))}&t=${Date.now()}`;
@@ -452,7 +449,7 @@ async function fetchBrowserPrices(symbols) {
       if (res.ok) {
         const data = await res.json();
         if (data.prices && Object.keys(data.prices).length > 0) {
-          return { prices: data.prices, source: "NSE EOD", asOf: data.as_of || null, isLive: false };
+          return { prices: data.prices, source: "NSE" };
         }
       }
     } catch {}
@@ -471,7 +468,7 @@ async function fetchBrowserPrices(symbols) {
       for (const q of (data?.quoteResponse?.result || [])) {
         if (q.regularMarketPrice) out[q.symbol.replace(".NS", "")] = q.regularMarketPrice;
       }
-      if (Object.keys(out).length > 0) return { prices: out, source: "Yahoo", isLive: true };
+      if (Object.keys(out).length > 0) return { prices: out, source: "Yahoo" };
     }
   } catch {}
 
@@ -486,7 +483,7 @@ async function fetchBrowserPrices(symbols) {
       for (const q of (data?.quoteResponse?.result || [])) {
         if (q.regularMarketPrice) out[q.symbol.replace(".NS", "")] = q.regularMarketPrice;
       }
-      if (Object.keys(out).length > 0) return { prices: out, source: "Yahoo (proxy)", isLive: true };
+      if (Object.keys(out).length > 0) return { prices: out, source: "Yahoo (proxy)" };
     }
   } catch {}
 
@@ -1035,10 +1032,118 @@ function PortfolioRow({ pos, onClose, livePrice }) {
   );
 }
 
+// Aggregate multiple OPEN lots of the same symbol into one net position:
+// pooled quantity, weighted-average cost, and combined invested amount.
+// Used on the Portfolio tab so 3 separate SUNTV buys show as one card.
+// The full individual-lot history remains untouched on the Trades tab.
+function computeNetPositions(positions) {
+  const openLots = positions.filter(p => p.status === "OPEN");
+  const bySymbol = {};
+  for (const lot of openLots) {
+    if (!bySymbol[lot.symbol]) bySymbol[lot.symbol] = [];
+    bySymbol[lot.symbol].push(lot);
+  }
+  return Object.entries(bySymbol).map(([symbol, lots]) => {
+    const totalQty = lots.reduce((s, l) => s + l.qty, 0);
+    const totalInvested = lots.reduce((s, l) => s + l.invested, 0);
+    const avgEntry = totalQty > 0 ? totalInvested / totalQty : 0;
+    // Target/stop shown from the most recent lot — these come from the
+    // scanner signal at time of entry and can differ slightly across lots
+    // bought on different days; showing the latest is the most relevant.
+    const latestLot = [...lots].sort((a, b) => new Date(b.date) - new Date(a.date))[0];
+    return {
+      symbol, lots, qty: totalQty, avgEntry, invested: totalInvested,
+      targetPrice: latestLot.targetPrice, stopLoss: latestLot.stopLoss,
+      earliestDate: [...lots].sort((a, b) => new Date(a.date) - new Date(b.date))[0].date,
+      lotCount: lots.length,
+    };
+  });
+}
+
+function NetPositionCard({ net, livePrice, onSell }) {
+  const [showSell, setShowSell] = useState(false);
+  const [sellQty, setSellQty] = useState(String(net.qty));
+  const [sellPrice, setSellPrice] = useState(livePrice ? String(livePrice) : "");
+
+  const price = livePrice || net.avgEntry;
+  const ret = ((price - net.avgEntry) / net.avgEntry) * 100;
+  const currentValue = price * net.qty;
+  const gainLoss = currentValue - net.invested;
+
+  const submitSell = () => {
+    const qty = Number(sellQty), px = Number(sellPrice);
+    if (!qty || qty <= 0 || qty > net.qty || !px || px <= 0) {
+      showToast("⚠ Check quantity and price");
+      return;
+    }
+    onSell(net.symbol, qty, px);
+    setShowSell(false);
+  };
+
+  return (
+    <div style={{ background: T.card, border: `1px solid ${T.border}`, borderLeft: `3px solid ${ret >= 0 ? T.green : T.red}`, borderRadius: 10, padding: 14, marginBottom: 10 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+        <div>
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <span style={{ color: T.text, fontWeight: 800, fontSize: 15, fontFamily: "monospace" }}>{net.symbol}</span>
+            {net.lotCount > 1 && <Pill label={`${net.lotCount} lots`} color={T.warn} />}
+          </div>
+          <div style={{ color: T.muted, fontSize: 11, marginTop: 2 }}>
+            {net.qty} sh · avg ₹{fmt(net.avgEntry)} · since {net.earliestDate?.split(",")[0] || net.earliestDate}
+          </div>
+        </div>
+        <div style={{ textAlign: "right" }}>
+          <div style={{ color: T.white, fontWeight: 700, fontSize: 16 }}>{curr(price)}{livePrice && <span style={{ color: T.accent, fontSize: 9, marginLeft: 3 }}>●live</span>}</div>
+          <div style={{ color: ret >= 0 ? T.green : T.red, fontSize: 13, fontWeight: 700 }}>{pct(ret)}</div>
+        </div>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(2,1fr)", gap: 8, marginTop: 10 }}>
+        <Stat label="Invested" value={curr(net.invested)} />
+        <Stat label="Current Value" value={curr(currentValue)} color={gainLoss >= 0 ? T.green : T.red} />
+        <Stat label="Gain/Loss" value={(gainLoss >= 0 ? "+" : "-") + curr(Math.abs(gainLoss))} color={gainLoss >= 0 ? T.green : T.red} />
+        {net.targetPrice && <Stat label="Target" value={curr(net.targetPrice)} color={T.green} />}
+      </div>
+
+      {!showSell ? (
+        <button onClick={() => setShowSell(true)}
+          style={{ marginTop: 10, width: "100%", background: T.red + "18", border: `1px solid ${T.red}44`, color: T.red, borderRadius: 8, padding: "9px 0", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
+          📤 Sell (partial or full)
+        </button>
+      ) : (
+        <div style={{ marginTop: 10, background: T.surface, borderRadius: 8, padding: 10 }}>
+          <div style={{ display: "flex", gap: 8 }}>
+            <div style={{ flex: 1 }}>
+              <div style={{ color: T.muted, fontSize: 10, marginBottom: 3 }}>Qty (max {net.qty})</div>
+              <input type="number" value={sellQty} onChange={e => setSellQty(e.target.value)}
+                style={{ width: "100%", background: T.bg, border: `1px solid ${T.border}`, borderRadius: 6, padding: "7px 8px", color: T.text, fontSize: 13 }} />
+            </div>
+            <div style={{ flex: 1 }}>
+              <div style={{ color: T.muted, fontSize: 10, marginBottom: 3 }}>Sell price ₹</div>
+              <input type="number" value={sellPrice} onChange={e => setSellPrice(e.target.value)}
+                style={{ width: "100%", background: T.bg, border: `1px solid ${T.border}`, borderRadius: 6, padding: "7px 8px", color: T.text, fontSize: 13 }} />
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+            <button onClick={submitSell}
+              style={{ flex: 1, background: T.red, color: "#fff", border: "none", borderRadius: 8, padding: "9px 0", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
+              Confirm Sell
+            </button>
+            <button onClick={() => setShowSell(false)}
+              style={{ background: "none", border: `1px solid ${T.border}`, color: T.muted, borderRadius: 8, padding: "9px 14px", fontSize: 13, cursor: "pointer" }}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function PortfolioSummary({ positions, livePrices = {} }) {
   const closed = positions.filter(p => p.status === "CLOSED");
   const open = positions.filter(p => p.status === "OPEN");
-  const totalInvested = positions.reduce((s, p) => s + p.invested, 0);
+  const totalInvested = open.reduce((s, p) => s + p.invested, 0);
   const realizedPL = closed.reduce((s, p) => s + (p.exitPrice - p.entryPrice) * p.qty, 0);
   const unrealizedPL = open.reduce((s, p) => {
     const price = livePrices[p.symbol] || p.currentPrice;
@@ -1069,8 +1174,8 @@ function Countdown({ nextAt }) {
     const id = setInterval(tick, 1000);
     return () => clearInterval(id);
   }, [nextAt]);
-  const m = Math.floor(left / 900000);
-  const s = Math.floor((left % 900000) / 1000);
+  const m = Math.floor(left / 60000);
+  const s = Math.floor((left % 60000) / 1000);
   return <span style={{ color: T.muted, fontFamily: "monospace", fontSize: 11 }}>{m}m {s}s</span>;
 }
 
@@ -1106,7 +1211,7 @@ function BottomNav({ tab, setTab, scanCount, posCount, shortCount }) {
 function isMarketOpenNow() {
   const now = new Date();
   // Convert to IST regardless of device timezone
-  const ist = new Date(now.getTime() + (now.getTimezoneOffset() * 900000) + (5.5 * 39000000));
+  const ist = new Date(now.getTime() + (now.getTimezoneOffset() * 60000) + (5.5 * 3600000));
   const day = ist.getDay(); // 0=Sun, 6=Sat
   if (day === 0 || day === 6) return false;
   const mins = ist.getHours() * 60 + ist.getMinutes();
@@ -1520,14 +1625,14 @@ function App() {
           setPriceUpdated(updatedAt || "");
           setPricesStale(!marketOpen);
         }
-        // Then try browser-side sources (Worker/bhavcopy or Yahoo) and overlay
-        const { prices: live, source, asOf, isLive } = await fetchBrowserPrices(uniqueSyms);
+        // Then try browser-side live prices and overlay them
+        const { prices: live, source } = await fetchBrowserPrices(uniqueSyms);
         if (Object.keys(live).length > 0) {
           merged = { ...merged, ...live };
           setLivePrices(merged);
           const ts = new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
-          setPriceUpdated(isLive ? `${ts} · live via ${source}` : `${source} as of ${asOf || "last close"}`);
-          setPricesStale(!isLive); // only genuinely live sources clear the stale flag
+          setPriceUpdated(`${ts} · live via ${source}`);
+          setPricesStale(false); // browser prices ARE live
         }
       });
     } catch (e) {
@@ -1557,13 +1662,13 @@ function App() {
         ...(scanData.short_breakdown_stocks || []).map(s => s.symbol),
         ...positions.filter(p => p.status === "OPEN").map(p => p.symbol),
       ])];
-      const { prices: live, source, asOf, isLive } = await fetchBrowserPrices(syms);
+      const { prices: live, source } = await fetchBrowserPrices(syms);
       if (Object.keys(live).length > 0) {
         merged = { ...merged, ...live };
         setLivePrices(merged);
         const ts = new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
-        setPriceUpdated(isLive ? `${ts} · live via ${source}` : `${source} as of ${asOf || "last close"}`);
-        setPricesStale(!isLive);
+        setPriceUpdated(`${ts} · live via ${source}`);
+        setPricesStale(false);
       }
     };
     livePriceRef.current = setInterval(refreshPrices, 3 * 60 * 1000);  // every 3 min while app open
@@ -1587,9 +1692,61 @@ function App() {
     setTab("portfolio");
     showToast(`✓ Added ${pos.symbol} to portfolio`);
   };
+
+  // Sell `qtyToSell` shares of `symbol` at `exitPrice`. Consumes from the
+  // OLDEST open lots first (FIFO) — matches how most brokers report P&L
+  // and keeps cost-basis accounting honest when a symbol has multiple buys
+  // at different prices. A lot fully consumed becomes CLOSED; a lot only
+  // partially consumed is split into a CLOSED remainder (for the sold
+  // portion) and keeps the rest OPEN with the original entry price/date.
+  const sellFromNetPosition = (symbol, qtyToSell, exitPrice) => {
+    let remaining = qtyToSell;
+    const openLots = positions
+      .filter(p => p.symbol === symbol && p.status === "OPEN")
+      .sort((a, b) => new Date(a.date) - new Date(b.date)); // oldest first (FIFO)
+
+    if (remaining <= 0 || openLots.reduce((s, l) => s + l.qty, 0) < remaining) {
+      showToast("⚠ Not enough open quantity to sell that much");
+      return;
+    }
+
+    const updated = [...positions];
+    for (const lot of openLots) {
+      if (remaining <= 0) break;
+      const lotIndex = updated.findIndex(p => p.id === lot.id);
+      if (lot.qty <= remaining) {
+        // Fully consume this lot
+        remaining -= lot.qty;
+        updated[lotIndex] = {
+          ...lot, status: "CLOSED", exitPrice,
+          actualReturn: ((exitPrice - lot.entryPrice) / lot.entryPrice) * 100,
+          exitDate: nowStr(),
+        };
+      } else {
+        // Partially consume: split into a closed portion + remaining open portion
+        const soldQty = remaining;
+        const keepQty = lot.qty - remaining;
+        updated[lotIndex] = {
+          ...lot, qty: keepQty, invested: lot.entryPrice * keepQty,
+        };
+        updated.push({
+          ...lot, id: uid(), qty: soldQty, invested: lot.entryPrice * soldQty,
+          status: "CLOSED", exitPrice,
+          actualReturn: ((exitPrice - lot.entryPrice) / lot.entryPrice) * 100,
+          exitDate: nowStr(),
+        });
+        remaining = 0;
+      }
+    }
+    savePositions(updated);
+    showToast(`✓ Sold ${qtyToSell} ${symbol} @ ₹${fmt(exitPrice)}`);
+  };
+
+  // Kept for any remaining direct single-lot close call sites — closes one
+  // specific lot entirely at the given price.
   const handleClosePosition = (id, exitPrice) => {
     savePositions(positions.map(p =>
-      p.id === id ? { ...p, status: "CLOSED", exitPrice, actualReturn: ((exitPrice - p.entryPrice) / p.entryPrice) * 100 } : p
+      p.id === id ? { ...p, status: "CLOSED", exitPrice, actualReturn: ((exitPrice - p.entryPrice) / p.entryPrice) * 100, exitDate: nowStr() } : p
     ));
     showToast("✓ Position closed");
   };
@@ -1737,39 +1894,37 @@ function App() {
             <div>
               {/* Sub-tab switcher */}
               <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
-                {[["swing", "🎯 Swing Trades"], ["longterm", "📦 Long-Term Holdings"]].map(([id, label]) => (
+                {[["swing", "💼 Portfolio"], ["trades", "📜 Trades"], ["longterm", "📦 Long-Term Holdings"]].map(([id, label]) => (
                   <button key={id} onClick={() => setPortfolioTab(id)}
-                    style={{ flex: 1, padding: "10px 0", borderRadius: 10, border: `1px solid ${portfolioTab === id ? T.accent : T.border}`, background: portfolioTab === id ? T.accentDim : T.card, color: portfolioTab === id ? T.accent : T.muted, fontWeight: 700, fontSize: 13, cursor: "pointer" }}>
+                    style={{ flex: 1, padding: "10px 0", borderRadius: 10, border: `1px solid ${portfolioTab === id ? T.accent : T.border}`, background: portfolioTab === id ? T.accentDim : T.card, color: portfolioTab === id ? T.accent : T.muted, fontWeight: 700, fontSize: 12, cursor: "pointer" }}>
                     {label}
                   </button>
                 ))}
               </div>
 
-              {/* ── Swing Trades sub-tab ── */}
+              {/* ── Portfolio (net positions) sub-tab ── */}
               {portfolioTab === "swing" && (
                 <>
                   <PortfolioSummary positions={positions} livePrices={livePrices} />
-                  {positions.filter(p => p.status === "OPEN").length > 0 && (
-                    <>
-                      <div style={{ color: T.text, fontWeight: 700, marginBottom: 10, fontSize: 14 }}>Open Positions</div>
-                      {positions.filter(p => p.status === "OPEN").map(p => <PortfolioRow key={p.id} pos={p} onClose={handleClosePosition} livePrice={livePrices[p.symbol]} />)}
-                    </>
-                  )}
-                  {positions.filter(p => p.status === "CLOSED").length > 0 && (
-                    <>
-                      <div style={{ color: T.muted, fontWeight: 700, marginTop: 18, marginBottom: 10, fontSize: 14 }}>Closed Trades</div>
-                      {positions.filter(p => p.status === "CLOSED").map(p => <PortfolioRow key={p.id} pos={p} onClose={handleClosePosition} livePrice={livePrices[p.symbol]} />)}
-                    </>
-                  )}
-                  {positions.length === 0 && (
-                    <div style={{ textAlign: "center", padding: 50, color: T.muted }}>
-                      <div style={{ fontSize: 36 }}>📂</div>
-                      <div style={{ marginTop: 10, fontSize: 13 }}>No swing trades yet.<br />Add stocks from the Scanner tab.</div>
-                    </div>
-                  )}
+                  {(() => {
+                    const nets = computeNetPositions(positions);
+                    return nets.length > 0 ? (
+                      <>
+                        <div style={{ color: T.text, fontWeight: 700, marginBottom: 10, fontSize: 14 }}>Open Positions (net)</div>
+                        {nets.map(net => (
+                          <NetPositionCard key={net.symbol} net={net} livePrice={livePrices[net.symbol]} onSell={sellFromNetPosition} />
+                        ))}
+                      </>
+                    ) : (
+                      <div style={{ textAlign: "center", padding: 50, color: T.muted }}>
+                        <div style={{ fontSize: 36 }}>📂</div>
+                        <div style={{ marginTop: 10, fontSize: 13 }}>No open positions.<br />Add stocks from the Scanner tab.</div>
+                      </div>
+                    );
+                  })()}
                   {positions.filter(p => p.status === "CLOSED").length > 0 && (
                     <div style={{ marginTop: 22, background: T.card, borderRadius: 12, padding: 16, border: `1px solid ${T.border}` }}>
-                      <div style={{ color: T.muted, fontSize: 11, marginBottom: 14 }}>PREDICTION vs ACTUAL</div>
+                      <div style={{ color: T.muted, fontSize: 11, marginBottom: 14 }}>PREDICTION vs ACTUAL (per trade)</div>
                       {positions.filter(p => p.status === "CLOSED").map(p => {
                         const pred = p.predicted_return || 15;
                         const actual = p.actualReturn || 0;
@@ -1795,6 +1950,33 @@ function App() {
                   })}
                 </div>
               )}
+                </>
+              )}
+
+              {/* ── Trades (full individual-lot ledger) sub-tab ── */}
+              {portfolioTab === "trades" && (
+                <>
+                  <div style={{ color: T.muted, fontSize: 11, marginBottom: 14 }}>
+                    Every individual buy/sell event — the full detail behind the net positions shown on the Portfolio tab.
+                  </div>
+                  {positions.filter(p => p.status === "OPEN").length > 0 && (
+                    <>
+                      <div style={{ color: T.text, fontWeight: 700, marginBottom: 10, fontSize: 14 }}>Open Lots</div>
+                      {positions.filter(p => p.status === "OPEN").map(p => <PortfolioRow key={p.id} pos={p} onClose={handleClosePosition} livePrice={livePrices[p.symbol]} />)}
+                    </>
+                  )}
+                  {positions.filter(p => p.status === "CLOSED").length > 0 && (
+                    <>
+                      <div style={{ color: T.muted, fontWeight: 700, marginTop: 18, marginBottom: 10, fontSize: 14 }}>Closed Lots</div>
+                      {positions.filter(p => p.status === "CLOSED").map(p => <PortfolioRow key={p.id} pos={p} onClose={handleClosePosition} livePrice={livePrices[p.symbol]} />)}
+                    </>
+                  )}
+                  {positions.length === 0 && (
+                    <div style={{ textAlign: "center", padding: 50, color: T.muted }}>
+                      <div style={{ fontSize: 36 }}>📜</div>
+                      <div style={{ marginTop: 10, fontSize: 13 }}>No trades yet.</div>
+                    </div>
+                  )}
                 </>
               )}
 
