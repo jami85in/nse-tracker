@@ -441,7 +441,10 @@ const PRICE_PROXY_URL = "https://nse-prices.jami85in.workers.dev";  // ← PASTE
 async function fetchBrowserPrices(symbols) {
   if (!symbols || symbols.length === 0) return { prices: {}, source: null };
 
-  // Source 1: Cloudflare Worker proxy to NSE
+  // Source 1: Cloudflare Worker proxy — NSE official bhavcopy (settled EOD
+  // prices, once daily after close). NOT live/intraday. We label it as such
+  // so stop-loss/target alerts correctly stay paused (avoids false alarms
+  // from a price that's really still yesterday's/today's settled close).
   if (PRICE_PROXY_URL) {
     try {
       const url = `${PRICE_PROXY_URL}?symbols=${encodeURIComponent(symbols.join(","))}&t=${Date.now()}`;
@@ -449,7 +452,7 @@ async function fetchBrowserPrices(symbols) {
       if (res.ok) {
         const data = await res.json();
         if (data.prices && Object.keys(data.prices).length > 0) {
-          return { prices: data.prices, source: "NSE" };
+          return { prices: data.prices, source: "NSE EOD", asOf: data.as_of || null, isLive: false };
         }
       }
     } catch {}
@@ -468,7 +471,7 @@ async function fetchBrowserPrices(symbols) {
       for (const q of (data?.quoteResponse?.result || [])) {
         if (q.regularMarketPrice) out[q.symbol.replace(".NS", "")] = q.regularMarketPrice;
       }
-      if (Object.keys(out).length > 0) return { prices: out, source: "Yahoo" };
+      if (Object.keys(out).length > 0) return { prices: out, source: "Yahoo", isLive: true };
     }
   } catch {}
 
@@ -483,7 +486,7 @@ async function fetchBrowserPrices(symbols) {
       for (const q of (data?.quoteResponse?.result || [])) {
         if (q.regularMarketPrice) out[q.symbol.replace(".NS", "")] = q.regularMarketPrice;
       }
-      if (Object.keys(out).length > 0) return { prices: out, source: "Yahoo (proxy)" };
+      if (Object.keys(out).length > 0) return { prices: out, source: "Yahoo (proxy)", isLive: true };
     }
   } catch {}
 
@@ -1517,14 +1520,14 @@ function App() {
           setPriceUpdated(updatedAt || "");
           setPricesStale(!marketOpen);
         }
-        // Then try browser-side live prices and overlay them
-        const { prices: live, source } = await fetchBrowserPrices(uniqueSyms);
+        // Then try browser-side sources (Worker/bhavcopy or Yahoo) and overlay
+        const { prices: live, source, asOf, isLive } = await fetchBrowserPrices(uniqueSyms);
         if (Object.keys(live).length > 0) {
           merged = { ...merged, ...live };
           setLivePrices(merged);
           const ts = new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
-          setPriceUpdated(`${ts} · live via ${source}`);
-          setPricesStale(false); // browser prices ARE live
+          setPriceUpdated(isLive ? `${ts} · live via ${source}` : `${source} as of ${asOf || "last close"}`);
+          setPricesStale(!isLive); // only genuinely live sources clear the stale flag
         }
       });
     } catch (e) {
@@ -1554,13 +1557,13 @@ function App() {
         ...(scanData.short_breakdown_stocks || []).map(s => s.symbol),
         ...positions.filter(p => p.status === "OPEN").map(p => p.symbol),
       ])];
-      const { prices: live, source } = await fetchBrowserPrices(syms);
+      const { prices: live, source, asOf, isLive } = await fetchBrowserPrices(syms);
       if (Object.keys(live).length > 0) {
         merged = { ...merged, ...live };
         setLivePrices(merged);
         const ts = new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
-        setPriceUpdated(`${ts} · live via ${source}`);
-        setPricesStale(false);
+        setPriceUpdated(isLive ? `${ts} · live via ${source}` : `${source} as of ${asOf || "last close"}`);
+        setPricesStale(!isLive);
       }
     };
     livePriceRef.current = setInterval(refreshPrices, 3 * 60 * 1000);  // every 3 min while app open
