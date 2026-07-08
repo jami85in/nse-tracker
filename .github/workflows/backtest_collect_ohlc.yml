@@ -1,0 +1,55 @@
+name: NSE Historical OHLC Collector
+
+# Collects full OHLC (open/high/low/close) daily data, upgrading from the
+# earlier close-only collector. Same resumable multi-chunk-per-run design.
+# Runs on its OWN symbols_all.json universe (set via BACKTEST_UNIVERSE) —
+# defaults to "all" to also expand coverage beyond Nifty 500 (e.g. WALCHANNAG).
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+    inputs:
+      universe:
+        description: "Symbol universe: nifty500 or all"
+        required: false
+        default: "all"
+        type: choice
+        options: ["nifty500", "all"]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: nse-backtest-ohlc
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Fetch OHLC chunks
+        env:
+          BACKTEST_WORKER_URL: ${{ secrets.BACKTEST_WORKER_URL }}
+          BACKTEST_CHUNK_DAYS: "28"
+          BACKTEST_START_DATE: "2020-09-01"
+          BACKTEST_UNIVERSE: ${{ github.event.inputs.universe || 'all' }}
+          BACKTEST_TIME_BUDGET_SECONDS: "480"
+          BACKTEST_PAUSE_SECONDS: "5"
+        run: python scripts/backtest_fetch_ohlc.py
+
+      - name: Commit accumulated data
+        if: always()
+        run: |
+          git config user.name "nse-tracker-bot"
+          git config user.email "actions@github.com"
+          git add data/backtest/raw_ohlc/ data/backtest/progress_ohlc.json data/backtest/symbols_all.json data/backtest/symbols.json
+          git diff --staged --quiet || git commit -m "backtest-ohlc: chunks collected $(date -u +'%Y-%m-%d %H:%M UTC')"
+          git pull --rebase --autostash origin main || true
+          git push
