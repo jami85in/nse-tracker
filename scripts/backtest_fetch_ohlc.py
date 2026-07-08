@@ -48,18 +48,44 @@ def get_symbol_universe():
     if syms:
         return syms
     try:
-        universe_param = "?universe=all" if UNIVERSE == "all" else ""
+        universe_param = "?universe=all&debug=1" if UNIVERSE == "all" else ""
         url = f"{WORKER_URL}/symbols{universe_param}"
         req = urllib.request.Request(url, headers={"User-Agent": "nse-tracker-backtest/1.0"})
         with urllib.request.urlopen(req, timeout=60) as resp:
             data = json.loads(resp.read().decode())
+        if data.get("error"):
+            print(f"Worker returned an error fetching symbols: {data['error']}")
+            if data.get("debug"):
+                print(f"Worker debug log: {data['debug']}")
+            return []
         if data.get("symbols"):
             universe = sorted(data["symbols"])
             save_json(SYMBOLS_PATH, universe)
-            print(f"Seeded {len(universe)} symbols ({UNIVERSE} universe) via Worker.")
+            print(f"Seeded {len(universe)} symbols ({UNIVERSE} universe) via Worker, as_of={data.get('as_of')}")
             return universe
+        print(f"Worker responded but had no 'symbols' field. Raw response: {json.dumps(data)[:500]}")
+    except urllib.error.HTTPError as e:
+        body = e.read().decode() if hasattr(e, "read") else ""
+        print(f"HTTP error fetching symbol list: {e.code} {e.reason}. Body: {body[:500]}")
     except Exception as e:
-        print(f"Could not fetch symbol list via Worker ({e}).")
+        print(f"Could not fetch symbol list via Worker: {type(e).__name__}: {e}")
+
+    if UNIVERSE == "all":
+        print("Falling back to the Nifty 500 list so collection can still proceed "
+              "(full-universe expansion can be retried once the /symbols?universe=all "
+              "endpoint issue is fixed).")
+        try:
+            url = f"{WORKER_URL}/symbols"
+            req = urllib.request.Request(url, headers={"User-Agent": "nse-tracker-backtest/1.0"})
+            with urllib.request.urlopen(req, timeout=60) as resp:
+                data = json.loads(resp.read().decode())
+            if data.get("symbols"):
+                universe = sorted(data["symbols"])
+                save_json(SYMBOLS_PATH, universe)
+                print(f"Fallback: seeded {len(universe)} Nifty 500 symbols.")
+                return universe
+        except Exception as e2:
+            print(f"Fallback also failed: {e2}")
     return []
 
 
