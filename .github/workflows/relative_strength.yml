@@ -1,0 +1,41 @@
+name: NSE Relative Strength & Sector Analysis
+
+# Fetches sector membership (light, infrequent — composition rarely
+# changes) and computes relative-strength stats (stock vs sector vs Nifty)
+# from the OHLC + index data already collected. Runs daily after the main
+# scan, so the dashboard has fresh relative-strength context each day.
+
+on:
+  schedule:
+    - cron: "0 19 * * *"   # once daily, 7pm UTC (~12:30am IST, after the day's scan)
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Fetch sector membership
+        env:
+          BACKTEST_WORKER_URL: ${{ secrets.BACKTEST_WORKER_URL }}
+        run: python scripts/sector_fetch.py
+
+      - name: Compute relative strength
+        run: python scripts/relative_strength.py
+
+      - name: Commit results
+        run: |
+          git config user.name "nse-tracker-bot"
+          git config user.email "actions@github.com"
+          git add data/backtest/sector_membership.json data/backtest/relative_strength.json
+          git diff --staged --quiet || git commit -m "relative-strength: $(date -u +'%Y-%m-%d')"
+          git pull --rebase --autostash origin main || true
+          git push
