@@ -1,6 +1,6 @@
 {
-  "scan_time": "2026-07-08 17:34 IST",
-  "market_mood": "BULLISH \u2014 all 15 setups are BLAST with sustained positive returns confirming broad upside momentum.",
+  "scan_time": "2026-07-08 19:51 IST",
+  "market_mood": "NEUTRAL",
   "squeeze_stocks": [
     {
       "symbol": "SUNTV",
@@ -289,7 +289,7 @@
       "first_seen": "2026-06-30",
       "blast_triggered_date": "2026-06-30",
       "confidence": "HIGH",
-      "reason": "Up 21.09% over 23 days; stoch_k 100 confirms strong momentum."
+      "reason": "Up 21.1% over 23d since entry at None, stoch_k 100 overbought"
     },
     {
       "symbol": "CGCL",
@@ -359,7 +359,7 @@
       "first_seen": "2026-06-19",
       "blast_triggered_date": "2026-06-19",
       "confidence": "MEDIUM",
-      "reason": "Up 20.59% over 28 days; stoch_k 75.87 shows moderate momentum."
+      "reason": "Up 20.6% over 28d since entry at None, stoch_k 76 overbought"
     },
     {
       "symbol": "JSWINFRA",
@@ -456,7 +456,7 @@
       "first_seen": "2026-07-01",
       "blast_triggered_date": "2026-07-01",
       "confidence": "HIGH",
-      "reason": "Up 20.15% over 12 days; stoch_k 100 signals powerful squeeze breakout."
+      "reason": "Up 20.1% over 12d since entry at None, stoch_k 100 overbought"
     },
     {
       "symbol": "CHOICEIN",
@@ -557,7 +557,7 @@
       "first_seen": "2026-06-22",
       "blast_triggered_date": "2026-06-22",
       "confidence": "MEDIUM",
-      "reason": "Up 19.56% over 28 days; stoch_k 84.75 reflects solid but not extreme momentum."
+      "reason": "Up 19.6% over 28d since entry at None, stoch_k 85 overbought"
     },
     {
       "symbol": "WELSPUNLIV",
@@ -654,7 +654,7 @@
       "first_seen": "2026-07-03",
       "blast_triggered_date": "2026-07-03",
       "confidence": "HIGH",
-      "reason": "Up 18.67% over 7 days; BB width tripled from 6.09% confirming explosive breakout."
+      "reason": "Up 18.7% over 7d since entry at None, stoch_k 91 overbought"
     },
     {
       "symbol": "REDINGTON",
@@ -750,8 +750,8 @@
       "status": "BLAST",
       "first_seen": "2026-06-29",
       "blast_triggered_date": "2026-06-29",
-      "confidence": "MEDIUM",
-      "reason": "Up 17.95% over 26 days; stoch_k 89.08 steady but BB expansion moderate."
+      "confidence": "HIGH",
+      "reason": "Up 17.9% over 26d since entry at None, stoch_k 89 overbought"
     },
     {
       "symbol": "GABRIEL",
@@ -941,7 +941,7 @@
       "first_seen": "2026-06-29",
       "blast_triggered_date": "2026-06-29",
       "confidence": "MEDIUM",
-      "reason": "Up 17.50% over 28 days; stoch_k 76.11 lags behind strong price advance."
+      "reason": "Up 17.5% over 28d since entry at None, stoch_k 76 overbought"
     },
     {
       "symbol": "DLF",
@@ -1108,7 +1108,7 @@
       "first_seen": "2026-07-01",
       "blast_triggered_date": "2026-07-01",
       "confidence": "MEDIUM",
-      "reason": "Up 15.92% over 28 days; stoch_k 83.96 decent but BB width expansion modest."
+      "reason": "Up 15.9% over 28d since entry at None, stoch_k 84 overbought"
     },
     {
       "symbol": "NYKAA",
@@ -1209,7 +1209,7 @@
       "first_seen": "2026-06-30",
       "blast_triggered_date": "2026-06-30",
       "confidence": "HIGH",
-      "reason": "Up 14.84% over 23 days; BB width doubled from 10.20% with stoch_k 94.38."
+      "reason": "Up 14.8% over 23d since entry at None, stoch_k 94 overbought"
     },
     {
       "symbol": "BAJFINANCE",
@@ -1508,7 +1508,7 @@
       "first_seen": "2026-06-22",
       "blast_triggered_date": "2026-06-29",
       "confidence": "HIGH",
-      "reason": "Up 12.77% over 23 days; stoch_k 93.94 and BB expansion from 15.20% confirm strength."
+      "reason": "Up 12.8% over 23d since entry at None, stoch_k 94 overbought"
     },
     {
       "symbol": "ZFCVINDIA",
@@ -1605,7 +1605,7 @@
       "first_seen": "2026-07-01",
       "blast_triggered_date": "2026-07-01",
       "confidence": "HIGH",
-      "reason": "Up 11.95% over 13 days; stoch_k 92.93 with BB width expanding cleanly from 16.50%."
+      "reason": "Up 11.9% over 13d since entry at None, stoch_k 93 overbought"
     },
     {
       "symbol": "RADICO",
@@ -1737,7 +1737,7 @@
       "first_seen": "2026-07-06",
       "blast_triggered_date": "2026-07-06",
       "confidence": "MEDIUM",
-      "reason": "Up 11.50% over 8 days; stoch_k 78.44 and tight BB width 15.45% limit conviction."
+      "reason": "Up 11.5% over 8d since entry at None, stoch_k 78 overbought"
     },
     {
       "symbol": "ACE",
@@ -1896,7 +1896,7 @@
       "first_seen": "2026-06-24",
       "blast_triggered_date": "2026-06-24",
       "confidence": "HIGH",
-      "reason": "Up 11.01% over 21 days; stoch_k 92.85 with sustained EMA10 above EMA30 spread."
+      "reason": "Up 11.0% over 21d since entry at None, stoch_k 93 overbought"
     },
     {
       "symbol": "ICICIBANK",
@@ -1993,7 +1993,7 @@
       "first_seen": "2026-06-29",
       "blast_triggered_date": "2026-06-29",
       "confidence": "HIGH",
-      "reason": "Up 10.64% over 28 days; stoch_k 100 with BB width expanding from tight 8.06%."
+      "reason": "Up 10.6% over 28d since entry at None, stoch_k 100 overbought"
     },
     {
       "symbol": "MOTILALOFS",
@@ -2125,7 +2125,7 @@
       "first_seen": "2026-06-23",
       "blast_triggered_date": "2026-06-23",
       "confidence": "MEDIUM",
-      "reason": "Up 9.87% over 26 days; stoch_k 77.27 and narrowest BB width 13.12% cap confidence."
+      "reason": "Up 9.9% over 26d since entry at None, stoch_k 77 overbought"
     },
     {
       "symbol": "ADANIENSOL",
