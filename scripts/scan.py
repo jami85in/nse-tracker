@@ -1039,7 +1039,7 @@ def save_ledger(ledger: dict):
         json.dump(ledger, f, indent=2)
 
 
-def update_ledger(ledger: dict, all_candidates: list, scan_date: str) -> dict:
+def update_ledger(ledger: dict, all_candidates: list, scan_date: str, scan_indicators: dict = None) -> dict:
     """
     Merge this scan's fresh classify() results into the durable ledger.
 
@@ -1183,7 +1183,39 @@ def update_ledger(ledger: dict, all_candidates: list, scan_date: str) -> dict:
                 age_days = (today - pd.to_datetime(spotted_date)).days
                 if age_days >= WATCHLIST_RETENTION_DAYS:
                     to_drop.append(symbol)
-        # SQUEEZE entries not refreshed today are intentionally left as-is.
+        elif entry.get("status") == "SQUEEZE":
+            # Open SQUEEZE position that wasn't re-detected as a candidate
+            # today (it drifted out of the strict squeeze zone but hasn't hit
+            # a formal BLAST). Previously left entirely frozen, which stranded
+            # it at its stale entry snapshot — wrong current price and, worse,
+            # a stale trend_conflict flag that kept a now-working position
+            # stuck in the countertrend list. Refresh its LIVE fields from the
+            # current scan's indicators and re-evaluate trend_conflict, while
+            # keeping all entry-time fields (entry_price/date, target, pivots)
+            # frozen. If we have no fresh indicators for it, leave it as-is.
+            ind = (scan_indicators or {}).get(symbol)
+            if ind and ind.get("ema10") is not None:
+                price = ind["price"]; e10 = ind["ema10"]; e30 = ind["ema30"]
+                sk = ind.get("stoch_k"); sd = ind.get("stoch_d")
+                entry["price"] = price
+                entry["ema10"] = e10
+                entry["ema30"] = e30
+                entry["bb_width"] = ind.get("bb_width", entry.get("bb_width"))
+                if sk is not None: entry["stoch_k"] = sk
+                if sd is not None: entry["stoch_d"] = sd
+                entry["last_seen"] = scan_date
+                # Re-score conviction/trend against CURRENT price vs EMAs.
+                if sk is not None and sd is not None:
+                    score, tconf, wcross, note = score_conviction(
+                        price, e10, e30, sk, sd, direction="long"
+                    )
+                    entry["trend_conflict"] = tconf
+                    entry["weak_crossover"] = wcross
+                    entry["conviction_score"] = score
+                    entry["conviction_note"] = note
+                else:
+                    # Fall back to a pure price-vs-EMA trend check if stoch is missing
+                    entry["trend_conflict"] = (price < e10) and (price < e30)
 
     for symbol in to_drop:
         del ledger[symbol]
@@ -1203,6 +1235,7 @@ def scan_all_symbols(session: requests.Session, universe: list, as_of_date: str 
     """
     all_candidates = []
     short_candidates = []  # bearish setups — separate list, never mixed with longs
+    scan_indicators = {}   # {symbol: current price/EMAs/stoch} for ALL scanned symbols
     fetched_histories = histories if histories is not None else {}
 
     for symbol in universe:
@@ -1225,6 +1258,26 @@ def scan_all_symbols(session: requests.Session, universe: list, as_of_date: str 
                 continue
 
         df_ind = add_indicators(df_slice)
+        # Capture current indicators for EVERY scanned symbol, whether or not
+        # it becomes a candidate. This lets update_ledger() refresh the live
+        # fields (price, EMAs, trend_conflict) of an open position that has
+        # since moved out of the squeeze zone but hasn't formally hit BLAST —
+        # otherwise such a position stays frozen at its stale entry snapshot
+        # (the PFIZER case: entered countertrend below both EMAs, since risen
+        # above them, but stuck showing the old price and trend_conflict=True).
+        try:
+            last = df_ind.iloc[-1]
+            if not pd.isna(last.get("bb_width_pct")) and not pd.isna(last.get("ema10")):
+                scan_indicators[symbol] = {
+                    "price": round(float(last["close"]), 2),
+                    "ema10": float(last["ema10"]),
+                    "ema30": float(last["ema30"]),
+                    "bb_width": round(float(last["bb_width_pct"]), 2),
+                    "stoch_k": round(float(last["stoch_k"]), 1) if not pd.isna(last.get("stoch_k")) else None,
+                    "stoch_d": round(float(last["stoch_d"]), 1) if not pd.isna(last.get("stoch_d")) else None,
+                }
+        except Exception:
+            pass
         cand = classify(symbol, df_ind, scan_date=as_of_date)
         if cand:
             all_candidates.append(cand)
@@ -1239,6 +1292,7 @@ def scan_all_symbols(session: requests.Session, universe: list, as_of_date: str 
     # attach to a module-level holder read by run(). Simplest: return via
     # a function attribute.
     scan_all_symbols.last_short_candidates = short_candidates
+    scan_all_symbols.last_indicators = scan_indicators
     return all_candidates, fetched_histories
 
 
@@ -1334,14 +1388,16 @@ def run(backfill_days: int = 0, allow_weekend: bool = False):
             d_str = d.isoformat()
             print(f"  Reconstructing {d_str}...")
             day_candidates, histories = scan_all_symbols(session, universe, as_of_date=d_str, histories=histories)
-            ledger = update_ledger(ledger, day_candidates, d_str)
+            ledger = update_ledger(ledger, day_candidates, d_str,
+                                   scan_indicators=getattr(scan_all_symbols, "last_indicators", {}))
             last_candidates = day_candidates
         all_candidates = last_candidates
         scan_date = candidate_dates[-1].isoformat() if candidate_dates else today.isoformat()
     else:
         scan_date = today.isoformat()
         all_candidates, _ = scan_all_symbols(session, universe, as_of_date=scan_date)
-        ledger = update_ledger(ledger, all_candidates, scan_date)
+        ledger = update_ledger(ledger, all_candidates, scan_date,
+                               scan_indicators=getattr(scan_all_symbols, "last_indicators", {}))
 
 
     # Build the dashboard view FROM THE LEDGER, not just today's fresh
