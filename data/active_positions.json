@@ -176,7 +176,7 @@
     "first_seen": "2026-06-22",
     "blast_triggered_date": "2026-06-22",
     "confidence": "MEDIUM",
-    "reason": "Up 16.05% over 24 trading days since squeeze entry, stoch starting to soften at 81."
+    "reason": "Up 16.05% over 24 trading days since squeeze entry, stoch_k at 81."
   },
   "MARICO": {
     "symbol": "MARICO",
@@ -285,7 +285,7 @@
     "first_seen": "2026-06-24",
     "blast_triggered_date": "2026-06-24",
     "confidence": "MEDIUM",
-    "reason": "Up 14.84% over 22 trading days since squeeze entry, BB width modestly expanded to 18.6%."
+    "reason": "Up 14.84% over 22 trading days since squeeze entry, stoch_k at 90."
   },
   "CENTRALBK": {
     "symbol": "CENTRALBK",
@@ -518,7 +518,7 @@
     "first_seen": "2026-06-30",
     "blast_triggered_date": "2026-06-30",
     "confidence": "HIGH",
-    "reason": "Up 17.84% over 24 trading days since squeeze entry, stoch_k 90.8 strongly elevated."
+    "reason": "Up 17.84% over 24 trading days since squeeze entry, stoch_k strong at 90."
   },
   "HFCL": {
     "symbol": "HFCL",
@@ -925,7 +925,7 @@
     "first_seen": "2026-07-01",
     "blast_triggered_date": "2026-07-01",
     "confidence": "HIGH",
-    "reason": "Up 21.99% over 13 trading days since squeeze entry, stoch_k 100 confirming momentum."
+    "reason": "Up 21.99% over 13 trading days since squeeze entry, stoch_k at 100."
   },
   "CHOLAHLDNG": {
     "symbol": "CHOLAHLDNG",
@@ -991,7 +991,7 @@
     "first_seen": "2026-07-01",
     "blast_triggered_date": "2026-07-01",
     "confidence": "MEDIUM",
-    "reason": "Up 18.95% over 28 trading days since squeeze entry, stoch beginning to roll over."
+    "reason": "Up 18.95% over 28 trading days since squeeze entry, stoch_k at 83."
   },
   "EMAMILTD": {
     "symbol": "EMAMILTD",
@@ -1092,7 +1092,7 @@
     "first_seen": "2026-07-01",
     "blast_triggered_date": "2026-07-01",
     "confidence": "MEDIUM",
-    "reason": "Up 12.9% over 14 trading days since squeeze entry, stoch_k 87.9 dipping below stoch_d 92.2."
+    "reason": "Up 12.90% over 14 trading days since squeeze entry, stoch_k at 87."
   },
   "NHPC": {
     "symbol": "NHPC",
@@ -1568,8 +1568,8 @@
     "status": "BLAST",
     "first_seen": "2026-07-02",
     "blast_triggered_date": "2026-07-02",
-    "confidence": "HIGH",
-    "reason": "Up 15.1% over 13 trading days since squeeze entry, BB nearly doubled from 9.84%."
+    "confidence": "MEDIUM",
+    "reason": "Up 15.10% over 13 trading days since squeeze entry, stoch_k at 87."
   },
   "LEMONTREE": {
     "symbol": "LEMONTREE",
@@ -2091,7 +2091,7 @@
     "first_seen": "2026-07-03",
     "blast_triggered_date": "2026-07-03",
     "confidence": "MEDIUM",
-    "reason": "Up 20.05% over 21 trading days since squeeze entry, stoch_k slightly below stoch_d."
+    "reason": "Up 20.05% over 21 trading days since squeeze entry, stoch_k easing at 88."
   },
   "CEMPRO": {
     "symbol": "CEMPRO",
@@ -2126,7 +2126,7 @@
     "first_seen": "2026-07-03",
     "blast_triggered_date": "2026-07-03",
     "confidence": "MEDIUM",
-    "reason": "Up 14.0% over 8 trading days since squeeze entry, BB very wide at 41.9% flagging overextension."
+    "reason": "Up 14.00% over 8 trading days since squeeze entry, BB very wide at 41.89%."
   },
   "EXIDEIND": {
     "symbol": "EXIDEIND",
@@ -2297,7 +2297,7 @@
     "first_seen": "2026-07-03",
     "blast_triggered_date": "2026-07-03",
     "confidence": "HIGH",
-    "reason": "Up 20.97% over 8 trading days since squeeze entry, rapid breakout with stoch 100."
+    "reason": "Up 20.97% over 8 trading days since squeeze entry, stoch_k at 100."
   },
   "IKS": {
     "symbol": "IKS",
@@ -3240,7 +3240,7 @@
     "first_seen": "2026-07-06",
     "blast_triggered_date": "2026-07-06",
     "confidence": "MEDIUM",
-    "reason": "Up 17.47% over 9 trading days since squeeze entry, BB width moderately expanded to 16.8%."
+    "reason": "Up 17.47% over 9 trading days since squeeze entry, stoch_k at 82."
   },
   "BIOCON": {
     "symbol": "BIOCON",
@@ -3419,7 +3419,7 @@
     "promoted_from_watchlist": true,
     "promoted_date": "2026-07-09",
     "confidence": "HIGH",
-    "reason": "BB halved to 4.33% from 8.37%, stoch near zero signaling strong reversal setup."
+    "reason": "BB compressed sharply to 4.33% from 8.37%, stoch near oversold at 3.5."
   },
   "NAM-INDIA": {
     "symbol": "NAM-INDIA",
@@ -4952,12 +4952,12 @@
   "CRISIL": {
     "symbol": "CRISIL",
     "price": 4054.699951171875,
-    "bb_width": 8.783526002830854,
-    "bb_width_5d_ago": 11.217243568402006,
+    "bb_width": 8.783526002831259,
+    "bb_width_5d_ago": 11.217243568402322,
     "stoch_k": 13.58054680369167,
     "stoch_d": 4.613077266999553,
-    "ema10": 4010.984570006548,
-    "ema30": 4033.122017038541,
+    "ema10": 4010.984570006481,
+    "ema30": 4033.122016546547,
     "pivot_r1": 3954.200032552083,
     "pivot_r2": 4036.6000162760415,
     "pivot_s1": 3822.200032552083,
@@ -4982,7 +4982,7 @@
     "first_seen": "2026-07-09",
     "watchlist_first_seen": "2026-07-09",
     "watchlist_first_price": 4054.699951171875,
-    "reason": "BB width 8.783526002830854% tightening, stoch_k 14 turning up \u2014 not yet confirmed (needs <3.0% width)",
+    "reason": "BB width 8.783526002831259% tightening, stoch_k 14 turning up \u2014 not yet confirmed (needs <3.0% width)",
     "confidence": "WATCHING"
   },
   "COROMANDEL": {
@@ -5630,7 +5630,7 @@
     "first_seen": "2026-07-09",
     "blast_triggered_date": "2026-07-09",
     "confidence": "HIGH",
-    "reason": "Up 16.7% over 14 trading days since squeeze entry, stoch_k 97.6 far above stoch_d 65."
+    "reason": "Up 16.70% over 14 trading days since squeeze entry, stoch_k surging at 97."
   },
   "TATAINVEST": {
     "symbol": "TATAINVEST",
