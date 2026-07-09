@@ -536,10 +536,15 @@ const nowStr = () => new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkat
 const uid = () => Math.random().toString(36).slice(2, 9);
 
 function Pill({ label, color }) {
-  const map = { HIGH: T.accent, MEDIUM: T.warn, LOW: T.red, BULLISH: T.green, NEUTRAL: T.warn, BEARISH: T.red };
-  const c = map[label] || color || T.muted;
+  const map = { HIGH: T.accent, MEDIUM: T.warn, LOW: T.red, BULLISH: T.green, NEUTRAL: T.warn, BEARISH: T.red, CAUTIOUS: T.warn };
+  // market_mood is now a full sentence like "BULLISH — 4 active squeeze…".
+  // Match the color on the leading keyword (text before the em dash / first
+  // space), not the whole string, so long mood sentences still colour correctly.
+  const key = (label || "").split(/\s*—\s*|\s/)[0].toUpperCase();
+  const c = map[key] || map[label] || color || T.muted;
+  const isLong = (label || "").length > 16;
   return (
-    <span style={{ background: c + "22", color: c, border: `1px solid ${c}44`, borderRadius: 4, padding: "2px 8px", fontSize: 11, fontWeight: 700, letterSpacing: 0.5, whiteSpace: "nowrap" }}>
+    <span style={{ background: c + "22", color: c, border: `1px solid ${c}44`, borderRadius: 4, padding: "2px 8px", fontSize: 11, fontWeight: 700, letterSpacing: 0.5, whiteSpace: isLong ? "normal" : "nowrap", lineHeight: 1.4 }}>
       {label}
     </span>
   );
