@@ -1083,6 +1083,174 @@ def save_ledger(ledger: dict):
         json.dump(ledger, f, indent=2)
 
 
+def _indicators_as_of(symbol: str, date_str: str):
+    """Recompute the indicator bar for a symbol as of a given date, from the
+    committed OHLC. Returns the last row at/just before date_str, or None."""
+    df = load_committed_ohlc(symbol)
+    if df is None or len(df) < 35:
+        return None
+    try:
+        cutoff = pd.to_datetime(date_str)
+    except Exception:
+        return None
+    sl = df[df["date"] <= cutoff]
+    if len(sl) < 35:
+        return None
+    di = add_indicators(sl)
+    return di.iloc[-1]
+
+
+def audit_and_backfill_ledger(ledger: dict) -> dict:
+    """Repair FROZEN recommendation fields (entry_price, entry_date,
+    target_price, stop) that were captured missing or wrong at entry.
+
+    Freezing preserves whatever was recorded when a signal fired — including
+    errors — so the refresh/reconcile passes deliberately never touch these
+    fields. This audit is the one place allowed to fix them, and only from
+    reliable sources: it auto-repairs high-confidence cases and flags the
+    rest for review rather than guessing. Idempotent — safe to run every scan
+    (once a field is valid it won't be touched again).
+
+    Repairs, in order:
+      1. entry_price/entry_date missing but a blast-entry reference exists
+         (positions first seen mid-breakout, never tracked through squeeze) →
+         adopt the blast entry as the position entry. Fixes the cosmetic
+         "since entry at None" and gives downstream logic a valid anchor.
+      2. entry_date present but entry_price missing → that date's close from
+         committed OHLC.
+      3. SQUEEZE missing target/stop → recompute from the entry-date bar using
+         the scanner's own formula (target = entry + 3×ATR14, else pivot R1;
+         stop = pivot S1). Flagged instead if the entry-date bar isn't
+         available.
+    Writes data/ledger_audit.json and returns a summary dict."""
+    repaired, flagged = [], []
+    for sym, e in ledger.items():
+        status = e.get("status")
+        ep, ed = e.get("entry_price"), e.get("entry_date")
+
+        # 1) entry missing -> adopt blast-entry reference
+        if (ep in (None, 0)) and e.get("blast_entry_price") not in (None, 0):
+            e["entry_price"] = e["blast_entry_price"]
+            if not ed and e.get("blast_entry_date"):
+                e["entry_date"] = e["blast_entry_date"]
+            ep, ed = e["entry_price"], e.get("entry_date")
+            repaired.append(f"{sym} [{status}]: entry_price <- blast_entry ({ep})")
+
+        # 2) have entry_date but no price -> that day's close
+        if (ep in (None, 0)) and ed:
+            bar = _indicators_as_of(sym, ed)
+            if bar is not None:
+                e["entry_price"] = round(float(bar["close"]), 2)
+                ep = e["entry_price"]
+                repaired.append(f"{sym} [{status}]: entry_price <- OHLC {ed} ({ep})")
+
+        if ep in (None, 0):
+            flagged.append(f"{sym} [{status}]: entry_price unrecoverable (no blast ref, no usable entry_date)")
+            continue
+
+        # 3) SQUEEZE missing target/stop -> recompute from entry-date bar
+        if status == "SQUEEZE" and ed:
+            need_tgt = e.get("target_price") in (None, 0)
+            need_stop = (e.get("pivot_s1") in (None, 0)) and (e.get("stop_price") in (None, 0))
+            if need_tgt or need_stop:
+                bar = _indicators_as_of(sym, ed)
+                if bar is None:
+                    flagged.append(f"{sym} [SQUEEZE]: target/stop missing, entry-date bar unavailable")
+                else:
+                    try:
+                        atr = float(bar["atr14"]) if not pd.isna(bar.get("atr14")) else None
+                        r1 = float(bar["r1"]); s1 = float(bar["s1"])
+                        entry = float(e["entry_price"])
+                        if need_tgt:
+                            tgt = entry + 3 * atr if (atr and atr > 0) else r1
+                            e["target_price"] = round(tgt, 2)
+                            e["target_return_pct"] = round((tgt - entry) / entry * 100, 2)
+                            repaired.append(f"{sym} [SQUEEZE]: target <- recomputed ({e['target_price']})")
+                        if need_stop:
+                            e["pivot_s1"] = round(s1, 2)
+                            repaired.append(f"{sym} [SQUEEZE]: stop(S1) <- recomputed ({e['pivot_s1']})")
+                    except Exception:
+                        flagged.append(f"{sym} [SQUEEZE]: target/stop recompute failed")
+
+    summary = {
+        "generated": now_ist_str(),
+        "repaired_count": len(repaired),
+        "flagged_count": len(flagged),
+        "repaired": repaired,
+        "flagged": flagged,
+    }
+    try:
+        os.makedirs("data", exist_ok=True)
+        with open("data/ledger_audit.json", "w") as f:
+            json.dump(summary, f, indent=2)
+    except Exception:
+        pass
+    if repaired:
+        print(f"Ledger audit: repaired {len(repaired)} frozen field(s).")
+    if flagged:
+        print(f"Ledger audit: flagged {len(flagged)} entry(ies) needing review "
+              f"(see data/ledger_audit.json).")
+    return summary
+
+
+def reconcile_open_positions(ledger: dict, scan_date: str) -> int:
+    """Backstop: guarantee every open SQUEEZE position shows a CURRENT price
+    and an up-to-date trend_conflict, even if the scan loop skipped it.
+
+    The step-2 refresh in update_ledger only fires for symbols that made it
+    into scan_indicators during the scan loop. But the live NSE/yfinance fetch
+    is flaky per-symbol — a symbol can intermittently return None or a cached
+    stale frame, so it never enters scan_indicators and its ledger entry is
+    carried forward frozen at its stale entry snapshot (the SUNTV case: stuck
+    at its 2026-07-01 entry price of ₹510.95 with last_seen never advancing).
+
+    This pass runs AFTER update_ledger and directly re-reads the committed
+    OHLC for any SQUEEZE entry not refreshed this scan (last_seen != scan_date),
+    recomputing its live fields and re-evaluating trend_conflict. Entry fields
+    (entry_price, entry_date, target, pivots) stay frozen. Committed OHLC is
+    the reliable universe-wide source, so this never depends on the live fetch
+    succeeding. Returns the number of positions reconciled."""
+    fixed = 0
+    for sym, e in ledger.items():
+        if e.get("status") != "SQUEEZE":
+            continue
+        if e.get("last_seen") == scan_date:
+            continue  # already refreshed by update_ledger this scan
+        df = load_committed_ohlc(sym)
+        if df is None or len(df) < 35:
+            continue
+        di = add_indicators(df)
+        if indicators_look_broken(di):
+            continue
+        try:
+            last = di.iloc[-1]
+            price = round(float(last["close"]), 2)
+            ema10 = float(last["ema10"]); ema30 = float(last["ema30"])
+            stoch_k = float(last["stoch_k"]); stoch_d = float(last["stoch_d"])
+            bbw = round(float(last["bb_width_pct"]), 2)
+        except Exception:
+            continue
+        conv_score, tconf, weak_cross, note = score_conviction(
+            price, ema10, ema30, stoch_k, stoch_d, direction="long"
+        )
+        e["price"] = price
+        e["ema10"] = round(ema10, 2)
+        e["ema30"] = round(ema30, 2)
+        e["bb_width"] = bbw
+        e["stoch_k"] = round(stoch_k, 1)
+        e["stoch_d"] = round(stoch_d, 1)
+        e["trend_conflict"] = tconf
+        e["weak_crossover"] = weak_cross
+        e["conviction_score"] = conv_score
+        e["conviction_note"] = note
+        e["last_seen"] = scan_date
+        fixed += 1
+    if fixed:
+        print(f"Reconciled {fixed} open SQUEEZE position(s) from committed OHLC "
+              f"(scan loop had left them frozen).")
+    return fixed
+
+
 def update_ledger(ledger: dict, all_candidates: list, scan_date: str, scan_indicators: dict = None) -> dict:
     """
     Merge this scan's fresh classify() results into the durable ledger.
@@ -1456,6 +1624,15 @@ def run(backfill_days: int = 0, allow_weekend: bool = False):
         all_candidates, _ = scan_all_symbols(session, universe, as_of_date=scan_date)
         ledger = update_ledger(ledger, all_candidates, scan_date,
                                scan_indicators=getattr(scan_all_symbols, "last_indicators", {}))
+
+    # Backstop: refresh any open SQUEEZE position the scan loop skipped, so
+    # nothing stays frozen at a stale entry snapshot (the SUNTV case).
+    reconcile_open_positions(ledger, scan_date)
+
+    # Audit & repair frozen recommendation fields (entry/target/stop) that
+    # were captured missing or wrong — e.g. blasts first seen mid-breakout
+    # with entry_price=None ("since entry at None").
+    audit_and_backfill_ledger(ledger)
 
 
     # Build the dashboard view FROM THE LEDGER, not just today's fresh
