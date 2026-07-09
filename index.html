@@ -1353,11 +1353,14 @@ function MonitorPage({ scanData, positions, holdings, livePrices, priceUpdated, 
   (holdings || []).forEach(h => {
     const inBlast = (scanData.blast_stocks || []).some(b => b.symbol === h.symbol);
     const inSqueeze = (scanData.squeeze_stocks || []).some(s => s.symbol === h.symbol);
+    const inCountertrend = (scanData.countertrend_stocks || []).some(s => s.symbol === h.symbol);
     if (inBlast) alerts.push({ type: "exit", symbol: h.symbol, msg: "showing BLAST exit signal", color: T.blast });
     else if (inSqueeze) alerts.push({ type: "reentry", symbol: h.symbol, msg: "showing SQUEEZE re-entry signal", color: T.accent });
+    else if (inCountertrend) alerts.push({ type: "reentry", symbol: h.symbol, msg: "countertrend squeeze (below both EMAs) — lower conviction", color: T.red });
   });
 
   const squeeze = scanData.squeeze_stocks || [];
+  const countertrend = scanData.countertrend_stocks || [];
   const blast = scanData.blast_stocks || [];
   const watchlist = scanData.watchlist_stocks || [];
 
@@ -1393,6 +1396,7 @@ function MonitorPage({ scanData, positions, holdings, livePrices, priceUpdated, 
         <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 10 }}>
           <Stat label="Scanned" value={scanData.scanned_count} />
           <Stat label="In Play" value={squeeze.length} color={T.accent} />
+          <Stat label="Countertrend" value={countertrend.length} color={T.red} />
           <Stat label="Blast Exits" value={blast.length} color={T.blast} />
           <Stat label="Watchlist" value={watchlist.length} color={T.warn} />
           <Stat label="Graduated" value={scanData.promoted_from_watchlist_today || 0} color={T.accent} />
@@ -1723,6 +1727,7 @@ function App() {
   const [investTarget, setInvestTarget] = useState(null);
   const [toast, setToast] = useState(null);
   const [showWatchlist, setShowWatchlist] = useState(false);
+  const [showCountertrend, setShowCountertrend] = useState(false);
   const [showAllBlast, setShowAllBlast] = useState(false);
   const [showAddHolding, setShowAddHolding] = useState(false);
   const [portfolioTab, setPortfolioTab] = useState("swing");
@@ -1764,6 +1769,7 @@ function App() {
       // with browser-side live prices (phone IP isn't NSE-blocked).
       const uniqueSyms = [...new Set([
         ...(data.squeeze_stocks || []).map(s => s.symbol),
+        ...(data.countertrend_stocks || []).map(s => s.symbol),
         ...(data.blast_stocks || []).map(s => s.symbol),
         ...(data.watchlist_stocks || []).map(s => s.symbol),
         ...(data.short_squeeze_stocks || []).map(s => s.symbol),
@@ -1809,6 +1815,7 @@ function App() {
       }
       const syms = [...new Set([
         ...(scanData.squeeze_stocks || []).map(s => s.symbol),
+        ...(scanData.countertrend_stocks || []).map(s => s.symbol),
         ...(scanData.blast_stocks || []).map(s => s.symbol),
         ...(scanData.watchlist_stocks || []).map(s => s.symbol),
         ...(scanData.short_squeeze_stocks || []).map(s => s.symbol),
@@ -1999,6 +2006,35 @@ function App() {
               <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 26 }}>
                 {(scanData.squeeze_stocks || []).map((s, i) => <SqueezeCard key={s.symbol} stock={s} onInvest={handleInvest} rank={i + 1} livePrice={livePrices[s.symbol]} zoneStats={backtestReport?.report?.[s.symbol]?.zone_forward_return_10d} relStrength={relativeStrength?.results?.[s.symbol]} />)}
               </div>
+
+              {(scanData.countertrend_stocks || []).length > 0 && (
+                <div style={{ marginBottom: 26 }}>
+                  <div
+                    style={{ display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer" }}
+                    onClick={() => setShowCountertrend(c => !c)}
+                  >
+                    <div>
+                      <div style={{ fontWeight: 800, fontSize: 16, color: T.red }}>
+                        ⚠️ Countertrend — Lower Conviction {showCountertrend ? "▾" : "▸"}
+                      </div>
+                      <div style={{ color: T.muted, fontSize: 11 }}>
+                        Valid squeeze, but price is below both EMAs · {scanData.countertrend_stocks.length} signal{scanData.countertrend_stocks.length === 1 ? "" : "s"} · fighting the trend
+                      </div>
+                    </div>
+                  </div>
+                  {showCountertrend && (
+                    <>
+                      <div style={{ background: T.red + "12", border: `1px solid ${T.red}33`, borderRadius: 8, padding: "8px 10px", margin: "10px 0", fontSize: 11, color: T.muted, lineHeight: 1.5 }}>
+                        These fired a clean squeeze pattern but entered below both EMA10 and EMA30 — a bet against the prevailing trend. Backtest edge here is roughly half that of trend-aligned entries (+0.4% vs +0.9% per trade), and in weak markets they stop out far more. Separated so they don't inflate the In Play count. Treat as smaller-size / wider-stop ideas, not clean signals.
+                      </div>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                        {scanData.countertrend_stocks.map((s, i) => <SqueezeCard key={s.symbol} stock={s} onInvest={handleInvest} rank={i + 1} livePrice={livePrices[s.symbol]} zoneStats={backtestReport?.report?.[s.symbol]?.zone_forward_return_10d} relStrength={relativeStrength?.results?.[s.symbol]} />)}
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
+
               <div style={{ marginBottom: 14 }}>
                 <div style={{ fontWeight: 800, fontSize: 16, color: T.blast }}>🔴 End of Blast</div>
                 <div style={{ color: T.muted, fontSize: 11 }}>Exit signals · consider booking profits · {(scanData.blast_stocks || []).length} active</div>
@@ -2200,7 +2236,8 @@ function App() {
               {[
                 { title: "📲 Using this on your phone", color: T.accent, body: "Tap the ↻ button top-right anytime. 'Reload latest data' is instant and free. 'Run a fresh scan now' opens GitHub to manually trigger a brand-new scan.\n\nYou can also pull down from the top to reload, like any phone app." },
                 { title: "🏠 Install as a home-screen app", color: T.warn, body: "In Chrome on Android: tap the ⋮ menu → 'Add to Home screen' or 'Install app'. This gives you an app icon that opens full-screen, no browser bar. Your portfolio is saved on this device only." },
-                { title: "🟢 What is In Play?", color: T.accent, body: "A stock enters 'In Play' when it earns a confirmed squeeze signal: BB Width below 4.5% with Stochastic K turning up from below 50. This is your ENTRY point. The ATR-based return target shown on each card is informational — it shows the expected near-term move based on current volatility, not a hard filter. Historical blast returns from these setups have ranged from 15–46%." },
+                { title: "🟢 What is In Play?", color: T.accent, body: "A stock enters 'In Play' when it earns a confirmed squeeze signal: BB Width below 4.5% with Stochastic K turning up from below 50, AND price is not sitting below both EMAs. This is your ENTRY point. The ATR-based return target shown on each card is informational — it shows the expected near-term move based on current volatility, not a hard filter. Historical blast returns from these setups have ranged from 15–46%." },
+                { title: "⚠️ What is Countertrend — Lower Conviction?", color: T.red, body: "Same clean squeeze pattern as In Play, but price entered below BOTH EMA10 and EMA30 — a bet against the prevailing trend. A 6-year, 2382-stock backtest showed these carry about half the per-trade edge of trend-aligned entries (+0.4% vs +0.9%), and in weak markets like 2026 they stop out far more often (41% stop rate vs ~26%). They're split into their own collapsible list so they don't inflate the In Play count or get confused with clean signals — the exact situation where a card can read HIGH confidence but WEAK conviction at the same time. Treat these as smaller-size, wider-stop ideas you've consciously chosen, not as clean entries." },
                 { title: "🔴 What is End of Blast?", color: T.blast, body: "BB bands expand and Stochastic K exceeds 75 while price holds above EMA10. This is the EXIT signal — book profits before the next correction." },
                 { title: "👀 What is the Watchlist?", color: T.warn, body: "A looser, earlier tier for stocks that are visibly tightening (BB width under 9%) and turning up, but haven't yet cleared the strict 4.5% squeeze threshold or the 15% return target. Nothing here is a confirmed signal — it's a heads-up that a stock is forming. When a watchlist stock later earns a real squeeze signal, it's marked 'GRADUATED' with its full history." },
                 { title: "🔴 What is End of Blast?", color: T.blast, body: "BB bands expand and Stochastic K exceeds 75 while price holds above EMA10. This is the EXIT signal — book profits before the next correction." },
