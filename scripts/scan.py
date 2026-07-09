@@ -1395,6 +1395,20 @@ def run(backfill_days: int = 0, allow_weekend: bool = False):
 
     save_ledger(ledger)  # persist commentary + lifecycle state for next scan
 
+    # ── Split clean squeezes from countertrend ones ─────────────────────
+    # Backtest (2382 stocks, ~6yr) showed trend-conflict entries — price
+    # below BOTH EMA10 and EMA30 at signal — carry materially lower edge:
+    # +0.38%/trade expectancy vs +0.90% for trend-aligned, and in 2026 they
+    # were the whole problem (−0.91%/trade, 41% stop-rate, vs roughly flat
+    # for aligned). They are NOT clean signals, so they no longer sit in the
+    # main "In Play" list where they inflated the count and caused the
+    # HIGH-confidence / WEAK-conviction confusion. They move to their own
+    # lower-conviction sublist: still visible, still tracked, but clearly
+    # separated. squeeze_sorted stays intact as the union for internal logic
+    # (long-symbol exclusion, promotions); only the OUTPUT is split.
+    clean_squeeze = [s for s in squeeze_sorted if not s.get("trend_conflict")]
+    countertrend_squeeze = [s for s in squeeze_sorted if s.get("trend_conflict")]
+
     # Overall market mood: ALWAYS computed from the full squeeze/blast
     # population that the dashboard actually displays — NOT from Claude's
     # shortlist commentary. Previously this used commentary["market_mood"],
@@ -1402,8 +1416,10 @@ def run(backfill_days: int = 0, allow_weekend: bool = False):
     # was shown, which produced misleading headlines like "14 of 15 setups
     # are BLAST breakouts" while the dashboard below showed 4 squeeze + 164
     # blast. Now the headline and the sections beneath it always describe
-    # the same numbers.
-    n_squeeze = len(squeeze_sorted)   # == len(ledger_squeeze), full In Play list
+    # the same numbers. Uses CLEAN squeezes only — countertrend ones are
+    # reported separately and shouldn't inflate the "In Play" signal count.
+    n_squeeze = len(clean_squeeze)    # clean In Play list (trend-aligned only)
+    n_countertrend = len(countertrend_squeeze)
     n_blast = len(blast_sorted)       # == len(ledger_blast), full Blast Exits list
     n_total = n_squeeze + n_blast
 
@@ -1421,15 +1437,18 @@ def run(backfill_days: int = 0, allow_weekend: bool = False):
     else:
         mood_label = "NEUTRAL"
 
-    if n_total == 0:
+    if n_total == 0 and n_countertrend == 0:
         mood_detail = "no active setups in the ledger right now."
     else:
-        sq_word = "active squeeze entry" if n_squeeze == 1 else "active squeeze entries"
+        sq_word = "clean squeeze entry" if n_squeeze == 1 else "clean squeeze entries"
         bl_word = "blast exit signal" if n_blast == 1 else "blast exit signals"
         mood_detail = (
             f"{n_squeeze} {sq_word} (In Play) and "
             f"{n_blast} {bl_word} across {n_total} tracked setups."
         )
+        if n_countertrend:
+            ct_word = "countertrend signal" if n_countertrend == 1 else "countertrend signals"
+            mood_detail += f" {n_countertrend} lower-conviction {ct_word} held separately."
 
     market_mood = f"{mood_label} — {mood_detail}"
 
@@ -1472,7 +1491,8 @@ def run(backfill_days: int = 0, allow_weekend: bool = False):
     output = {
         "scan_time": now_ist_str(),
         "market_mood": market_mood,
-        "squeeze_stocks": squeeze_sorted,
+        "squeeze_stocks": clean_squeeze,               # trend-aligned only
+        "countertrend_stocks": countertrend_squeeze,   # below both EMAs, lower conviction
         "blast_stocks": blast_sorted,
         "watchlist_stocks": watchlist_sorted,
         "short_squeeze_stocks": short_squeeze,
@@ -1480,6 +1500,8 @@ def run(backfill_days: int = 0, allow_weekend: bool = False):
         "scanned_count": len(universe),
         "candidates_found": len(all_candidates),
         "ledger_squeeze_total": len(ledger_squeeze),
+        "clean_squeeze_total": len(clean_squeeze),
+        "countertrend_total": len(countertrend_squeeze),
         "ledger_blast_total": len(ledger_blast),
         "ledger_watchlist_total": len(ledger_watchlist),
         "promoted_from_watchlist_today": len(promoted_today),
