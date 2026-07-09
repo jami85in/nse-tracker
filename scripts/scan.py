@@ -486,6 +486,50 @@ class Candidate:
     conviction_note: str = None       # short human-readable explanation of the score
 
 
+def indicators_look_broken(df: pd.DataFrame) -> bool:
+    """Detect obviously corrupted price history — almost always an
+    unadjusted corporate action (split / bonus / demerger) in the source
+    data, where old bars sit at a pre-adjustment price that was never
+    corrected. That discontinuity poisons every indicator (e.g. ZFCVINDIA:
+    BB width 338%, EMA30 ₹8,055 while price is ₹2,311, cover target −98%),
+    producing fake signals in both the long and short scanners. When this
+    fires we skip the symbol entirely rather than surface a nonsensical
+    setup. Conservative by design — the thresholds are far outside anything
+    a real one-day move produces, so legitimate signals are not dropped.
+    Returns True if the data looks broken."""
+    try:
+        last = df.iloc[-1]
+        price = float(last["close"])
+        ema30 = float(last["ema30"])
+        bbw = float(last["bb_width_pct"])
+    except Exception:
+        return True  # unreadable tail -> can't trust it, skip
+
+    if not (price > 0) or not (ema30 > 0):
+        return True
+    # 1. Absurd Bollinger width. Even very volatile names top out around
+    #    40-60%; >100% means the 20-day window straddles a price jump.
+    if bbw > 100:
+        return True
+    # 2. Price wildly detached from its own 30-day EMA. A genuine move rarely
+    #    puts price above 2x or below 0.5x EMA30 in a single day; a gap this
+    #    large means the EMA window spans an unadjusted split.
+    if price < 0.5 * ema30 or price > 2.0 * ema30:
+        return True
+    # 3. Direct split signature: an extreme close-to-close jump in the recent
+    #    window. Real circuit moves cap near ±20% for most stocks; a >70%
+    #    single-day change is a data artifact, not a tradable event.
+    try:
+        recent = pd.to_numeric(df["close"].tail(35), errors="coerce").dropna()
+        if len(recent) >= 2:
+            max_jump = recent.pct_change().abs().max()
+            if max_jump is not None and max_jump > 0.70:
+                return True
+    except Exception:
+        pass
+    return False
+
+
 def score_conviction(price, ema10, ema30, stoch_k, stoch_d, direction="long"):
     """
     Computes a cheap, fully-automatable conviction score from data the
@@ -1236,6 +1280,7 @@ def scan_all_symbols(session: requests.Session, universe: list, as_of_date: str 
     all_candidates = []
     short_candidates = []  # bearish setups — separate list, never mixed with longs
     scan_indicators = {}   # {symbol: current price/EMAs/stoch} for ALL scanned symbols
+    scan_all_symbols._skipped_broken = 0  # count of symbols dropped for corrupted data
     fetched_histories = histories if histories is not None else {}
 
     for symbol in universe:
@@ -1258,6 +1303,16 @@ def scan_all_symbols(session: requests.Session, universe: list, as_of_date: str 
                 continue
 
         df_ind = add_indicators(df_slice)
+
+        # Skip symbols whose indicators are obviously corrupted by an
+        # unadjusted split/demerger in the source data (e.g. ZFCVINDIA).
+        # Done BEFORE classify()/classify_short() so broken data can't
+        # surface as a fake long OR short signal, and before we cache its
+        # indicators (so it can't refresh an open position with garbage).
+        if indicators_look_broken(df_ind):
+            scan_all_symbols._skipped_broken = getattr(scan_all_symbols, "_skipped_broken", 0) + 1
+            continue
+
         # Capture current indicators for EVERY scanned symbol, whether or not
         # it becomes a candidate. This lets update_ledger() refresh the live
         # fields (price, EMAs, trend_conflict) of an open position that has
@@ -1293,6 +1348,9 @@ def scan_all_symbols(session: requests.Session, universe: list, as_of_date: str 
     # a function attribute.
     scan_all_symbols.last_short_candidates = short_candidates
     scan_all_symbols.last_indicators = scan_indicators
+    if getattr(scan_all_symbols, "_skipped_broken", 0):
+        print(f"Skipped {scan_all_symbols._skipped_broken} symbol(s) with corrupted "
+              f"indicators (likely unadjusted splits).")
     return all_candidates, fetched_histories
 
 
