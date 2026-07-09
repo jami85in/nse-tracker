@@ -1,5 +1,5 @@
 {
-  "scan_time": "2026-07-09 21:04 IST",
+  "scan_time": "2026-07-09 22:25 IST",
   "market_mood": "CAUTIOUS \u2014 2 clean squeeze entries (In Play) and 108 blast exit signals across 110 tracked setups. 4 lower-conviction countertrend signals held separately.",
   "squeeze_stocks": [
     {
@@ -104,7 +104,7 @@
       "promoted_from_watchlist": true,
       "promoted_date": "2026-07-09",
       "confidence": "HIGH",
-      "reason": "BB squeezed from 4.78% to 4.02% with stoch_k crossing above stoch_d at 37."
+      "reason": "BB squeezed to 4.0% from 4.8%, stoch_k turning up at 37."
     },
     {
       "symbol": "UBL",
@@ -176,7 +176,7 @@
       "promoted_from_watchlist": true,
       "promoted_date": "2026-07-09",
       "confidence": "HIGH",
-      "reason": "BB halved from 8.37% to 4.33% with stoch_k turning up sharply at 3.55."
+      "reason": "BB halved to 4.3% from 8.4%, stoch deeply oversold at 3.5."
     },
     {
       "symbol": "CASTROLIND",
@@ -247,7 +247,7 @@
       "first_seen": "2026-06-30",
       "blast_triggered_date": "2026-06-30",
       "confidence": "HIGH",
-      "reason": "Up 29.46% over 24 trading days since squeeze entry with stoch maxed at 100."
+      "reason": "Up 29.46% over 24 trading days since squeeze entry, stoch maxed."
     },
     {
       "symbol": "LTF",
@@ -422,7 +422,7 @@
       "first_seen": "2026-07-01",
       "blast_triggered_date": "2026-07-01",
       "confidence": "HIGH",
-      "reason": "Up 21.99% over 13 trading days since squeeze entry with stoch_k at 100."
+      "reason": "Up 21.99% over 13 trading days since squeeze entry, stoch at 100."
     },
     {
       "symbol": "NAUKRI",
@@ -457,7 +457,7 @@
       "first_seen": "2026-07-03",
       "blast_triggered_date": "2026-07-03",
       "confidence": "HIGH",
-      "reason": "Up 20.97% over 8 trading days since squeeze entry with stoch_k at 100."
+      "reason": "Up 20.97% over 8 trading days since squeeze entry, explosive BB expansion."
     },
     {
       "symbol": "MAPMYINDIA",
@@ -492,7 +492,7 @@
       "first_seen": "2026-07-03",
       "blast_triggered_date": "2026-07-03",
       "confidence": "MEDIUM",
-      "reason": "Up 20.05% over 21 trading days with stoch_k slightly below stoch_d at 88."
+      "reason": "Up 20.05% over 21 trading days, stoch_k slightly below stoch_d."
     },
     {
       "symbol": "CUB",
@@ -597,7 +597,7 @@
       "first_seen": "2026-06-30",
       "blast_triggered_date": "2026-06-30",
       "confidence": "MEDIUM",
-      "reason": "Up 17.84% over 24 trading days with stoch_k dipping below stoch_d at 90."
+      "reason": "Up 17.84% over 24 trading days, stoch_k lagging below stoch_d at 95."
     },
     {
       "symbol": "PHOENIXLTD",
@@ -667,7 +667,7 @@
       "first_seen": "2026-07-06",
       "blast_triggered_date": "2026-07-06",
       "confidence": "MEDIUM",
-      "reason": "Up 17.47% over 9 trading days with stoch_k and stoch_d converging near 82."
+      "reason": "Up 17.47% over 9 trading days, stoch_k slightly below stoch_d near 83."
     },
     {
       "symbol": "DLF",
@@ -772,7 +772,7 @@
       "first_seen": "2026-07-09",
       "blast_triggered_date": "2026-07-09",
       "confidence": "HIGH",
-      "reason": "Up 16.70% over 14 trading days since squeeze entry with stoch_k surging to 97."
+      "reason": "Up 16.7% over 14 trading days, stoch_k surging at 97 vs 65."
     },
     {
       "symbol": "AADHARHFC",
@@ -842,7 +842,7 @@
       "first_seen": "2026-06-22",
       "blast_triggered_date": "2026-06-22",
       "confidence": "MEDIUM",
-      "reason": "Up 16.05% over 24 trading days with stoch_k slightly below stoch_d near 81."
+      "reason": "Up 16.05% over 24 trading days, stoch_k lagging stoch_d at 84."
     },
     {
       "symbol": "NAM-INDIA",
@@ -912,7 +912,7 @@
       "first_seen": "2026-07-02",
       "blast_triggered_date": "2026-07-02",
       "confidence": "MEDIUM",
-      "reason": "Up 15.10% over 13 trading days with stoch_k and stoch_d flat near 87."
+      "reason": "Up 15.1% over 13 trading days, stoch_k near flat versus stoch_d."
     },
     {
       "symbol": "NEULANDLAB",
@@ -947,7 +947,7 @@
       "first_seen": "2026-06-24",
       "blast_triggered_date": "2026-06-24",
       "confidence": "MEDIUM",
-      "reason": "Up 14.84% over 22 trading days with stoch_k trailing stoch_d near 90."
+      "reason": "Up 14.84% over 22 trading days, stoch_k slightly below stoch_d at 93."
     },
     {
       "symbol": "DELHIVERY",
@@ -1052,7 +1052,7 @@
       "first_seen": "2026-07-03",
       "blast_triggered_date": "2026-07-03",
       "confidence": "MEDIUM",
-      "reason": "Up 14.00% over 8 trading days but BB extremely wide at 41.89% signaling overextension."
+      "reason": "Up 14.0% over 8 trading days, stoch_k declining below stoch_d at 86."
     },
     {
       "symbol": "APTUS",
@@ -1157,7 +1157,7 @@
       "first_seen": "2026-07-01",
       "blast_triggered_date": "2026-07-01",
       "confidence": "MEDIUM",
-      "reason": "Up 12.90% over 14 trading days with stoch_k trailing stoch_d near 87."
+      "reason": "Up 12.9% over 14 trading days, stoch_k softening below stoch_d at 92."
     },
     {
       "symbol": "PAYTM",
@@ -1192,7 +1192,7 @@
       "first_seen": "2026-07-01",
       "blast_triggered_date": "2026-07-01",
       "confidence": "HIGH",
-      "reason": "Up 12.28% over 14 trading days since squeeze entry with stoch_k at 98."
+      "reason": "Up 12.28% over 14 trading days, stoch_k strong at 98 above stoch_d."
     },
     {
       "symbol": "CHOLAHLDNG",
@@ -5996,23 +5996,6 @@
       "ema30": 1882.64
     },
     {
-      "symbol": "ZFCVINDIA",
-      "setup": "SHORT_BREAKDOWN",
-      "price": 2311.6,
-      "entry_price": 2311.6,
-      "entry_date": "2026-07-09",
-      "cover_target": 35.97,
-      "cover_drop_pct": 98.44,
-      "stop_price": 3580.36,
-      "handoff_note": "Cover zone \u2248 potential next long-squeeze formation",
-      "bb_width": 338.97,
-      "bb_lower": -5307.54,
-      "stoch_k": 0.0,
-      "stoch_d": 0.0,
-      "ema10": 3580.36,
-      "ema30": 8055.12
-    },
-    {
       "symbol": "ASTRAL",
       "setup": "SHORT_BREAKDOWN",
       "price": 1317.1,
@@ -6668,5 +6651,5 @@
   "ledger_watchlist_total": 51,
   "promoted_from_watchlist_today": 2,
   "short_squeeze_total": 0,
-  "short_breakdown_total": 51
+  "short_breakdown_total": 50
 }
