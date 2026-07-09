@@ -292,11 +292,70 @@ def fetch_history_yfinance(symbol: str, days: int = 90):
         return None
 
 
+def load_committed_ohlc(symbol: str):
+    """Load the repo's committed daily OHLC for a symbol from
+    data/backtest/raw_ohlc/{symbol}.json. This data is reliable and kept
+    fresh by the OHLC pipeline, unlike the per-symbol live NSE/yfinance
+    fetch which intermittently returns data several trading days stale
+    (the cause of PFIZER-type misclassifications: a squeeze scored as
+    countertrend purely because it was compared against a stale close
+    that sat below the EMAs). Returns a DataFrame or None."""
+    path = os.path.join("data", "backtest", "raw_ohlc", f"{symbol}.json")
+    if not os.path.exists(path):
+        return None
+    try:
+        raw = json.load(open(path))
+        if not raw:
+            return None
+        df = pd.DataFrame(raw)
+        if "close" not in df:
+            return None
+        df["date"] = pd.to_datetime(df["date"])
+        for c in ["open", "high", "low", "close", "volume"]:
+            if c in df:
+                df[c] = pd.to_numeric(df[c], errors="coerce")
+        if "volume" not in df:
+            df["volume"] = 0
+        cols = [c for c in ["date", "open", "high", "low", "close", "volume"] if c in df]
+        return df[cols].dropna(subset=["close"]).sort_values("date").reset_index(drop=True)
+    except Exception:
+        return None
+
+
 def fetch_history(session: requests.Session, symbol: str):
-    df = fetch_history_nse(session, symbol)
-    if df is None or len(df) < 35:
-        df = fetch_history_yfinance(symbol)
-    return df
+    """Freshest reliable daily history for a symbol.
+
+    Grounds on the committed OHLC (authoritative, consistent across the whole
+    universe) and appends only genuinely newer bars from the live fetch, so:
+      - if the live fetch is stale (behind the committed data), we ignore its
+        old tail and use the fresher committed bars;
+      - if the live fetch has today's bar (newer than committed), we append it.
+    This keeps price, EMAs and every indicator computed on the most recent
+    finalized data available, instead of whatever the flaky per-symbol live
+    fetch happened to return."""
+    live = fetch_history_nse(session, symbol)
+    if live is None or len(live) < 35:
+        live = fetch_history_yfinance(symbol)
+
+    committed = load_committed_ohlc(symbol)
+
+    if committed is not None and live is not None and len(committed) > 0:
+        live = live.copy()
+        live["date"] = pd.to_datetime(live["date"])
+        cutoff = committed["date"].max()
+        live_new = live[live["date"] > cutoff]
+        if len(live_new) == 0:
+            return committed
+        for c in ["open", "high", "low", "close", "volume"]:
+            if c not in live_new:
+                live_new[c] = np.nan
+        merged = pd.concat(
+            [committed, live_new[["date", "open", "high", "low", "close", "volume"]]],
+            ignore_index=True,
+        ).sort_values("date").reset_index(drop=True)
+        return merged
+
+    return live if live is not None else committed
 
 
 # ── Indicator math (pure pandas/numpy — zero API cost) ───────────────────
@@ -1522,20 +1581,27 @@ def run(backfill_days: int = 0, allow_weekend: bool = False):
     except Exception as e:
         print(f"Warning: could not write scan_version.txt: {e}")
 
-    # Write a baseline prices_live.json from closing prices so the
-    # dashboard has price data immediately after the scan, before the
-    # intraday price workflow kicks in the next morning.
+    # Write a SEPARATE baseline price file from closing prices — NOT
+    # prices_live.json, which is owned exclusively by the Kite Connect
+    # workflow (the authoritative live feed). Previously this wrote
+    # prices_live.json directly and clobbered the good intraday Kite prices
+    # every time a scan ran (leaving source:null and dropping symbols like
+    # any that had moved into countertrend_stocks), which made the dashboard
+    # show stale closes. Now the scan only publishes its own baseline here;
+    # the frontend prefers Kite prices and this stays a last-resort fallback.
     all_stocks = (
         output.get("squeeze_stocks", []) +
+        output.get("countertrend_stocks", []) +
         output.get("blast_stocks", []) +
         output.get("watchlist_stocks", [])
     )
     baseline_prices = {s["symbol"]: s["price"] for s in all_stocks if s.get("price")}
-    with open("data/prices_live.json", "w") as f:
+    with open("data/prices_scan_baseline.json", "w") as f:
         json.dump({
             "updated_at": now_ist_str(),
             "in_market_hours": False,
             "market_open": False,
+            "source": "scan baseline (EOD closes) — fallback only",
             "count": len(baseline_prices),
             "prices": baseline_prices
         }, f)
