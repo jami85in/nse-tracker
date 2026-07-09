@@ -443,10 +443,11 @@ async function fetchRelativeStrength() {
 // workflow (prices.yml) that runs every 15 min during NSE market hours using
 // yfinance. This avoids all browser CORS/cookie issues with Yahoo Finance.
 async function fetchLivePrices() {
-  // prices_live.json is the backend baseline (EOD/last close from scan.py).
-  // Browser-side live fetch (fetchBrowserPrices) supplements this with
-  // real-time prices when the market is open, since NSE blocks GitHub's
-  // servers but not the user's phone.
+  // prices_live.json is the AUTHORITATIVE live feed, owned by the Kite
+  // Connect workflow (licensed, real-time during market hours). The scan no
+  // longer writes this file — it publishes its own EOD baseline separately —
+  // so these prices no longer go stale right after a scan runs. Browser-side
+  // live fetch (fetchBrowserPrices) still supplements when the market is open.
   try {
     const version = await fetchVersion();
     const url = `${RAW_BASE}/prices_live.json?v=${encodeURIComponent(version)}`;
