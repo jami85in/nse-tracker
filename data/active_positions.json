@@ -176,7 +176,7 @@
     "first_seen": "2026-06-22",
     "blast_triggered_date": "2026-06-22",
     "confidence": "MEDIUM",
-    "reason": "Up 16.05% over 24 trading days, stoch_k 81 slightly below stoch_d 84."
+    "reason": "Up 16.05% over 24 trading days with stoch_k slightly below stoch_d near 81."
   },
   "MARICO": {
     "symbol": "MARICO",
@@ -285,7 +285,7 @@
     "first_seen": "2026-06-24",
     "blast_triggered_date": "2026-06-24",
     "confidence": "MEDIUM",
-    "reason": "Up 14.84% over 22 trading days, stoch_k 90 easing below stoch_d 93."
+    "reason": "Up 14.84% over 22 trading days with stoch_k trailing stoch_d near 90."
   },
   "CENTRALBK": {
     "symbol": "CENTRALBK",
@@ -518,7 +518,7 @@
     "first_seen": "2026-06-30",
     "blast_triggered_date": "2026-06-30",
     "confidence": "MEDIUM",
-    "reason": "Up 17.84% over 24 trading days, stoch_k dipping below stoch_d at 95."
+    "reason": "Up 17.84% over 24 trading days with stoch_k dipping below stoch_d at 90."
   },
   "HFCL": {
     "symbol": "HFCL",
@@ -654,7 +654,7 @@
     "first_seen": "2026-06-30",
     "blast_triggered_date": "2026-06-30",
     "confidence": "HIGH",
-    "reason": "Up 29.46% over 24 trading days since squeeze entry, stoch maxed at 100."
+    "reason": "Up 29.46% over 24 trading days since squeeze entry with stoch maxed at 100."
   },
   "MEESHO": {
     "symbol": "MEESHO",
@@ -728,13 +728,13 @@
   },
   "UBL": {
     "symbol": "UBL",
-    "price": 1337.0,
-    "bb_width": 3.140705417890118,
+    "price": 1328.2,
+    "bb_width": 3.8,
     "bb_width_5d_ago": 4.705693133108569,
-    "stoch_k": 39.36247231323921,
-    "stoch_d": 38.14269291985758,
-    "ema10": 1333.7743338501152,
-    "ema30": 1348.8069369987104,
+    "stoch_k": 25.3,
+    "stoch_d": 47.6,
+    "ema10": 1341.9031517384376,
+    "ema30": 1348.0840123338867,
     "pivot_r1": 1348.500040690104,
     "pivot_r2": 1374.2000325520833,
     "pivot_s1": 1306.1000162760415,
@@ -750,11 +750,15 @@
     "exit_date": null,
     "holding_period_days": null,
     "return_since_entry": null,
-    "last_seen": "2026-06-30",
+    "last_seen": "2026-07-09",
     "status": "SQUEEZE",
     "first_seen": "2026-06-30",
     "confidence": "HIGH",
-    "reason": "BB squeezed to 3.14% from 4.71%, stoch turning up at 39."
+    "reason": "BB squeezed to 3.14% from 4.71%, stoch turning up at 39.",
+    "trend_conflict": true,
+    "weak_crossover": false,
+    "conviction_score": "WEAK",
+    "conviction_note": "Price sits against both EMA10 and EMA30 \u2014 this signal is a countertrend bet, not a breakout with the trend."
   },
   "AIAENG": {
     "symbol": "AIAENG",
@@ -925,7 +929,7 @@
     "first_seen": "2026-07-01",
     "blast_triggered_date": "2026-07-01",
     "confidence": "HIGH",
-    "reason": "Up 21.99% over 13 trading days since squeeze entry, stoch near 100."
+    "reason": "Up 21.99% over 13 trading days since squeeze entry with stoch_k at 100."
   },
   "CHOLAHLDNG": {
     "symbol": "CHOLAHLDNG",
@@ -1092,7 +1096,7 @@
     "first_seen": "2026-07-01",
     "blast_triggered_date": "2026-07-01",
     "confidence": "MEDIUM",
-    "reason": "Up 12.90% over 14 trading days, stoch_k 87 lagging stoch_d 92 slightly."
+    "reason": "Up 12.90% over 14 trading days with stoch_k trailing stoch_d near 87."
   },
   "NHPC": {
     "symbol": "NHPC",
@@ -1162,7 +1166,7 @@
     "first_seen": "2026-07-01",
     "blast_triggered_date": "2026-07-01",
     "confidence": "HIGH",
-    "reason": "Up 12.28% over 14 trading days, stoch_k 98 leading stoch_d 94 strongly."
+    "reason": "Up 12.28% over 14 trading days since squeeze entry with stoch_k at 98."
   },
   "SHREECEM": {
     "symbol": "SHREECEM",
@@ -1569,7 +1573,7 @@
     "first_seen": "2026-07-02",
     "blast_triggered_date": "2026-07-02",
     "confidence": "MEDIUM",
-    "reason": "Up 15.10% over 13 trading days, stoch_k 87 and stoch_d 87 flat topped."
+    "reason": "Up 15.10% over 13 trading days with stoch_k and stoch_d flat near 87."
   },
   "LEMONTREE": {
     "symbol": "LEMONTREE",
@@ -1748,13 +1752,13 @@
   },
   "PFIZER": {
     "symbol": "PFIZER",
-    "price": 4439.39990234375,
-    "bb_width": 4.205716728559894,
+    "price": 4590.1,
+    "bb_width": 4.37,
     "bb_width_5d_ago": 4.008034487203264,
-    "stoch_k": 35.34289582158356,
-    "stoch_d": 26.327144156804042,
-    "ema10": 4466.043747419336,
-    "ema30": 4533.684693308423,
+    "stoch_k": 81.6,
+    "stoch_d": 85.4,
+    "ema10": 4526.743663296488,
+    "ema30": 4541.018949807949,
     "pivot_r1": 4506.400065104166,
     "pivot_r2": 4539.200032552083,
     "pivot_s1": 4443.400065104166,
@@ -1770,11 +1774,11 @@
     "exit_date": null,
     "holding_period_days": null,
     "return_since_entry": null,
-    "trend_conflict": true,
+    "trend_conflict": false,
     "weak_crossover": false,
-    "conviction_score": "WEAK",
-    "conviction_note": "Price sits against both EMA10 and EMA30 \u2014 this signal is a countertrend bet, not a breakout with the trend.",
-    "last_seen": "2026-07-02",
+    "conviction_score": "STRONG",
+    "conviction_note": "Price aligned with trend direction and stoch crossover has a clear gap \u2014 technically consistent signal.",
+    "last_seen": "2026-07-09",
     "status": "SQUEEZE",
     "first_seen": "2026-07-02",
     "confidence": "MEDIUM",
@@ -2091,7 +2095,7 @@
     "first_seen": "2026-07-03",
     "blast_triggered_date": "2026-07-03",
     "confidence": "MEDIUM",
-    "reason": "Up 20.05% over 21 trading days, stoch_k at 88 showing slight hesitation."
+    "reason": "Up 20.05% over 21 trading days with stoch_k slightly below stoch_d at 88."
   },
   "CEMPRO": {
     "symbol": "CEMPRO",
@@ -2126,7 +2130,7 @@
     "first_seen": "2026-07-03",
     "blast_triggered_date": "2026-07-03",
     "confidence": "MEDIUM",
-    "reason": "Up 14.0% over 8 trading days, wide BB at 41.89% signals extended volatility."
+    "reason": "Up 14.00% over 8 trading days but BB extremely wide at 41.89% signaling overextension."
   },
   "EXIDEIND": {
     "symbol": "EXIDEIND",
@@ -2297,7 +2301,7 @@
     "first_seen": "2026-07-03",
     "blast_triggered_date": "2026-07-03",
     "confidence": "HIGH",
-    "reason": "Up 20.97% over 8 trading days since squeeze entry, momentum accelerating fast."
+    "reason": "Up 20.97% over 8 trading days since squeeze entry with stoch_k at 100."
   },
   "IKS": {
     "symbol": "IKS",
@@ -3240,7 +3244,7 @@
     "first_seen": "2026-07-06",
     "blast_triggered_date": "2026-07-06",
     "confidence": "MEDIUM",
-    "reason": "Up 17.47% over 9 trading days, stoch_k 82 and stoch_d 83 nearly flat."
+    "reason": "Up 17.47% over 9 trading days with stoch_k and stoch_d converging near 82."
   },
   "BIOCON": {
     "symbol": "BIOCON",
@@ -3419,7 +3423,7 @@
     "promoted_from_watchlist": true,
     "promoted_date": "2026-07-09",
     "confidence": "HIGH",
-    "reason": "BB squeezed sharply to 4.33% from 8.37%, stoch_k at 3.55 turning up."
+    "reason": "BB halved from 8.37% to 4.33% with stoch_k turning up sharply at 3.55."
   },
   "NAM-INDIA": {
     "symbol": "NAM-INDIA",
@@ -4097,13 +4101,13 @@
   },
   "CASTROLIND": {
     "symbol": "CASTROLIND",
-    "price": 184.35000610351562,
-    "bb_width": 2.6045658761778596,
+    "price": 183.5,
+    "bb_width": 2.43,
     "bb_width_5d_ago": 3.179174379771986,
-    "stoch_k": 14.995037841647942,
-    "stoch_d": 13.34105345342166,
-    "ema10": 184.58905678307417,
-    "ema30": 184.35050762415415,
+    "stoch_k": 7.9,
+    "stoch_d": 7.9,
+    "ema10": 184.23633545218655,
+    "ema30": 184.25197182992903,
     "pivot_r1": 185.3033396402995,
     "pivot_r2": 186.2466786702474,
     "pivot_s1": 183.7133280436198,
@@ -4123,7 +4127,7 @@
     "weak_crossover": true,
     "conviction_score": "WEAK",
     "conviction_note": "Price against both EMAs AND a thin stoch crossover \u2014 signal is fighting the trend with minimal momentum confirmation.",
-    "last_seen": "2026-07-08",
+    "last_seen": "2026-07-09",
     "status": "SQUEEZE",
     "first_seen": "2026-07-08",
     "confidence": "HIGH",
@@ -4344,7 +4348,7 @@
     "promoted_from_watchlist": true,
     "promoted_date": "2026-07-09",
     "confidence": "HIGH",
-    "reason": "BB tightened to 4.02% from 4.78%, stoch_k rising cleanly toward 37."
+    "reason": "BB squeezed from 4.78% to 4.02% with stoch_k crossing above stoch_d at 37."
   },
   "PIDILITIND": {
     "symbol": "PIDILITIND",
@@ -5630,7 +5634,7 @@
     "first_seen": "2026-07-09",
     "blast_triggered_date": "2026-07-09",
     "confidence": "HIGH",
-    "reason": "Up 16.70% over 14 trading days, stoch_k surging at 97 vs stoch_d 65."
+    "reason": "Up 16.70% over 14 trading days since squeeze entry with stoch_k surging to 97."
   },
   "TATAINVEST": {
     "symbol": "TATAINVEST",
