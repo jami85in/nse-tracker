@@ -1395,17 +1395,43 @@ def run(backfill_days: int = 0, allow_weekend: bool = False):
 
     save_ledger(ledger)  # persist commentary + lifecycle state for next scan
 
-    # Overall market mood: only Claude-generated when we actually called
-    # Claude this run; otherwise derive a simple rule-based mood so we don't
-    # show a stale/misleading label on calls that skipped the API entirely.
-    market_mood = commentary.get("market_mood")
-    if not market_mood:
-        if len(ledger_squeeze) > len(ledger_blast):
-            market_mood = "BULLISH"
-        elif len(ledger_blast) > len(ledger_squeeze):
-            market_mood = "NEUTRAL"
-        else:
-            market_mood = "NEUTRAL"
+    # Overall market mood: ALWAYS computed from the full squeeze/blast
+    # population that the dashboard actually displays — NOT from Claude's
+    # shortlist commentary. Previously this used commentary["market_mood"],
+    # a free-text sentence Claude wrote about the ~10-15 ranked stocks it
+    # was shown, which produced misleading headlines like "14 of 15 setups
+    # are BLAST breakouts" while the dashboard below showed 4 squeeze + 164
+    # blast. Now the headline and the sections beneath it always describe
+    # the same numbers.
+    n_squeeze = len(squeeze_sorted)   # == len(ledger_squeeze), full In Play list
+    n_blast = len(blast_sorted)       # == len(ledger_blast), full Blast Exits list
+    n_total = n_squeeze + n_blast
+
+    # Mood label: more open squeeze entries than blast exits = fresh
+    # accumulation underway (BULLISH). Predominantly blast/exit signals =
+    # late-cycle / distribution (NEUTRAL-to-cautious). No signals = NEUTRAL.
+    if n_total == 0:
+        mood_label = "NEUTRAL"
+    elif n_squeeze > n_blast:
+        mood_label = "BULLISH"
+    elif n_blast >= 2 * max(n_squeeze, 1):
+        # Blast exits heavily outnumber fresh squeezes — trend is mature,
+        # more positions are hitting exit signals than new setups forming.
+        mood_label = "CAUTIOUS"
+    else:
+        mood_label = "NEUTRAL"
+
+    if n_total == 0:
+        mood_detail = "no active setups in the ledger right now."
+    else:
+        sq_word = "active squeeze entry" if n_squeeze == 1 else "active squeeze entries"
+        bl_word = "blast exit signal" if n_blast == 1 else "blast exit signals"
+        mood_detail = (
+            f"{n_squeeze} {sq_word} (In Play) and "
+            f"{n_blast} {bl_word} across {n_total} tracked setups."
+        )
+
+    market_mood = f"{mood_label} — {mood_detail}"
 
     # Count how many of today's SQUEEZE entries are fresh graduations
     # from the watchlist — directly answers "is the watchlist actually
