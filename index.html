@@ -443,26 +443,49 @@ async function fetchRelativeStrength() {
 // workflow (prices.yml) that runs every 15 min during NSE market hours using
 // yfinance. This avoids all browser CORS/cookie issues with Yahoo Finance.
 async function fetchLivePrices() {
-  // prices_live.json is the AUTHORITATIVE live feed, owned by the Kite
-  // Connect workflow (licensed, real-time during market hours). The scan no
-  // longer writes this file — it publishes its own EOD baseline separately —
-  // so these prices no longer go stale right after a scan runs. Browser-side
-  // live fetch (fetchBrowserPrices) still supplements when the market is open.
+  // Prefer the Kite live feed (prices_live.json) when it is genuinely fresh,
+  // otherwise fall back to the scan's EOD baseline (prices_scan_baseline.json).
+  // This stops a stale prices_live.json — e.g. the Kite token wasn't refreshed,
+  // so the file is stuck at an old snapshot — from showing an outdated price as
+  // "live" (the SUNTV ₹510.95-vs-actual-₹496.60 case). Whichever file has the
+  // more recent updated_at wins per-file; the other backfills missing symbols.
+  const version = await fetchVersion();
+  async function grab(filename) {
+    try {
+      const res = await fetch(`${RAW_BASE}/${filename}?v=${encodeURIComponent(version)}`);
+      if (!res.ok) return null;
+      const text = await res.text();
+      if (!text || text[0] !== '{') return null;
+      return JSON.parse(text);
+    } catch { return null; }
+  }
   try {
-    const version = await fetchVersion();
-    const url = `${RAW_BASE}/prices_live.json?v=${encodeURIComponent(version)}`;
-    const res = await fetch(url);
-    if (!res.ok) return {};
-    const text = await res.text();
-    if (!text || text[0] !== '{') return {};
-    const data = JSON.parse(text);
+    const [live, baseline] = await Promise.all([
+      grab('prices_live.json'),
+      grab('prices_scan_baseline.json'),
+    ]);
+    const ts = (f) => (f && f.updated_at) ? String(f.updated_at) : '';
+    const isKite = (f) => f && typeof f.source === 'string' && /kite/i.test(f.source);
+
+    // Primary = the fresher file by timestamp ("YYYY-MM-DD HH:MM …" compares
+    // lexically). Secondary backfills any symbols the primary is missing.
+    let primary = live, secondary = baseline;
+    if (baseline && (!live || ts(baseline) > ts(live))) {
+      primary = baseline; secondary = live;
+    }
+    if (!primary) return { prices: {}, updatedAt: null, marketOpen: false, liveFeed: false };
+
+    const prices = { ...((secondary && secondary.prices) || {}), ...(primary.prices || {}) };
+    // Only a genuine, market-open Kite feed counts as "live" for the ●live badge.
+    const liveFeed = isKite(primary) && !!primary.market_open;
     return {
-      prices: data.prices || {},
-      updatedAt: data.updated_at || null,
-      marketOpen: data.market_open || false
+      prices,
+      updatedAt: primary.updated_at || null,
+      marketOpen: !!primary.market_open,
+      liveFeed,
     };
   } catch {
-    return { prices: {}, updatedAt: null, marketOpen: false };
+    return { prices: {}, updatedAt: null, marketOpen: false, liveFeed: false };
   }
 }
 
@@ -591,7 +614,7 @@ function PullToRefresh({ onRefresh, children, refreshing }) {
   );
 }
 
-function SqueezeCard({ stock, onInvest, rank, livePrice, zoneStats, relStrength }) {
+function SqueezeCard({ stock, onInvest, rank, livePrice, zoneStats, relStrength, stale }) {
   const [expanded, setExpanded] = useState(false);
   const price = livePrice || stock.price;
   const daysTracked = stock.entry_date ? Math.max(0, Math.round((new Date() - new Date(stock.entry_date)) / 86400000)) : null;
@@ -623,7 +646,7 @@ function SqueezeCard({ stock, onInvest, rank, livePrice, zoneStats, relStrength 
           )}
         </div>
         <div style={{ textAlign: "right", flexShrink: 0 }}>
-          <div style={{ color: T.white, fontWeight: 700, fontSize: 17 }}>{curr(price)}{livePrice && <span style={{ color: T.accent, fontSize: 9, marginLeft: 3 }}>●live</span>}</div>
+          <div style={{ color: T.white, fontWeight: 700, fontSize: 17 }}>{curr(price)}{livePrice && !stale && <span style={{ color: T.accent, fontSize: 9, marginLeft: 3 }}>●live</span>}</div>
           {liveReturn != null && (
             <div style={{ color: liveReturn >= 0 ? T.green : T.red, fontSize: 13, fontWeight: 700 }}>{pct(liveReturn)} since entry</div>
           )}
@@ -763,7 +786,7 @@ function WatchlistCard({ stock, rank }) {
   );
 }
 
-function BlastCard({ stock, rank, livePrice }) {
+function BlastCard({ stock, rank, livePrice, stale }) {
   const price = livePrice || stock.price;
   const hasEntry = stock.blast_entry_price != null && stock.return_since_entry != null;
   const liveReturn = (stock.blast_entry_price && price) ? ((price - stock.blast_entry_price) / stock.blast_entry_price) * 100 : stock.return_since_entry;
@@ -784,7 +807,7 @@ function BlastCard({ stock, rank, livePrice }) {
           )}
         </div>
         <div style={{ textAlign: "right", flexShrink: 0 }}>
-          <div style={{ color: T.white, fontWeight: 700, fontSize: 17 }}>{curr(price)}{livePrice && <span style={{ color: T.blast, fontSize: 9, marginLeft: 3 }}>●live</span>}</div>
+          <div style={{ color: T.white, fontWeight: 700, fontSize: 17 }}>{curr(price)}{livePrice && !stale && <span style={{ color: T.blast, fontSize: 9, marginLeft: 3 }}>●live</span>}</div>
           <div style={{ color: T.blast, fontSize: 12, fontWeight: 700 }}>Stoch {fmt(stock.stoch_k)}</div>
         </div>
       </div>
@@ -1777,13 +1800,13 @@ function App() {
         ...(data.short_breakdown_stocks || []).map(s => s.symbol),
         ...positions.filter(p => p.status === "OPEN").map(p => p.symbol),
       ])];
-      fetchLivePrices().then(async ({ prices, updatedAt, marketOpen }) => {
+      fetchLivePrices().then(async ({ prices, updatedAt, marketOpen, liveFeed }) => {
         // Set backend prices immediately so the UI isn't empty
         let merged = { ...prices };
         if (Object.keys(merged).length > 0) {
           setLivePrices(merged);
           setPriceUpdated(updatedAt || "");
-          setPricesStale(!marketOpen);
+          setPricesStale(!liveFeed);
         }
         // Then try browser-side live prices and overlay them
         const { prices: live, source } = await fetchBrowserPrices(uniqueSyms);
@@ -1807,12 +1830,12 @@ function App() {
   useEffect(() => {
     if (!scanData) return;
     const refreshPrices = async () => {
-      const { prices, updatedAt, marketOpen } = await fetchLivePrices();
+      const { prices, updatedAt, marketOpen, liveFeed } = await fetchLivePrices();
       let merged = { ...prices };
       if (Object.keys(merged).length > 0) {
         setLivePrices(merged);
         setPriceUpdated(updatedAt || "");
-        setPricesStale(!marketOpen);
+        setPricesStale(!liveFeed);
       }
       const syms = [...new Set([
         ...(scanData.squeeze_stocks || []).map(s => s.symbol),
@@ -2005,7 +2028,7 @@ function App() {
                 </div>
               )}
               <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 26 }}>
-                {(scanData.squeeze_stocks || []).map((s, i) => <SqueezeCard key={s.symbol} stock={s} onInvest={handleInvest} rank={i + 1} livePrice={livePrices[s.symbol]} zoneStats={backtestReport?.report?.[s.symbol]?.zone_forward_return_10d} relStrength={relativeStrength?.results?.[s.symbol]} />)}
+                {(scanData.squeeze_stocks || []).map((s, i) => <SqueezeCard key={s.symbol} stock={s} onInvest={handleInvest} rank={i + 1} livePrice={livePrices[s.symbol]} zoneStats={backtestReport?.report?.[s.symbol]?.zone_forward_return_10d} relStrength={relativeStrength?.results?.[s.symbol]} stale={pricesStale} />)}
               </div>
 
               {(scanData.countertrend_stocks || []).length > 0 && (
@@ -2029,7 +2052,7 @@ function App() {
                         These fired a clean squeeze pattern but entered below both EMA10 and EMA30 — a bet against the prevailing trend. Backtest edge here is roughly half that of trend-aligned entries (+0.4% vs +0.9% per trade), and in weak markets they stop out far more. Separated so they don't inflate the In Play count. Treat as smaller-size / wider-stop ideas, not clean signals.
                       </div>
                       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                        {scanData.countertrend_stocks.map((s, i) => <SqueezeCard key={s.symbol} stock={s} onInvest={handleInvest} rank={i + 1} livePrice={livePrices[s.symbol]} zoneStats={backtestReport?.report?.[s.symbol]?.zone_forward_return_10d} relStrength={relativeStrength?.results?.[s.symbol]} />)}
+                        {scanData.countertrend_stocks.map((s, i) => <SqueezeCard key={s.symbol} stock={s} onInvest={handleInvest} rank={i + 1} livePrice={livePrices[s.symbol]} zoneStats={backtestReport?.report?.[s.symbol]?.zone_forward_return_10d} relStrength={relativeStrength?.results?.[s.symbol]} stale={pricesStale} />)}
                       </div>
                     </>
                   )}
@@ -2041,7 +2064,7 @@ function App() {
                 <div style={{ color: T.muted, fontSize: 11 }}>Exit signals · consider booking profits · {(scanData.blast_stocks || []).length} active</div>
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                {((showAllBlast ? scanData.blast_stocks : (scanData.blast_stocks || []).slice(0, BLAST_DISPLAY_CAP)) || []).map((s, i) => <BlastCard key={s.symbol} stock={s} rank={i + 1} livePrice={livePrices[s.symbol]} />)}
+                {((showAllBlast ? scanData.blast_stocks : (scanData.blast_stocks || []).slice(0, BLAST_DISPLAY_CAP)) || []).map((s, i) => <BlastCard key={s.symbol} stock={s} rank={i + 1} livePrice={livePrices[s.symbol]} stale={pricesStale} />)}
               </div>
               {(scanData.blast_stocks || []).length > BLAST_DISPLAY_CAP && (
                 <button onClick={() => setShowAllBlast(v => !v)}
