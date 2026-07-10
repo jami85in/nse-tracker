@@ -1,5 +1,5 @@
 {
-  "scan_time": "2026-07-10 18:07 IST",
+  "scan_time": "2026-07-10 19:06 IST",
   "market_mood": "CAUTIOUS \u2014 23 clean squeeze entries (In Play) and 253 blast exit signals across 276 tracked setups. 17 lower-conviction countertrend signals held separately.",
   "squeeze_stocks": [
     {
@@ -878,7 +878,7 @@
       "status": "SQUEEZE",
       "first_seen": "2026-07-09",
       "confidence": "HIGH",
-      "reason": "Tightest BB at 3.74% from 4.18%; stoch_k 4.41 turning sharply upward."
+      "reason": "BB tightened to 3.74%, stoch_k 4.4 turning up sharply from oversold"
     },
     {
       "symbol": "NV20IETF",
@@ -954,7 +954,7 @@
       "promoted_from_watchlist": true,
       "promoted_date": "2026-07-09",
       "confidence": "MEDIUM",
-      "reason": "BB narrowed 4.02% from 4.78%; stoch_k 37.18 elevated, less oversold entry."
+      "reason": "BB at 4.02% squeeze, stoch_k 37.2 not yet deeply oversold for entry"
     },
     {
       "symbol": "DAVANGERE",
@@ -990,7 +990,7 @@
       "status": "SQUEEZE",
       "first_seen": "2026-07-08",
       "confidence": "HIGH",
-      "reason": "Tightest BB at 3.22% from 4.06%; stoch_k 39.38 turning above stoch_d cleanly."
+      "reason": "Tightest BB at 3.22%, stoch_k 39.4 rising cleanly from oversold base"
     },
     {
       "symbol": "AXITA",
@@ -1026,7 +1026,7 @@
       "status": "SQUEEZE",
       "first_seen": "2026-07-09",
       "confidence": "MEDIUM",
-      "reason": "BB narrowed 4.17% from 4.86%; stoch_k 22.59 mid-range, less compelling reversal."
+      "reason": "BB narrowed to 4.17%, stoch_k 22.6 turning up but EMA30 still overhead"
     },
     {
       "symbol": "PGHH",
@@ -1174,7 +1174,7 @@
       "promoted_from_watchlist": true,
       "promoted_date": "2026-07-09",
       "confidence": "HIGH",
-      "reason": "BB nearly halved to 4.33% from 8.37%; stoch_k 3.55 at extreme oversold base."
+      "reason": "BB halved from 8.37% to 4.33%, stoch_k 3.55 extremely oversold with snap potential"
     },
     {
       "symbol": "HATSUN",
@@ -1282,7 +1282,7 @@
       "status": "SQUEEZE",
       "first_seen": "2026-07-09",
       "confidence": "MEDIUM",
-      "reason": "BB width 4.044953532642214%, Stoch K/D turning up at 10, target R1 72.4"
+      "reason": "BB width 4.04% slightly wider than 5d ago, stoch_k 10.2 early turn only"
     },
     {
       "symbol": "MIDSMALL",
@@ -1535,8 +1535,8 @@
       "status": "BLAST",
       "first_seen": "2026-07-08",
       "blast_triggered_date": "2026-07-08",
-      "confidence": "MEDIUM",
-      "reason": "Up 67.4% over 20d since entry at 9.21, stoch_k 82 overbought"
+      "confidence": "HIGH",
+      "reason": "Up 67.43% over 20 trading days since squeeze entry at 9.21"
     },
     {
       "symbol": "BTTL",
@@ -1572,8 +1572,8 @@
       "status": "BLAST",
       "first_seen": "2026-07-08",
       "blast_triggered_date": "2026-07-08",
-      "confidence": "MEDIUM",
-      "reason": "Up 46.5% over 15d since entry at 35.66, stoch_k 80 overbought"
+      "confidence": "HIGH",
+      "reason": "Up 46.55% over 15 trading days since squeeze entry at 35.66"
     },
     {
       "symbol": "AMIRCHAND",
@@ -1609,8 +1609,8 @@
       "status": "BLAST",
       "first_seen": "2026-07-08",
       "blast_triggered_date": "2026-07-08",
-      "confidence": "MEDIUM",
-      "reason": "Up 40.1% over 27d since entry at 123.23, stoch_k 76 overbought"
+      "confidence": "HIGH",
+      "reason": "Up 40.1% over 27 trading days since squeeze entry at 123.23"
     },
     {
       "symbol": "PWL",
@@ -1682,7 +1682,7 @@
       "first_seen": "2026-07-08",
       "blast_triggered_date": "2026-07-08",
       "confidence": "HIGH",
-      "reason": "Up 36.9% over 13d since entry at 837.55, stoch_k 89 overbought"
+      "reason": "Up 36.85% over 13 trading days since squeeze entry at 837.55"
     },
     {
       "symbol": "UNICHEMLAB",
@@ -1719,7 +1719,7 @@
       "first_seen": "2026-07-09",
       "blast_triggered_date": "2026-07-09",
       "confidence": "MEDIUM",
-      "reason": "Up 36.3% over 2d since entry at 477.25, stoch_k 78 overbought"
+      "reason": "Up 36.32% over just 2 trading days since squeeze entry at 477.25"
     },
     {
       "symbol": "DBSTOCKBRO",
@@ -1756,7 +1756,7 @@
       "first_seen": "2026-07-08",
       "blast_triggered_date": "2026-07-08",
       "confidence": "HIGH",
-      "reason": "Up 34.8% over 22d since entry at 31.38, stoch_k 93 overbought"
+      "reason": "Up 34.8% over 22 trading days since squeeze entry at 31.38"
     },
     {
       "symbol": "SPANDANA",
@@ -1828,7 +1828,7 @@
       "first_seen": "2026-07-08",
       "blast_triggered_date": "2026-07-08",
       "confidence": "HIGH",
-      "reason": "Up 33.1% over 27d since entry at 421.9, stoch_k 95 overbought"
+      "reason": "Up 33.13% over 27 trading days since squeeze entry at 421.90"
     },
     {
       "symbol": "ZSARACOM",
@@ -1901,8 +1901,8 @@
       "status": "BLAST",
       "first_seen": "2026-07-08",
       "blast_triggered_date": "2026-07-08",
-      "confidence": "MEDIUM",
-      "reason": "Up 31.4% over 10d since entry at 178.0, stoch_k 85 overbought"
+      "confidence": "HIGH",
+      "reason": "Up 31.39% over 10 trading days since squeeze entry at 178.00"
     },
     {
       "symbol": "SHAREINDIA",
@@ -1938,8 +1938,8 @@
       "status": "BLAST",
       "first_seen": "2026-07-08",
       "blast_triggered_date": "2026-07-08",
-      "confidence": "HIGH",
-      "reason": "Up 30.3% over 3d since entry at 137.43, stoch_k 100 overbought"
+      "confidence": "MEDIUM",
+      "reason": "Up 30.27% over 3 trading days since squeeze entry at 137.43"
     },
     {
       "symbol": "SUVEN",
@@ -20238,63 +20238,6 @@
       "weak_crossover": false,
       "conviction_score": "STRONG",
       "conviction_note": "Price aligned with trend direction and stoch crossover has a clear gap \u2014 technically consistent signal."
-    },
-    {
-      "symbol": "TCI",
-      "setup": "SHORT_SQUEEZE",
-      "price": 926.95,
-      "entry_price": 926.95,
-      "entry_date": "2026-07-10",
-      "target_price": 859.36,
-      "target_drop_pct": 7.29,
-      "bb_width": 3.62,
-      "stoch_k": 50.9,
-      "stoch_d": 56.7,
-      "ema10": 933.94,
-      "ema30": 933.94,
-      "stop_price": 933.94,
-      "trend_conflict": false,
-      "weak_crossover": false,
-      "conviction_score": "STRONG",
-      "conviction_note": "Price aligned with trend direction and stoch crossover has a clear gap \u2014 technically consistent signal."
-    },
-    {
-      "symbol": "SHARIABEES",
-      "setup": "SHORT_SQUEEZE",
-      "price": 448.98,
-      "entry_price": 448.98,
-      "entry_date": "2026-07-10",
-      "target_price": 423.47,
-      "target_drop_pct": 5.68,
-      "bb_width": 4.12,
-      "stoch_k": 80.4,
-      "stoch_d": 84.4,
-      "ema10": 450.98,
-      "ema30": 454.08,
-      "stop_price": 454.08,
-      "trend_conflict": false,
-      "weak_crossover": false,
-      "conviction_score": "STRONG",
-      "conviction_note": "Price aligned with trend direction and stoch crossover has a clear gap \u2014 technically consistent signal."
-    },
-    {
-      "symbol": "XELPMOC",
-      "setup": "SHORT_SQUEEZE",
-      "price": 83.62,
-      "entry_price": 83.62,
-      "entry_date": "2026-07-10",
-      "target_price": 72.79,
-      "target_drop_pct": 12.95,
-      "bb_width": 4.46,
-      "stoch_k": 64.0,
-      "stoch_d": 67.8,
-      "ema10": 84.99,
-      "ema30": 88.49,
-      "stop_price": 88.49,
-      "trend_conflict": false,
-      "weak_crossover": false,
-      "conviction_score": "STRONG",
-      "conviction_note": "Price aligned with trend direction and stoch crossover has a clear gap \u2014 technically consistent signal."
     }
   ],
   "short_breakdown_stocks": [
@@ -20418,23 +20361,6 @@
       "ema30": 280.49
     },
     {
-      "symbol": "GROWWPOWER",
-      "setup": "SHORT_BREAKDOWN",
-      "price": 11.63,
-      "entry_price": 11.63,
-      "entry_date": "2026-07-10",
-      "cover_target": 11.59,
-      "cover_drop_pct": 0.37,
-      "stop_price": 11.89,
-      "handoff_note": "Cover zone \u2248 potential next long-squeeze formation",
-      "bb_width": 8.31,
-      "bb_lower": 11.59,
-      "stoch_k": 0.0,
-      "stoch_d": 11.5,
-      "ema10": 11.89,
-      "ema30": 12.04
-    },
-    {
       "symbol": "GVT&D",
       "setup": "SHORT_BREAKDOWN",
       "price": 4643.4,
@@ -20537,40 +20463,6 @@
       "ema30": 26.1
     },
     {
-      "symbol": "NATIONSTD",
-      "setup": "SHORT_BREAKDOWN",
-      "price": 562.3,
-      "entry_price": 562.3,
-      "entry_date": "2026-07-10",
-      "cover_target": 394.14,
-      "cover_drop_pct": 29.91,
-      "stop_price": 892.91,
-      "handoff_note": "Cover zone \u2248 potential next long-squeeze formation",
-      "bb_width": 87.93,
-      "bb_lower": 625.38,
-      "stoch_k": 0.0,
-      "stoch_d": 0.4,
-      "ema10": 892.91,
-      "ema30": 1099.02
-    },
-    {
-      "symbol": "NRAIL",
-      "setup": "SHORT_BREAKDOWN",
-      "price": 414.15,
-      "entry_price": 414.15,
-      "entry_date": "2026-07-10",
-      "cover_target": 401.25,
-      "cover_drop_pct": 3.11,
-      "stop_price": 424.56,
-      "handoff_note": "Cover zone \u2248 potential next long-squeeze formation",
-      "bb_width": 17.79,
-      "bb_lower": 401.25,
-      "stoch_k": 0.0,
-      "stoch_d": 1.0,
-      "ema10": 424.56,
-      "ema30": 441.53
-    },
-    {
       "symbol": "PFC",
       "setup": "SHORT_BREAKDOWN",
       "price": 404.1,
@@ -20603,23 +20495,6 @@
       "stoch_d": 6.0,
       "ema10": 9468.86,
       "ema30": 9488.74
-    },
-    {
-      "symbol": "PRIMESECU",
-      "setup": "SHORT_BREAKDOWN",
-      "price": 281.1,
-      "entry_price": 281.1,
-      "entry_date": "2026-07-10",
-      "cover_target": 273.3,
-      "cover_drop_pct": 2.77,
-      "stop_price": 284.65,
-      "handoff_note": "Cover zone \u2248 potential next long-squeeze formation",
-      "bb_width": 11.93,
-      "bb_lower": 273.3,
-      "stoch_k": 0.0,
-      "stoch_d": 3.0,
-      "ema10": 284.65,
-      "ema30": 287.34
     },
     {
       "symbol": "RANASUG",
@@ -20809,23 +20684,6 @@
       "ema30": 2108.31
     },
     {
-      "symbol": "TECHNVISN",
-      "setup": "SHORT_BREAKDOWN",
-      "price": 3555.5,
-      "entry_price": 3555.5,
-      "entry_date": "2026-07-10",
-      "cover_target": 3387.21,
-      "cover_drop_pct": 4.73,
-      "stop_price": 4052.7,
-      "handoff_note": "Cover zone \u2248 potential next long-squeeze formation",
-      "bb_width": 53.28,
-      "bb_lower": 3387.21,
-      "stoch_k": 0.5,
-      "stoch_d": 0.3,
-      "ema10": 4052.7,
-      "ema30": 4685.8
-    },
-    {
       "symbol": "JSWENERGY",
       "setup": "SHORT_BREAKDOWN",
       "price": 533.45,
@@ -20841,23 +20699,6 @@
       "stoch_d": 10.3,
       "ema10": 552.66,
       "ema30": 561.06
-    },
-    {
-      "symbol": "JSWHL",
-      "setup": "SHORT_BREAKDOWN",
-      "price": 11125.0,
-      "entry_price": 11125.0,
-      "entry_date": "2026-07-10",
-      "cover_target": 10443.57,
-      "cover_drop_pct": 6.13,
-      "stop_price": 11846.02,
-      "handoff_note": "Cover zone \u2248 potential next long-squeeze formation",
-      "bb_width": 14.52,
-      "bb_lower": 11329.44,
-      "stoch_k": 0.7,
-      "stoch_d": 6.1,
-      "ema10": 11846.02,
-      "ema30": 12224.81
     },
     {
       "symbol": "SALZERELEC",
@@ -20894,23 +20735,6 @@
       "ema30": 55.41
     },
     {
-      "symbol": "21STCENMGM",
-      "setup": "SHORT_BREAKDOWN",
-      "price": 31.35,
-      "entry_price": 31.35,
-      "entry_date": "2026-07-10",
-      "cover_target": 30.56,
-      "cover_drop_pct": 2.53,
-      "stop_price": 31.74,
-      "handoff_note": "Cover zone \u2248 potential next long-squeeze formation",
-      "bb_width": 10.94,
-      "bb_lower": 30.56,
-      "stoch_k": 0.9,
-      "stoch_d": 7.4,
-      "ema10": 31.74,
-      "ema30": 32.4
-    },
-    {
       "symbol": "KALAMANDIR",
       "setup": "SHORT_BREAKDOWN",
       "price": 100.04,
@@ -20926,23 +20750,6 @@
       "stoch_d": 7.5,
       "ema10": 104.24,
       "ema30": 106.04
-    },
-    {
-      "symbol": "APOLSINHOT",
-      "setup": "SHORT_BREAKDOWN",
-      "price": 1210.0,
-      "entry_price": 1210.0,
-      "entry_date": "2026-07-10",
-      "cover_target": 1178.77,
-      "cover_drop_pct": 2.58,
-      "stop_price": 1239.64,
-      "handoff_note": "Cover zone \u2248 potential next long-squeeze formation",
-      "bb_width": 15.32,
-      "bb_lower": 1178.77,
-      "stoch_k": 1.3,
-      "stoch_d": 4.7,
-      "ema10": 1239.64,
-      "ema30": 1248.89
     },
     {
       "symbol": "BAJAJHIND",
@@ -21013,23 +20820,6 @@
       "ema30": 6.09
     },
     {
-      "symbol": "WEIZMANIND",
-      "setup": "SHORT_BREAKDOWN",
-      "price": 79.32,
-      "entry_price": 79.32,
-      "entry_date": "2026-07-10",
-      "cover_target": 77.89,
-      "cover_drop_pct": 1.81,
-      "stop_price": 81.48,
-      "handoff_note": "Cover zone \u2248 potential next long-squeeze formation",
-      "bb_width": 13.87,
-      "bb_lower": 77.89,
-      "stoch_k": 1.7,
-      "stoch_d": 1.7,
-      "ema10": 81.48,
-      "ema30": 82.83
-    },
-    {
       "symbol": "ENRIN",
       "setup": "SHORT_BREAKDOWN",
       "price": 3438.0,
@@ -21098,23 +20888,6 @@
       "ema30": 1.33
     },
     {
-      "symbol": "TFL",
-      "setup": "SHORT_BREAKDOWN",
-      "price": 11.56,
-      "entry_price": 11.56,
-      "entry_date": "2026-07-10",
-      "cover_target": 11.4,
-      "cover_drop_pct": 1.41,
-      "stop_price": 11.85,
-      "handoff_note": "Cover zone \u2248 potential next long-squeeze formation",
-      "bb_width": 11.07,
-      "bb_lower": 11.4,
-      "stoch_k": 1.9,
-      "stoch_d": 19.7,
-      "ema10": 11.85,
-      "ema30": 12.06
-    },
-    {
       "symbol": "PTC",
       "setup": "SHORT_BREAKDOWN",
       "price": 168.02,
@@ -21147,40 +20920,6 @@
       "stoch_d": 0.7,
       "ema10": 294.71,
       "ema30": 297.55
-    },
-    {
-      "symbol": "UEL",
-      "setup": "SHORT_BREAKDOWN",
-      "price": 126.49,
-      "entry_price": 126.49,
-      "entry_date": "2026-07-10",
-      "cover_target": 122.97,
-      "cover_drop_pct": 2.78,
-      "stop_price": 129.83,
-      "handoff_note": "Cover zone \u2248 potential next long-squeeze formation",
-      "bb_width": 17.09,
-      "bb_lower": 122.97,
-      "stoch_k": 2.2,
-      "stoch_d": 2.5,
-      "ema10": 129.83,
-      "ema30": 135.63
-    },
-    {
-      "symbol": "ORISSAMINE",
-      "setup": "SHORT_BREAKDOWN",
-      "price": 3765.9,
-      "entry_price": 3765.9,
-      "entry_date": "2026-07-10",
-      "cover_target": 3727.46,
-      "cover_drop_pct": 1.02,
-      "stop_price": 3888.38,
-      "handoff_note": "Cover zone \u2248 potential next long-squeeze formation",
-      "bb_width": 13.2,
-      "bb_lower": 3727.46,
-      "stoch_k": 2.3,
-      "stoch_d": 2.3,
-      "ema10": 3888.38,
-      "ema30": 3975.1
     },
     {
       "symbol": "SIEMENS",
@@ -21285,23 +21024,6 @@
       "ema30": 514.26
     },
     {
-      "symbol": "BIOFILCHEM",
-      "setup": "SHORT_BREAKDOWN",
-      "price": 34.07,
-      "entry_price": 34.07,
-      "entry_date": "2026-07-10",
-      "cover_target": 33.03,
-      "cover_drop_pct": 3.05,
-      "stop_price": 34.22,
-      "handoff_note": "Cover zone \u2248 potential next long-squeeze formation",
-      "bb_width": 11.56,
-      "bb_lower": 33.03,
-      "stoch_k": 2.7,
-      "stoch_d": 5.2,
-      "ema10": 34.22,
-      "ema30": 34.6
-    },
-    {
       "symbol": "RUCHINFRA",
       "setup": "SHORT_BREAKDOWN",
       "price": 5.78,
@@ -21353,74 +21075,6 @@
       "ema30": 118.71
     },
     {
-      "symbol": "ACL",
-      "setup": "SHORT_BREAKDOWN",
-      "price": 49.39,
-      "entry_price": 49.39,
-      "entry_date": "2026-07-10",
-      "cover_target": 49.34,
-      "cover_drop_pct": 0.11,
-      "stop_price": 50.91,
-      "handoff_note": "Cover zone \u2248 potential next long-squeeze formation",
-      "bb_width": 11.16,
-      "bb_lower": 49.34,
-      "stoch_k": 3.2,
-      "stoch_d": 2.3,
-      "ema10": 50.91,
-      "ema30": 52.5
-    },
-    {
-      "symbol": "PODDARMENT",
-      "setup": "SHORT_BREAKDOWN",
-      "price": 239.11,
-      "entry_price": 239.11,
-      "entry_date": "2026-07-10",
-      "cover_target": 233.96,
-      "cover_drop_pct": 2.15,
-      "stop_price": 242.79,
-      "handoff_note": "Cover zone \u2248 potential next long-squeeze formation",
-      "bb_width": 12.25,
-      "bb_lower": 233.96,
-      "stoch_k": 3.2,
-      "stoch_d": 3.1,
-      "ema10": 242.79,
-      "ema30": 247.89
-    },
-    {
-      "symbol": "GKWLIMITED",
-      "setup": "SHORT_BREAKDOWN",
-      "price": 1725.0,
-      "entry_price": 1725.0,
-      "entry_date": "2026-07-10",
-      "cover_target": 1673.89,
-      "cover_drop_pct": 2.96,
-      "stop_price": 1738.0,
-      "handoff_note": "Cover zone \u2248 potential next long-squeeze formation",
-      "bb_width": 11.93,
-      "bb_lower": 1673.89,
-      "stoch_k": 3.3,
-      "stoch_d": 3.4,
-      "ema10": 1738.0,
-      "ema30": 1749.54
-    },
-    {
-      "symbol": "QUINT",
-      "setup": "SHORT_BREAKDOWN",
-      "price": 39.49,
-      "entry_price": 39.49,
-      "entry_date": "2026-07-10",
-      "cover_target": 38.12,
-      "cover_drop_pct": 3.46,
-      "stop_price": 40.24,
-      "handoff_note": "Cover zone \u2248 potential next long-squeeze formation",
-      "bb_width": 16.65,
-      "bb_lower": 38.12,
-      "stoch_k": 3.3,
-      "stoch_d": 5.7,
-      "ema10": 40.24,
-      "ema30": 41.02
-    },
-    {
       "symbol": "KPITTECH",
       "setup": "SHORT_BREAKDOWN",
       "price": 548.15,
@@ -21436,23 +21090,6 @@
       "stoch_d": 2.9,
       "ema10": 598.11,
       "ema30": 673.35
-    },
-    {
-      "symbol": "AGROPHOS",
-      "setup": "SHORT_BREAKDOWN",
-      "price": 29.86,
-      "entry_price": 29.86,
-      "entry_date": "2026-07-10",
-      "cover_target": 29.58,
-      "cover_drop_pct": 0.92,
-      "stop_price": 30.28,
-      "handoff_note": "Cover zone \u2248 potential next long-squeeze formation",
-      "bb_width": 7.3,
-      "bb_lower": 29.58,
-      "stoch_k": 3.6,
-      "stoch_d": 13.4,
-      "ema10": 30.28,
-      "ema30": 30.72
     },
     {
       "symbol": "IRB",
@@ -21591,23 +21228,6 @@
       "ema30": 342.15
     },
     {
-      "symbol": "SHRADHA",
-      "setup": "SHORT_BREAKDOWN",
-      "price": 32.54,
-      "entry_price": 32.54,
-      "entry_date": "2026-07-10",
-      "cover_target": 32.5,
-      "cover_drop_pct": 0.13,
-      "stop_price": 33.33,
-      "handoff_note": "Cover zone \u2248 potential next long-squeeze formation",
-      "bb_width": 8.75,
-      "bb_lower": 32.5,
-      "stoch_k": 4.0,
-      "stoch_d": 4.8,
-      "ema10": 33.33,
-      "ema30": 34.14
-    },
-    {
       "symbol": "HIRECT",
       "setup": "SHORT_BREAKDOWN",
       "price": 1041.0,
@@ -21708,23 +21328,6 @@
       "stoch_d": 3.1,
       "ema10": 190.02,
       "ema30": 191.87
-    },
-    {
-      "symbol": "BHARATRAS",
-      "setup": "SHORT_BREAKDOWN",
-      "price": 1317.1,
-      "entry_price": 1317.1,
-      "entry_date": "2026-07-10",
-      "cover_target": 1286.56,
-      "cover_drop_pct": 2.32,
-      "stop_price": 1341.24,
-      "handoff_note": "Cover zone \u2248 potential next long-squeeze formation",
-      "bb_width": 13.22,
-      "bb_lower": 1286.56,
-      "stoch_k": 4.7,
-      "stoch_d": 1.6,
-      "ema10": 1341.24,
-      "ema30": 1378.05
     },
     {
       "symbol": "JWL",
@@ -21880,23 +21483,6 @@
       "ema30": 347.21
     },
     {
-      "symbol": "DONEAR",
-      "setup": "SHORT_BREAKDOWN",
-      "price": 84.51,
-      "entry_price": 84.51,
-      "entry_date": "2026-07-10",
-      "cover_target": 83.77,
-      "cover_drop_pct": 0.88,
-      "stop_price": 86.49,
-      "handoff_note": "Cover zone \u2248 potential next long-squeeze formation",
-      "bb_width": 10.55,
-      "bb_lower": 83.77,
-      "stoch_k": 5.3,
-      "stoch_d": 12.1,
-      "ema10": 86.49,
-      "ema30": 88.54
-    },
-    {
       "symbol": "ORKLAINDIA",
       "setup": "SHORT_BREAKDOWN",
       "price": 590.85,
@@ -21982,23 +21568,6 @@
       "ema30": 274.25
     },
     {
-      "symbol": "NSIL",
-      "setup": "SHORT_BREAKDOWN",
-      "price": 5383.5,
-      "entry_price": 5383.5,
-      "entry_date": "2026-07-10",
-      "cover_target": 5277.86,
-      "cover_drop_pct": 1.96,
-      "stop_price": 5427.98,
-      "handoff_note": "Cover zone \u2248 potential next long-squeeze formation",
-      "bb_width": 9.08,
-      "bb_lower": 5277.86,
-      "stoch_k": 6.0,
-      "stoch_d": 2.4,
-      "ema10": 5427.98,
-      "ema30": 5514.16
-    },
-    {
       "symbol": "ASTEC",
       "setup": "SHORT_BREAKDOWN",
       "price": 686.65,
@@ -22016,23 +21585,6 @@
       "ema30": 728.88
     },
     {
-      "symbol": "SBIBPB",
-      "setup": "SHORT_BREAKDOWN",
-      "price": 47.5,
-      "entry_price": 47.5,
-      "entry_date": "2026-07-10",
-      "cover_target": 47.16,
-      "cover_drop_pct": 0.72,
-      "stop_price": 48.4,
-      "handoff_note": "Cover zone \u2248 potential next long-squeeze formation",
-      "bb_width": 9.35,
-      "bb_lower": 47.16,
-      "stoch_k": 6.2,
-      "stoch_d": 2.1,
-      "ema10": 48.4,
-      "ema30": 48.83
-    },
-    {
       "symbol": "OSWALGREEN",
       "setup": "SHORT_BREAKDOWN",
       "price": 21.8,
@@ -22048,23 +21600,6 @@
       "stoch_d": 2.1,
       "ema10": 22.44,
       "ema30": 23.31
-    },
-    {
-      "symbol": "MFML",
-      "setup": "SHORT_BREAKDOWN",
-      "price": 19.6,
-      "entry_price": 19.6,
-      "entry_date": "2026-07-10",
-      "cover_target": 18.83,
-      "cover_drop_pct": 3.94,
-      "stop_price": 20.53,
-      "handoff_note": "Cover zone \u2248 potential next long-squeeze formation",
-      "bb_width": 27.83,
-      "bb_lower": 18.83,
-      "stoch_k": 6.4,
-      "stoch_d": 4.5,
-      "ema10": 20.53,
-      "ema30": 22.12
     },
     {
       "symbol": "APEX",
@@ -22116,23 +21651,6 @@
       "stoch_d": 31.1,
       "ema10": 0.48,
       "ema30": 0.49
-    },
-    {
-      "symbol": "NATCAPSUQ",
-      "setup": "SHORT_BREAKDOWN",
-      "price": 142.11,
-      "entry_price": 142.11,
-      "entry_date": "2026-07-10",
-      "cover_target": 141.85,
-      "cover_drop_pct": 0.18,
-      "stop_price": 148.57,
-      "handoff_note": "Cover zone \u2248 potential next long-squeeze formation",
-      "bb_width": 14.52,
-      "bb_lower": 141.85,
-      "stoch_k": 6.8,
-      "stoch_d": 30.2,
-      "ema10": 148.57,
-      "ema30": 152.98
     },
     {
       "symbol": "HUDCO",
@@ -22526,23 +22044,6 @@
       "ema30": 0.97
     },
     {
-      "symbol": "KREBSBIO",
-      "setup": "SHORT_BREAKDOWN",
-      "price": 56.96,
-      "entry_price": 56.96,
-      "entry_date": "2026-07-10",
-      "cover_target": 54.5,
-      "cover_drop_pct": 4.32,
-      "stop_price": 58.95,
-      "handoff_note": "Cover zone \u2248 potential next long-squeeze formation",
-      "bb_width": 25.25,
-      "bb_lower": 54.5,
-      "stoch_k": 9.3,
-      "stoch_d": 4.6,
-      "ema10": 58.95,
-      "ema30": 61.15
-    },
-    {
       "symbol": "NDL",
       "setup": "SHORT_BREAKDOWN",
       "price": 2.39,
@@ -22713,23 +22214,6 @@
       "ema30": 360.64
     },
     {
-      "symbol": "HBESD",
-      "setup": "SHORT_BREAKDOWN",
-      "price": 74.29,
-      "entry_price": 74.29,
-      "entry_date": "2026-07-10",
-      "cover_target": 71.2,
-      "cover_drop_pct": 4.15,
-      "stop_price": 75.77,
-      "handoff_note": "Cover zone \u2248 potential next long-squeeze formation",
-      "bb_width": 12.58,
-      "bb_lower": 71.2,
-      "stoch_k": 10.3,
-      "stoch_d": 27.3,
-      "ema10": 75.77,
-      "ema30": 75.59
-    },
-    {
       "symbol": "KRISHIVAL",
       "setup": "SHORT_BREAKDOWN",
       "price": 399.1,
@@ -22883,23 +22367,6 @@
       "ema30": 595.97
     },
     {
-      "symbol": "ARENTERP",
-      "setup": "SHORT_BREAKDOWN",
-      "price": 34.17,
-      "entry_price": 34.17,
-      "entry_date": "2026-07-10",
-      "cover_target": 33.27,
-      "cover_drop_pct": 2.62,
-      "stop_price": 35.2,
-      "handoff_note": "Cover zone \u2248 potential next long-squeeze formation",
-      "bb_width": 17.92,
-      "bb_lower": 33.27,
-      "stoch_k": 12.0,
-      "stoch_d": 13.8,
-      "ema10": 35.2,
-      "ema30": 36.6
-    },
-    {
       "symbol": "ELECON",
       "setup": "SHORT_BREAKDOWN",
       "price": 512.35,
@@ -22917,23 +22384,6 @@
       "ema30": 523.74
     },
     {
-      "symbol": "TREEHOUSE",
-      "setup": "SHORT_BREAKDOWN",
-      "price": 6.61,
-      "entry_price": 6.61,
-      "entry_date": "2026-07-10",
-      "cover_target": 6.34,
-      "cover_drop_pct": 4.03,
-      "stop_price": 6.68,
-      "handoff_note": "Cover zone \u2248 potential next long-squeeze formation",
-      "bb_width": 14.58,
-      "bb_lower": 6.34,
-      "stoch_k": 12.0,
-      "stoch_d": 7.4,
-      "ema10": 6.68,
-      "ema30": 6.92
-    },
-    {
       "symbol": "EMKAY",
       "setup": "SHORT_BREAKDOWN",
       "price": 265.1,
@@ -22949,40 +22399,6 @@
       "stoch_d": 8.0,
       "ema10": 266.73,
       "ema30": 265.8
-    },
-    {
-      "symbol": "GANDHITUBE",
-      "setup": "SHORT_BREAKDOWN",
-      "price": 859.05,
-      "entry_price": 859.05,
-      "entry_date": "2026-07-10",
-      "cover_target": 842.73,
-      "cover_drop_pct": 1.9,
-      "stop_price": 859.43,
-      "handoff_note": "Cover zone \u2248 potential next long-squeeze formation",
-      "bb_width": 3.23,
-      "bb_lower": 842.73,
-      "stoch_k": 12.3,
-      "stoch_d": 36.5,
-      "ema10": 859.43,
-      "ema30": 857.49
-    },
-    {
-      "symbol": "CTE",
-      "setup": "SHORT_BREAKDOWN",
-      "price": 29.33,
-      "entry_price": 29.33,
-      "entry_date": "2026-07-10",
-      "cover_target": 26.35,
-      "cover_drop_pct": 10.15,
-      "stop_price": 30.67,
-      "handoff_note": "Cover zone \u2248 potential next long-squeeze formation",
-      "bb_width": 9.4,
-      "bb_lower": 29.79,
-      "stoch_k": 12.5,
-      "stoch_d": 34.9,
-      "ema10": 30.67,
-      "ema30": 30.96
     },
     {
       "symbol": "HSCL",
@@ -23068,23 +22484,6 @@
       "stoch_d": 17.5,
       "ema10": 5.79,
       "ema30": 6.05
-    },
-    {
-      "symbol": "AHLEAST",
-      "setup": "SHORT_BREAKDOWN",
-      "price": 141.62,
-      "entry_price": 141.62,
-      "entry_date": "2026-07-10",
-      "cover_target": 139.03,
-      "cover_drop_pct": 1.83,
-      "stop_price": 144.45,
-      "handoff_note": "Cover zone \u2248 potential next long-squeeze formation",
-      "bb_width": 12.6,
-      "bb_lower": 139.03,
-      "stoch_k": 15.1,
-      "stoch_d": 31.9,
-      "ema10": 144.45,
-      "ema30": 150.06
     },
     {
       "symbol": "SUPRIYA",
@@ -23204,40 +22603,6 @@
       "stoch_d": 12.7,
       "ema10": 0.29,
       "ema30": 0.31
-    },
-    {
-      "symbol": "TECILCHEM",
-      "setup": "SHORT_BREAKDOWN",
-      "price": 10.0,
-      "entry_price": 10.0,
-      "entry_date": "2026-07-10",
-      "cover_target": 9.67,
-      "cover_drop_pct": 3.29,
-      "stop_price": 10.27,
-      "handoff_note": "Cover zone \u2248 potential next long-squeeze formation",
-      "bb_width": 18.05,
-      "bb_lower": 9.67,
-      "stoch_k": 16.5,
-      "stoch_d": 33.4,
-      "ema10": 10.27,
-      "ema30": 10.88
-    },
-    {
-      "symbol": "ARIHANT",
-      "setup": "SHORT_BREAKDOWN",
-      "price": 798.4,
-      "entry_price": 798.4,
-      "entry_date": "2026-07-10",
-      "cover_target": 765.99,
-      "cover_drop_pct": 4.06,
-      "stop_price": 809.09,
-      "handoff_note": "Cover zone \u2248 potential next long-squeeze formation",
-      "bb_width": 17.15,
-      "bb_lower": 765.99,
-      "stoch_k": 17.1,
-      "stoch_d": 11.0,
-      "ema10": 809.09,
-      "ema30": 818.49
     },
     {
       "symbol": "PRECWIRE",
@@ -23478,23 +22843,6 @@
       "ema30": 5.89
     },
     {
-      "symbol": "TARMAT",
-      "setup": "SHORT_BREAKDOWN",
-      "price": 48.17,
-      "entry_price": 48.17,
-      "entry_date": "2026-07-10",
-      "cover_target": 47.87,
-      "cover_drop_pct": 0.63,
-      "stop_price": 49.51,
-      "handoff_note": "Cover zone \u2248 potential next long-squeeze formation",
-      "bb_width": 11.3,
-      "bb_lower": 47.87,
-      "stoch_k": 21.7,
-      "stoch_d": 23.1,
-      "ema10": 49.51,
-      "ema30": 51.16
-    },
-    {
       "symbol": "EPIGRAL",
       "setup": "SHORT_BREAKDOWN",
       "price": 996.9,
@@ -23510,50 +22858,16 @@
       "stoch_d": 15.8,
       "ema10": 1035.62,
       "ema30": 1094.31
-    },
-    {
-      "symbol": "NKIND",
-      "setup": "SHORT_BREAKDOWN",
-      "price": 59.15,
-      "entry_price": 59.15,
-      "entry_date": "2026-07-10",
-      "cover_target": 53.6,
-      "cover_drop_pct": 9.39,
-      "stop_price": 61.54,
-      "handoff_note": "Cover zone \u2248 potential next long-squeeze formation",
-      "bb_width": 10.7,
-      "bb_lower": 59.43,
-      "stoch_k": 23.4,
-      "stoch_d": 38.6,
-      "ema10": 61.54,
-      "ema30": 63.21
-    },
-    {
-      "symbol": "MAHAPEXLTD",
-      "setup": "SHORT_BREAKDOWN",
-      "price": 43.59,
-      "entry_price": 43.59,
-      "entry_date": "2026-07-10",
-      "cover_target": 38.15,
-      "cover_drop_pct": 12.48,
-      "stop_price": 45.61,
-      "handoff_note": "Cover zone \u2248 potential next long-squeeze formation",
-      "bb_width": 11.9,
-      "bb_lower": 44.08,
-      "stoch_k": 23.5,
-      "stoch_d": 33.7,
-      "ema10": 45.61,
-      "ema30": 47.4
     }
   ],
-  "scanned_count": 2382,
-  "candidates_found": 313,
+  "scanned_count": 1760,
+  "candidates_found": 234,
   "ledger_squeeze_total": 40,
   "clean_squeeze_total": 23,
   "countertrend_total": 17,
   "ledger_blast_total": 253,
   "ledger_watchlist_total": 255,
   "promoted_from_watchlist_today": 0,
-  "short_squeeze_total": 5,
-  "short_breakdown_total": 191
+  "short_squeeze_total": 2,
+  "short_breakdown_total": 154
 }
