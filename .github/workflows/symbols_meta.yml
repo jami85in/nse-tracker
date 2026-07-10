@@ -1,0 +1,50 @@
+name: Build Symbols Metadata
+
+# Builds/refreshes data/symbols_meta.json — the ETF flags + rolling average
+# volume + (optional) market cap that drive the scan's universe-quality filters.
+# Volume is a rolling average, so running daily converges to a ~20-day mean.
+# Runs after the OHLC refresh, before the next day's scan. Market cap comes
+# from an optional committed data/market_cap_cr.csv (Kite doesn't expose it).
+
+on:
+  schedule:
+    - cron: "0 14 * * 1-5"   # 19:30 IST weekdays (after the 19:00 OHLC refresh)
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: nse-symbols-meta
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install deps
+        run: pip install kiteconnect
+
+      - name: Build symbols_meta.json
+        env:
+          KITE_API_KEY: ${{ secrets.KITE_API_KEY }}
+          KITE_API_SECRET: ${{ secrets.KITE_API_SECRET }}
+          SECRETS_REPO_PAT: ${{ secrets.SECRETS_REPO_PAT }}
+          SECRETS_REPO: ${{ secrets.SECRETS_REPO }}
+        run: python scripts/build_symbols_meta.py
+
+      - name: Commit metadata
+        if: always()
+        run: |
+          git config user.name "nse-tracker-bot"
+          git config user.email "actions@github.com"
+          git add data/symbols_meta.json
+          git diff --staged --quiet || git commit -m "symbols-meta: refresh $(date -u +'%Y-%m-%d %H:%M UTC')"
+          git pull --rebase --autostash origin main || true
+          git push
