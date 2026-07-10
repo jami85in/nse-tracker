@@ -1,0 +1,58 @@
+name: NSE Daily OHLC Refresh
+
+# Keeps the committed OHLC current every evening so the scan's reliable price
+# floor never lags. The historical backfill collector (backtest_collect_ohlc)
+# sets done=True once it reaches the frontier and then stops fetching new days
+# entirely — which froze the data at 2026-07-07 and was the root cause of the
+# stale on-dashboard prices. This job runs in DAILY mode: it re-fetches a short
+# trailing window for all symbols and merges the newest trading day(s) in,
+# independent of the backfill's chunk progress.
+#
+# Schedule: 19:00 IST on weekdays (13:30 UTC). NSE closes 15:30 IST and the
+# bhavcopy is published by early evening, so today's bar is available by then.
+# Holidays are harmless — the worker returns no new day and merge is a no-op.
+
+on:
+  schedule:
+    - cron: "30 13 * * 1-5"   # 19:00 IST, Mon-Fri
+  workflow_dispatch:
+    inputs:
+      lookback_days:
+        description: "Trailing days to re-fetch and merge"
+        required: false
+        default: "12"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: nse-ohlc-daily
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Daily OHLC refresh (frontier)
+        env:
+          BACKTEST_WORKER_URL: ${{ secrets.BACKTEST_WORKER_URL }}
+          BACKTEST_MODE: "daily"
+          BACKTEST_UNIVERSE: "all"
+          BACKTEST_DAILY_LOOKBACK_DAYS: ${{ github.event.inputs.lookback_days || '12' }}
+        run: python scripts/backtest_fetch_ohlc.py
+
+      - name: Commit refreshed data
+        if: always()
+        run: |
+          git config user.name "nse-tracker-bot"
+          git config user.email "actions@github.com"
+          git add data/backtest/raw_ohlc/ data/backtest/progress_ohlc.json
+          git diff --staged --quiet || git commit -m "ohlc-daily: refresh $(date -u +'%Y-%m-%d %H:%M UTC')"
+          git pull --rebase --autostash origin main || true
+          git push
