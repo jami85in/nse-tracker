@@ -19,6 +19,7 @@ or GitHub Pages — zero API cost for the frontend.
 
 import json
 import math
+import re
 import os
 import time
 import datetime
@@ -160,6 +161,91 @@ def fetch_nifty500_universe(session: requests.Session) -> list:
         return FALLBACK_STOCK_LIST
 
 
+# ── Universe quality filters (noise / operator-manipulation reduction) ─────
+EXCLUDE_ETFS      = os.environ.get("SCAN_EXCLUDE_ETFS", "1") == "1"
+MIN_MARKET_CAP_CR = float(os.environ.get("SCAN_MIN_MARKET_CAP_CR", "1000"))  # ₹ crore
+MIN_AVG_VOLUME    = float(os.environ.get("SCAN_MIN_AVG_VOLUME", "10000"))    # shares/day
+SYMBOLS_META_PATH = "data/symbols_meta.json"  # {symbol: {is_etf, market_cap_cr, avg_volume}}
+
+# Real listed stocks whose symbols pattern-match ETF markers but are NOT ETFs.
+_REAL_STOCK_ALLOWLIST = {
+    "JETFREIGHT", "PNBGILTS", "SKYGOLD", "SHANTIGOLD", "GOLDIAM",
+    "GOLDTECH", "GOLDSTAR", "VAIBHAVGBL",
+}
+# AMC / fund-house prefixes for gold/silver ETFs (jewellers won't match these).
+_AMC_ETF_PREFIXES = ("HDFC", "SBI", "ICICI", "TATA", "AONE", "BBNPP", "BBNP", "LIC",
+                     "LICMF", "HSBC", "IVZIN", "GROWW", "UNION", "MO", "MOTILAL",
+                     "DECN", "KOTAK", "AXIS", "NIPPON", "MIRAE", "EDEL", "DSP",
+                     "ABSL", "BANDHAN", "QUANT", "UTI", "E", "S", "TWC")
+
+
+def is_etf_symbol(sym: str) -> bool:
+    """Heuristic ETF/ETP detector for NSE symbols, tuned against the full
+    committed universe to avoid false-positives on real stocks (Jet Freight,
+    PNB Gilts, Sky Gold, Shanti Gold, Goldiam are stocks, not ETFs). Used as
+    a fallback; an authoritative is_etf from symbols_meta.json wins when set."""
+    s = (sym or "").upper()
+    if s in _REAL_STOCK_ALLOWLIST:
+        return False
+    if s.endswith("BEES"):
+        return True
+    if "ETF" in s:
+        return True
+    if "LIQUID" in s:
+        return True
+    if "BHARATBOND" in s:
+        return True
+    if re.search(r"(GSEC|GILT)\d", s) or s.startswith("GSEC") or s.endswith("GSEC") \
+            or s in ("GILT5YBEES", "LTGILTBEES"):
+        return True
+    if (s.endswith("GOLD") or s.endswith("SILVER")) and s.startswith(_AMC_ETF_PREFIXES):
+        return True
+    if any(k in s for k in ("GOLDETF", "SILVERETF", "GOLDCASE", "GOLDIETF", "GOLDBEES")):
+        return True
+    return False
+
+
+def apply_universe_filters(symbols: list) -> list:
+    """Filter the raw symbol list to reduce noise and avoid operator-driven
+    micro-caps: drop ETFs, and — when symbols_meta.json is present — require
+    market cap ≥ MIN_MARKET_CAP_CR and average volume ≥ MIN_AVG_VOLUME.
+
+    Market-cap / volume filtering is SKIPPED for any symbol without metadata
+    (and entirely if symbols_meta.json is absent), so the scan degrades safely
+    to ETF-only exclusion until the metadata is populated — it never silently
+    drops the whole universe. Populate the metadata with build_symbols_meta.py."""
+    meta = {}
+    try:
+        meta = json.load(open(SYMBOLS_META_PATH))
+    except Exception:
+        meta = {}
+
+    kept, dropped_etf, dropped_mcap, dropped_vol = [], 0, 0, 0
+    for sym in symbols:
+        m = meta.get(sym, {})
+        # ETF: authoritative meta flag if present, else the heuristic.
+        is_etf = m.get("is_etf") if ("is_etf" in m) else is_etf_symbol(sym)
+        if EXCLUDE_ETFS and is_etf:
+            dropped_etf += 1
+            continue
+        # Market cap / volume only when we actually have the data for it.
+        mcap = m.get("market_cap_cr")
+        if mcap is not None and mcap < MIN_MARKET_CAP_CR:
+            dropped_mcap += 1
+            continue
+        vol = m.get("avg_volume")
+        if vol is not None and vol < MIN_AVG_VOLUME:
+            dropped_vol += 1
+            continue
+        kept.append(sym)
+
+    print(f"Universe filters: {len(symbols)} -> {len(kept)} "
+          f"(dropped {dropped_etf} ETFs, {dropped_mcap} < ₹{MIN_MARKET_CAP_CR:.0f}cr, "
+          f"{dropped_vol} < {MIN_AVG_VOLUME:.0f} avg vol"
+          f"{'; no symbols_meta.json — mcap/vol skipped' if not meta else ''})")
+    return kept
+
+
 def load_scan_universe(session):
     """Symbols to scan. Defaults to the full committed EQ universe
     (symbols_all.json, ~2382 names incl. small-caps like WALCHANNAG that the
@@ -171,10 +257,10 @@ def load_scan_universe(session):
             syms = json.load(open(SYMBOLS_ALL_PATH))
             if isinstance(syms, list) and len(syms) > 500:
                 print(f"Scan universe: {len(syms)} symbols (all EQ).")
-                return syms
+                return apply_universe_filters(syms)
         except Exception as e:
             print(f"symbols_all.json unavailable ({e}) — falling back to Nifty 500.")
-    return fetch_nifty500_universe(session)
+    return apply_universe_filters(fetch_nifty500_universe(session))
 
 # ── NSE trading holiday calendar ─────────────────────────────────────────
 # Primary source is always the live NSE API (NSE_API_HOLIDAYS above) since

@@ -132,6 +132,23 @@ for d in allc[:50]:
         missing_any = True; print(f"    ! {d.get('symbol')} missing {miss}")
 check(not missing_any, "all sampled candidates carry the required display fields")
 
+print("\n[6] Universe filters (ETF exclusion + safe degradation)...")
+import json as _json
+uni_all = _json.load(open(os.path.join(os.path.dirname(OHLC_DIR), "symbols_all.json"))) \
+    if os.path.exists(os.path.join(os.path.dirname(OHLC_DIR), "symbols_all.json")) else \
+    [os.path.basename(f).replace(".json","") for f in files]
+filtered = scan.apply_universe_filters(uni_all)
+n_etf = len(uni_all) - len(filtered)
+check(n_etf > 50 and n_etf < 300, f"ETF exclusion dropped a sane count ({n_etf} of {len(uni_all)})")
+real_must_keep = ["GOLDIAM","SKYGOLD","PNBGILTS","RELIANCE","SUNTV","UBL","SBIN","TITAN"]
+wrongly = [s for s in real_must_keep if s in uni_all and s not in filtered]
+check(not wrongly, f"no real stocks wrongly excluded ({wrongly})")
+known_etfs = [s for s in ["BANKBEES","NIFTYBEES","GOLDBEES","CPSEETF","LIQUIDBEES"] if s in uni_all]
+etf_caught = [s for s in known_etfs if s not in filtered]
+check(len(etf_caught) == len(known_etfs), f"known ETFs all excluded ({len(etf_caught)}/{len(known_etfs)})")
+# Safe degradation: no symbols_meta.json -> must NOT collapse the universe
+check(len(filtered) > 2000, f"universe not over-filtered without meta ({len(filtered)} kept)")
+
 print("\n" + "="*56)
 if failures:
     print(f"VALIDATION FAILED — {len(failures)} issue(s):")
