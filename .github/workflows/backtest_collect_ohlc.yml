@@ -4,10 +4,15 @@ name: NSE Historical OHLC Collector
 # earlier close-only collector. Same resumable multi-chunk-per-run design.
 # Runs on its OWN symbols_all.json universe (set via BACKTEST_UNIVERSE) —
 # defaults to "all" to also expand coverage beyond Nifty 500 (e.g. WALCHANNAG).
+#
+# This is the HISTORICAL BACKFILL only. It is now complete (data back to
+# 2020-09-01), so the previous every-5-minute schedule has been removed — it
+# was running ~288 no-op jobs a day. Day-to-day freshness is handled by the
+# separate "NSE Daily OHLC Refresh" workflow (ohlc_daily_refresh.yml), which
+# runs each evening IST. Trigger this one manually only to re-backfill or to
+# extend the universe.
 
 on:
-  schedule:
-    - cron: "*/5 * * * *"
   workflow_dispatch:
     inputs:
       universe:
