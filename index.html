@@ -686,10 +686,15 @@ function SqueezeCard({ stock, onInvest, rank, livePrice, zoneStats, relStrength,
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(2,1fr)", gap: 10, marginTop: 12 }}>
         <Stat label="BB Width" value={fmt(stock.bb_width) + "%"} color={stock.bb_width < 1.8 ? T.accent : T.warn} />
-        <Stat label="Stoch K" value={fmt(stock.stoch_k)} color={stock.stoch_k < 45 ? T.accent : T.warn} />
+        <Stat label="Stoch K (signal)" value={fmt(stock.stoch_k)} color={(stock.stoch_k != null && stock.stoch_k < 45) ? T.accent : T.warn} />
         <Stat label="Target R1" value={curr(stock.pivot_r1)} color={T.green} />
         <Stat label="Stop S1" value={curr(stock.pivot_s1)} color={T.red} />
       </div>
+      {stock.stoch_k_chart != null && (
+        <div style={{ color: T.muted, fontSize: 10, marginTop: 6, letterSpacing: 0.2 }}>
+          📈 Stoch RSI 40/60 (matches your chart): K {fmt(stock.stoch_k_chart, 1)} · D {fmt(stock.stoch_d_chart, 1)}
+        </div>
+      )}
       {expanded && (
         <div style={{ marginTop: 12, paddingTop: 12, borderTop: `1px solid ${T.border}` }}>
           <div style={{ color: T.muted, fontSize: 12, marginBottom: 10, lineHeight: 1.5 }}>{stock.reason}</div>
