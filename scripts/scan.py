@@ -18,6 +18,7 @@ or GitHub Pages — zero API cost for the frontend.
 """
 
 import json
+import math
 import os
 import time
 import datetime
@@ -33,16 +34,24 @@ import requests
 # single source of truth for the current IST time everywhere in this script.
 IST_TZ = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
 
-# ── Momentum + universe config ────────────────────────────────────────────
-# Stoch RSI aligned to the user's TradingView chart ("Stoch RSI 40 60 3 3",
-# Wilder's RSI): RSI length 40, Stochastic length 60, %K 3, %D 3. Empirically
-# matched — UBL computes to K≈74/D≈81 vs the chart's 73.03/80.03. The previous
-# length-14 simple-average version read ~25 for the same bar, which is why scan
-# signals didn't line up with what the chart showed. Override via env if needed.
-RSI_LENGTH     = int(os.environ.get("SCAN_RSI_LENGTH", "40"))
-STOCH_LENGTH   = int(os.environ.get("SCAN_STOCH_LENGTH", "60"))
-STOCH_K_SMOOTH = int(os.environ.get("SCAN_STOCH_K", "3"))
-STOCH_D_SMOOTH = int(os.environ.get("SCAN_STOCH_D", "3"))
+# ── Momentum config: DUAL Stoch RSI ───────────────────────────────────────
+# SIGNAL stoch (drives squeeze entry, exit, conviction, and the backtest):
+# the original RSI 14 / Stoch 14 with simple-average RSI. The 6-year backtest
+# showed this is the higher-expectancy signal (+0.78%/trade, and it cleanly
+# separates trend-aligned from countertrend), so the money logic stays on it.
+SIGNAL_RSI_LENGTH   = int(os.environ.get("SCAN_SIGNAL_RSI_LENGTH", "14"))
+SIGNAL_STOCH_LENGTH = int(os.environ.get("SCAN_SIGNAL_STOCH_LENGTH", "14"))
+SIGNAL_K_SMOOTH     = int(os.environ.get("SCAN_SIGNAL_K", "3"))
+SIGNAL_D_SMOOTH     = int(os.environ.get("SCAN_SIGNAL_D", "3"))
+
+# CHART stoch (DISPLAY ONLY — shown on each card so it matches the user's
+# TradingView "Stoch RSI 40 60 3 3", Wilder's RSI). Never used for logic.
+# Verified: UBL -> K≈74/D≈81 vs the chart's 73/80. NaN for short-history
+# symbols (needs ~100 bars) — sanitised to null before write.
+CHART_RSI_LENGTH   = int(os.environ.get("SCAN_CHART_RSI_LENGTH", "40"))
+CHART_STOCH_LENGTH = int(os.environ.get("SCAN_CHART_STOCH_LENGTH", "60"))
+CHART_K_SMOOTH     = int(os.environ.get("SCAN_CHART_K", "3"))
+CHART_D_SMOOTH     = int(os.environ.get("SCAN_CHART_D", "3"))
 
 # Scan universe: "all" = the full committed EQ universe (symbols_all.json,
 # ~2382 names incl. small-caps like WALCHANNAG); "nifty500" = the live Nifty
@@ -405,6 +414,65 @@ def fetch_history(session: requests.Session, symbol: str):
 
 
 # ── Indicator math (pure pandas/numpy — zero API cost) ───────────────────
+def _stoch_rsi(close, rsi_len, stoch_len, k_smooth, d_smooth, wilder):
+    """Compute a Stochastic-RSI %K/%D pair. wilder=True uses Wilder's RSI
+    smoothing (EMA alpha=1/len, = TradingView's ta.rma); wilder=False uses a
+    simple rolling mean (the original signal definition). Returns (k, d)."""
+    delta = close.diff()
+    gain = delta.clip(lower=0)
+    loss = -delta.clip(upper=0)
+    if wilder:
+        avg_gain = gain.ewm(alpha=1.0 / rsi_len, adjust=False).mean()
+        avg_loss = loss.ewm(alpha=1.0 / rsi_len, adjust=False).mean()
+    else:
+        avg_gain = gain.rolling(rsi_len).mean()
+        avg_loss = loss.rolling(rsi_len).mean()
+    rs = avg_gain / avg_loss.replace(0, np.nan)
+    rsi = 100 - (100 / (1 + rs))
+    rsi = rsi.mask((avg_loss == 0) & (avg_gain > 0), 100.0)   # pure uptrend
+    rsi = rsi.mask((avg_loss == 0) & (avg_gain == 0), 50.0)   # flat
+    rmin = rsi.rolling(stoch_len).min()
+    rmax = rsi.rolling(stoch_len).max()
+    stoch = (rsi - rmin) / (rmax - rmin).replace(0, np.nan) * 100
+    stoch = stoch.where(rmax != rmin, 100.0)
+    k = stoch.rolling(k_smooth).mean()
+    d = k.rolling(d_smooth).mean()
+    return k, d
+
+
+def json_safe(obj):
+    """Recursively convert NaN/Inf floats to None so json.dump never emits the
+    literal tokens NaN/Infinity, which are invalid JSON and crash the browser's
+    JSON.parse (the "Unexpected token 'N' ... stoch_d: NaN" dashboard error).
+    Short-history symbols in the full universe legitimately produce NaN
+    indicators (e.g. the 40/60 chart stoch needs ~100 bars); this makes those
+    safe to serialise as null."""
+    if isinstance(obj, dict):
+        return {k: json_safe(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [json_safe(v) for v in obj]
+    if isinstance(obj, float):
+        return obj if math.isfinite(obj) else None
+    # numpy scalar floats
+    try:
+        import numpy as _np
+        if isinstance(obj, _np.floating):
+            f = float(obj)
+            return f if math.isfinite(f) else None
+        if isinstance(obj, _np.integer):
+            return int(obj)
+    except Exception:
+        pass
+    return obj
+
+
+def dump_json_safe(obj, fp, **kwargs):
+    """json.dump with NaN/Inf sanitised and allow_nan=False as a hard guard —
+    if anything non-finite slips through, this raises here (caught in tests)
+    instead of writing invalid JSON that breaks the dashboard."""
+    json.dump(json_safe(obj), fp, allow_nan=False, **kwargs)
+
+
 def add_indicators(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
     # Bollinger Bands (20, 2)
@@ -419,32 +487,18 @@ def add_indicators(df: pd.DataFrame) -> pd.DataFrame:
     df["ema30"] = df["close"].ewm(span=30, adjust=False).mean()
 
     # RSI(14) -> Stochastic of RSI -> %K smooth 3 -> %D smooth 3
-    # (matching the chart's "Stoch RSI 40 60 3 3" where 40/60 are the
-    # user's custom oversold/overbought reference lines, not the lookback)
-    # ── Stoch RSI, aligned to the chart (RSI length 40, Stochastic length
-    # 60, %K 3, %D 3, Wilder's RSI smoothing = TradingView's "Stoch RSI
-    # 40 60 3 3"). Verified: UBL -> K≈74/D≈81 matching the chart's 73/80.
-    delta = df["close"].diff()
-    gain = delta.clip(lower=0)
-    loss = -delta.clip(upper=0)
-    # Wilder's smoothing == EMA with alpha = 1/length (what TradingView's
-    # RSI uses). adjust=False so it matches ta.rma bar-for-bar once seeded.
-    avg_gain = gain.ewm(alpha=1.0 / RSI_LENGTH, adjust=False).mean()
-    avg_loss = loss.ewm(alpha=1.0 / RSI_LENGTH, adjust=False).mean()
-    rs = avg_gain / avg_loss.replace(0, np.nan)
-    df["rsi"] = 100 - (100 / (1 + rs))
-    # loss==0 over the window (pure uptrend) -> RSI 100, not NaN.
-    df.loc[(avg_loss == 0) & (avg_gain > 0), "rsi"] = 100.0
-    df.loc[(avg_loss == 0) & (avg_gain == 0), "rsi"] = 50.0  # flat
-
-    rsi_min = df["rsi"].rolling(STOCH_LENGTH).min()
-    rsi_max = df["rsi"].rolling(STOCH_LENGTH).max()
-    stoch = (df["rsi"] - rsi_min) / (rsi_max - rsi_min).replace(0, np.nan) * 100
-    # RSI pinned at its rolling max/min the whole window = fully over/oversold,
-    # not undefined.
-    stoch = stoch.where(rsi_max != rsi_min, 100.0)
-    df["stoch_k"] = stoch.rolling(STOCH_K_SMOOTH).mean()
-    df["stoch_d"] = df["stoch_k"].rolling(STOCH_D_SMOOTH).mean()
+    # ── DUAL Stoch RSI ──────────────────────────────────────────────────
+    # stoch_k/stoch_d       = SIGNAL (RSI 14 SMA, Stoch 14) — drives all logic
+    #                         and the backtest. Do NOT change without re-running
+    #                         the backtest; it's the higher-expectancy signal.
+    # stoch_k_chart/_chart  = DISPLAY (RSI 40 Wilder, Stoch 60) — matches the
+    #                         user's TradingView chart. Never used for logic.
+    df["stoch_k"], df["stoch_d"] = _stoch_rsi(
+        df["close"], SIGNAL_RSI_LENGTH, SIGNAL_STOCH_LENGTH,
+        SIGNAL_K_SMOOTH, SIGNAL_D_SMOOTH, wilder=False)
+    df["stoch_k_chart"], df["stoch_d_chart"] = _stoch_rsi(
+        df["close"], CHART_RSI_LENGTH, CHART_STOCH_LENGTH,
+        CHART_K_SMOOTH, CHART_D_SMOOTH, wilder=True)
 
     # Traditional pivots (prior day H/L/C)
     df["pivot"] = (df["high"].shift(1) + df["low"].shift(1) + df["close"].shift(1)) / 3
@@ -532,6 +586,8 @@ class Candidate:
     weak_crossover: bool = False      # True if stoch_k vs stoch_d gap is inside noise band
     conviction_score: str = None      # "STRONG" | "MODERATE" | "WEAK" — see score_conviction()
     conviction_note: str = None       # short human-readable explanation of the score
+    stoch_k_chart: float = None       # display-only 40/60 Stoch RSI (matches user's TradingView)
+    stoch_d_chart: float = None
 
 
 def indicators_look_broken(df: pd.DataFrame) -> bool:
@@ -745,6 +801,8 @@ def classify(symbol: str, df: pd.DataFrame, scan_date: str = None):
     bb_width_5d = float(prev5["bb_width_pct"]) if not pd.isna(prev5["bb_width_pct"]) else bb_width
     stoch_k = float(last["stoch_k"])
     stoch_d = float(last["stoch_d"])
+    stoch_k_chart = float(last["stoch_k_chart"]) if not pd.isna(last.get("stoch_k_chart")) else None
+    stoch_d_chart = float(last["stoch_d_chart"]) if not pd.isna(last.get("stoch_d_chart")) else None
     ema10 = float(last["ema10"])
     ema30 = float(last["ema30"])
     r1, r2, s1 = float(last["r1"]), float(last["r2"]), float(last["s1"])
@@ -848,6 +906,7 @@ def classify(symbol: str, df: pd.DataFrame, scan_date: str = None):
         return Candidate(
             symbol, price, bb_width, bb_width_5d, stoch_k, stoch_d,
             ema10, ema30, r1, r2, s1, atr_predicted_return, "SQUEEZE",
+            stoch_k_chart=stoch_k_chart, stoch_d_chart=stoch_d_chart,
             entry_price=round(price, 2), entry_date=scan_date,
             target_price=round(atr_target_price, 2), target_return_pct=atr_predicted_return,
             trend_conflict=conv_trend_conflict, weak_crossover=conv_weak_cross,
@@ -863,6 +922,7 @@ def classify(symbol: str, df: pd.DataFrame, scan_date: str = None):
         return Candidate(
             symbol, price, bb_width, bb_width_5d, stoch_k, stoch_d,
             ema10, ema30, r1, r2, s1, atr_predicted_return, "WATCHLIST",
+            stoch_k_chart=stoch_k_chart, stoch_d_chart=stoch_d_chart,
             entry_price=round(price, 2), entry_date=scan_date,
             target_price=round(atr_target_price, 2), target_return_pct=atr_predicted_return,
         )
@@ -881,6 +941,7 @@ def classify(symbol: str, df: pd.DataFrame, scan_date: str = None):
         return Candidate(
             symbol, price, bb_width, bb_width_5d, stoch_k, stoch_d,
             ema10, ema30, r1, r2, s1, return_since_entry, "BLAST",
+            stoch_k_chart=stoch_k_chart, stoch_d_chart=stoch_d_chart,
             blast_entry_price=round(blast_entry_price, 2) if blast_entry_price else None,
             blast_entry_date=blast_entry_date,
             exit_price=round(price, 2), exit_date=scan_date,
@@ -1139,7 +1200,7 @@ def load_ledger() -> dict:
 def save_ledger(ledger: dict):
     os.makedirs(os.path.dirname(LEDGER_PATH), exist_ok=True)
     with open(LEDGER_PATH, "w") as f:
-        json.dump(ledger, f, indent=2)
+        dump_json_safe(ledger, f, indent=2)
 
 
 def _indicators_as_of(symbol: str, date_str: str):
@@ -1241,7 +1302,7 @@ def audit_and_backfill_ledger(ledger: dict) -> dict:
     try:
         os.makedirs("data", exist_ok=True)
         with open("data/ledger_audit.json", "w") as f:
-            json.dump(summary, f, indent=2)
+            dump_json_safe(summary, f, indent=2)
     except Exception:
         pass
     if repaired:
@@ -1286,6 +1347,8 @@ def reconcile_open_positions(ledger: dict, scan_date: str) -> int:
             price = round(float(last["close"]), 2)
             ema10 = float(last["ema10"]); ema30 = float(last["ema30"])
             stoch_k = float(last["stoch_k"]); stoch_d = float(last["stoch_d"])
+            skc = float(last["stoch_k_chart"]) if not pd.isna(last.get("stoch_k_chart")) else None
+            sdc = float(last["stoch_d_chart"]) if not pd.isna(last.get("stoch_d_chart")) else None
             bbw = round(float(last["bb_width_pct"]), 2)
         except Exception:
             continue
@@ -1298,6 +1361,8 @@ def reconcile_open_positions(ledger: dict, scan_date: str) -> int:
         e["bb_width"] = bbw
         e["stoch_k"] = round(stoch_k, 1)
         e["stoch_d"] = round(stoch_d, 1)
+        e["stoch_k_chart"] = round(skc, 1) if skc is not None else None
+        e["stoch_d_chart"] = round(sdc, 1) if sdc is not None else None
         e["trend_conflict"] = tconf
         e["weak_crossover"] = weak_cross
         e["conviction_score"] = conv_score
@@ -1474,6 +1539,8 @@ def update_ledger(ledger: dict, all_candidates: list, scan_date: str, scan_indic
                 entry["bb_width"] = ind.get("bb_width", entry.get("bb_width"))
                 if sk is not None: entry["stoch_k"] = sk
                 if sd is not None: entry["stoch_d"] = sd
+                if ind.get("stoch_k_chart") is not None: entry["stoch_k_chart"] = ind["stoch_k_chart"]
+                if ind.get("stoch_d_chart") is not None: entry["stoch_d_chart"] = ind["stoch_d_chart"]
                 entry["last_seen"] = scan_date
                 # Re-score conviction/trend against CURRENT price vs EMAs.
                 if sk is not None and sd is not None:
@@ -1583,6 +1650,8 @@ def scan_all_symbols(session: requests.Session, universe: list, as_of_date: str 
                     "bb_width": round(float(last["bb_width_pct"]), 2),
                     "stoch_k": round(float(last["stoch_k"]), 1) if not pd.isna(last.get("stoch_k")) else None,
                     "stoch_d": round(float(last["stoch_d"]), 1) if not pd.isna(last.get("stoch_d")) else None,
+                    "stoch_k_chart": round(float(last["stoch_k_chart"]), 1) if not pd.isna(last.get("stoch_k_chart")) else None,
+                    "stoch_d_chart": round(float(last["stoch_d_chart"]), 1) if not pd.isna(last.get("stoch_d_chart")) else None,
                 }
         except Exception:
             pass
@@ -1632,7 +1701,7 @@ def run(backfill_days: int = 0, allow_weekend: bool = False):
         print(f"or use backfill/weekend override to force a run on settled historical data.")
         os.makedirs("data", exist_ok=True)
         with open("data/market_status.json", "w") as f:
-            json.dump({
+            dump_json_safe({
                 "date": today.isoformat(),
                 "market_open": True,
                 "reason": "Market open — scan deferred until candle settles at 15:30 IST",
@@ -1648,7 +1717,7 @@ def run(backfill_days: int = 0, allow_weekend: bool = False):
         os.makedirs("data", exist_ok=True)
         status_path = "data/market_status.json"
         with open(status_path, "w") as f:
-            json.dump({
+            dump_json_safe({
                 "date": today.isoformat(),
                 "market_open": False,
                 "reason": reason,
@@ -1661,7 +1730,7 @@ def run(backfill_days: int = 0, allow_weekend: bool = False):
     # override, so the frontend status always reflects the real calendar.
     os.makedirs("data", exist_ok=True)
     with open("data/market_status.json", "w") as f:
-        json.dump({
+        dump_json_safe({
             "date": today.isoformat(),
             "market_open": is_open,
             "reason": reason,
@@ -1946,7 +2015,7 @@ def run(backfill_days: int = 0, allow_weekend: bool = False):
 
     os.makedirs("data", exist_ok=True)
     with open("data/scan_latest.json", "w") as f:
-        json.dump(output, f, indent=2)
+        dump_json_safe(output, f, indent=2)
 
     # scan_version.txt — tiny file whose content changes every scan.
     # The dashboard fetches this first to get a cache-busting token.
@@ -1973,7 +2042,7 @@ def run(backfill_days: int = 0, allow_weekend: bool = False):
     )
     baseline_prices = {s["symbol"]: s["price"] for s in all_stocks if s.get("price")}
     with open("data/prices_scan_baseline.json", "w") as f:
-        json.dump({
+        dump_json_safe({
             "updated_at": now_ist_str(),
             "in_market_hours": False,
             "market_open": False,
@@ -1986,7 +2055,7 @@ def run(backfill_days: int = 0, allow_weekend: bool = False):
     os.makedirs("data/history", exist_ok=True)
     hist_path = f"data/history/scan_{datetime.date.today().isoformat()}.json"
     with open(hist_path, "w") as f:
-        json.dump(output, f, indent=2)
+        dump_json_safe(output, f, indent=2)
 
     print(f"Scan complete: {len(squeeze_sorted)} squeeze shown (ledger total {len(ledger_squeeze)}), "
           f"{len(blast_sorted)} blast shown (ledger total {len(ledger_blast)}), "
