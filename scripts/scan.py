@@ -33,6 +33,30 @@ import requests
 # single source of truth for the current IST time everywhere in this script.
 IST_TZ = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
 
+# ── Momentum + universe config ────────────────────────────────────────────
+# Stoch RSI aligned to the user's TradingView chart ("Stoch RSI 40 60 3 3",
+# Wilder's RSI): RSI length 40, Stochastic length 60, %K 3, %D 3. Empirically
+# matched — UBL computes to K≈74/D≈81 vs the chart's 73.03/80.03. The previous
+# length-14 simple-average version read ~25 for the same bar, which is why scan
+# signals didn't line up with what the chart showed. Override via env if needed.
+RSI_LENGTH     = int(os.environ.get("SCAN_RSI_LENGTH", "40"))
+STOCH_LENGTH   = int(os.environ.get("SCAN_STOCH_LENGTH", "60"))
+STOCH_K_SMOOTH = int(os.environ.get("SCAN_STOCH_K", "3"))
+STOCH_D_SMOOTH = int(os.environ.get("SCAN_STOCH_D", "3"))
+
+# Scan universe: "all" = the full committed EQ universe (symbols_all.json,
+# ~2382 names incl. small-caps like WALCHANNAG); "nifty500" = the live Nifty
+# 500 list. Default "all" now that the OHLC pipeline collects the full set.
+SCAN_UNIVERSE = os.environ.get("SCAN_UNIVERSE", "all")
+SYMBOLS_ALL_PATH = "data/backtest/symbols_all.json"
+
+# Per-symbol live NSE/yfinance fetch during the scan. Default OFF: NSE blocks
+# GitHub Actions IPs so these calls mostly fail anyway, and the committed OHLC
+# (kept current by the daily refresh) is the reliable source. Off also makes
+# the full ~2382 universe feasible (no per-symbol network/sleep) and removes
+# the flaky-fetch staleness bugs. Set SCAN_LIVE_FETCH=1 to re-enable.
+SCAN_LIVE_FETCH = os.environ.get("SCAN_LIVE_FETCH", "0") == "1"
+
 def now_ist():
     return datetime.datetime.now(IST_TZ)
 
@@ -125,6 +149,23 @@ def fetch_nifty500_universe(session: requests.Session) -> list:
     except Exception as e:
         print(f"Live Nifty 500 fetch failed ({e}), using {len(FALLBACK_STOCK_LIST)}-stock fallback list")
         return FALLBACK_STOCK_LIST
+
+
+def load_scan_universe(session):
+    """Symbols to scan. Defaults to the full committed EQ universe
+    (symbols_all.json, ~2382 names incl. small-caps like WALCHANNAG that the
+    OHLC pipeline already collects), so the scanner evaluates everything we
+    have data for — not just the Nifty 500. Falls back to the live Nifty 500
+    list if symbols_all.json is missing or SCAN_UNIVERSE=nifty500."""
+    if SCAN_UNIVERSE == "all":
+        try:
+            syms = json.load(open(SYMBOLS_ALL_PATH))
+            if isinstance(syms, list) and len(syms) > 500:
+                print(f"Scan universe: {len(syms)} symbols (all EQ).")
+                return syms
+        except Exception as e:
+            print(f"symbols_all.json unavailable ({e}) — falling back to Nifty 500.")
+    return fetch_nifty500_universe(session)
 
 # ── NSE trading holiday calendar ─────────────────────────────────────────
 # Primary source is always the live NSE API (NSE_API_HOLIDAYS above) since
@@ -333,11 +374,16 @@ def fetch_history(session: requests.Session, symbol: str):
     This keeps price, EMAs and every indicator computed on the most recent
     finalized data available, instead of whatever the flaky per-symbol live
     fetch happened to return."""
+    committed = load_committed_ohlc(symbol)
+    if not SCAN_LIVE_FETCH:
+        # Default path: committed OHLC only (reliable, fresh-daily, no per-symbol
+        # network). Makes the full ~2382 universe feasible and removes flaky
+        # live-fetch staleness. Set SCAN_LIVE_FETCH=1 to re-enable augmentation.
+        return committed
+
     live = fetch_history_nse(session, symbol)
     if live is None or len(live) < 35:
         live = fetch_history_yfinance(symbol)
-
-    committed = load_committed_ohlc(symbol)
 
     if committed is not None and live is not None and len(committed) > 0:
         live = live.copy()
@@ -375,28 +421,30 @@ def add_indicators(df: pd.DataFrame) -> pd.DataFrame:
     # RSI(14) -> Stochastic of RSI -> %K smooth 3 -> %D smooth 3
     # (matching the chart's "Stoch RSI 40 60 3 3" where 40/60 are the
     # user's custom oversold/overbought reference lines, not the lookback)
+    # ── Stoch RSI, aligned to the chart (RSI length 40, Stochastic length
+    # 60, %K 3, %D 3, Wilder's RSI smoothing = TradingView's "Stoch RSI
+    # 40 60 3 3"). Verified: UBL -> K≈74/D≈81 matching the chart's 73/80.
     delta = df["close"].diff()
-    gain = delta.clip(lower=0).rolling(14).mean()
-    loss = (-delta.clip(upper=0)).rolling(14).mean()
-    # When loss is 0 over the lookback (price only went up — a strong
-    # uptrend), RSI should correctly read 100, not NaN. Computing rs as
-    # gain/loss and replacing 0-loss with NaN silently breaks RSI for
-    # exactly the strong-trend stocks we most want to flag as BLAST, so
-    # handle that case explicitly instead of dividing by a NaN denominator.
-    rs = gain / loss.replace(0, np.nan)
+    gain = delta.clip(lower=0)
+    loss = -delta.clip(upper=0)
+    # Wilder's smoothing == EMA with alpha = 1/length (what TradingView's
+    # RSI uses). adjust=False so it matches ta.rma bar-for-bar once seeded.
+    avg_gain = gain.ewm(alpha=1.0 / RSI_LENGTH, adjust=False).mean()
+    avg_loss = loss.ewm(alpha=1.0 / RSI_LENGTH, adjust=False).mean()
+    rs = avg_gain / avg_loss.replace(0, np.nan)
     df["rsi"] = 100 - (100 / (1 + rs))
-    df.loc[(loss == 0) & (gain > 0), "rsi"] = 100.0
-    df.loc[(loss == 0) & (gain == 0), "rsi"] = 50.0  # flat/no movement at all
+    # loss==0 over the window (pure uptrend) -> RSI 100, not NaN.
+    df.loc[(avg_loss == 0) & (avg_gain > 0), "rsi"] = 100.0
+    df.loc[(avg_loss == 0) & (avg_gain == 0), "rsi"] = 50.0  # flat
 
-    rsi_min = df["rsi"].rolling(14).min()
-    rsi_max = df["rsi"].rolling(14).max()
+    rsi_min = df["rsi"].rolling(STOCH_LENGTH).min()
+    rsi_max = df["rsi"].rolling(STOCH_LENGTH).max()
     stoch = (df["rsi"] - rsi_min) / (rsi_max - rsi_min).replace(0, np.nan) * 100
-    # Same fix at the stochastic level: if RSI has been pinned at its
-    # rolling max for the whole window (rsi_max == rsi_min), that's a
-    # maximally overbought/oversold condition, not an undefined one.
+    # RSI pinned at its rolling max/min the whole window = fully over/oversold,
+    # not undefined.
     stoch = stoch.where(rsi_max != rsi_min, 100.0)
-    df["stoch_k"] = stoch.rolling(3).mean()
-    df["stoch_d"] = df["stoch_k"].rolling(3).mean()
+    df["stoch_k"] = stoch.rolling(STOCH_K_SMOOTH).mean()
+    df["stoch_d"] = df["stoch_k"].rolling(STOCH_D_SMOOTH).mean()
 
     # Traditional pivots (prior day H/L/C)
     df["pivot"] = (df["high"].shift(1) + df["low"].shift(1) + df["close"].shift(1)) / 3
@@ -1066,6 +1114,17 @@ LEDGER_PATH = "data/active_positions.json"
 BLAST_RETENTION_DAYS = 10  # keep an exit signal visible for this many days, then drop it
 WATCHLIST_RETENTION_DAYS = 7  # drop a forming-but-unconfirmed watchlist entry after this many days
 
+# Deterioration / time-based exit for open SQUEEZE positions that never blasted.
+# A squeeze that hasn't resolved shouldn't linger in the list forever (the UBL
+# case: entered, drifted below both EMAs, momentum rolled over, sat there for
+# days). Two triggers, whichever comes first:
+#   MAX_HOLD    — aged past the strategy's hold horizon; it just didn't work out
+#                 (~the backtest's 20-trading-day timeout, in calendar days).
+#   DETERIORATE — gone countertrend AND momentum turning down, past a shorter
+#                 grace window; it's actively going wrong, exit early.
+SQUEEZE_MAX_HOLD_DAYS = int(os.environ.get("SQUEEZE_MAX_HOLD_DAYS", "30"))
+SQUEEZE_DETERIORATION_DAYS = int(os.environ.get("SQUEEZE_DETERIORATION_DAYS", "7"))
+
 
 def load_ledger() -> dict:
     if os.path.exists(LEDGER_PATH):
@@ -1429,7 +1488,32 @@ def update_ledger(ledger: dict, all_candidates: list, scan_date: str, scan_indic
                     # Fall back to a pure price-vs-EMA trend check if stoch is missing
                     entry["trend_conflict"] = (price < e10) and (price < e30)
 
+            # ── Deterioration / time-based exit ──────────────────────────
+            # Drop an open squeeze that never blasted once it either aged out
+            # or is actively going wrong (countertrend + momentum down). This
+            # is what stops UBL-type positions from lingering for days.
+            entry_dt = entry.get("entry_date")
+            if entry_dt:
+                try:
+                    held_days = (today - pd.to_datetime(entry_dt)).days
+                except Exception:
+                    held_days = 0
+                sk = entry.get("stoch_k"); sd = entry.get("stoch_d")
+                momentum_down = (sk is not None and sd is not None and sk < sd)
+                tconf = entry.get("trend_conflict")
+                if held_days >= SQUEEZE_MAX_HOLD_DAYS:
+                    entry["exit_reason"] = (f"expired after {held_days}d without a blast "
+                                            f"(past {SQUEEZE_MAX_HOLD_DAYS}d horizon)")
+                    to_drop.append(symbol)
+                elif tconf and momentum_down and held_days >= SQUEEZE_DETERIORATION_DAYS:
+                    entry["exit_reason"] = (f"deteriorating — countertrend with momentum "
+                                            f"turning down after {held_days}d")
+                    to_drop.append(symbol)
+
     for symbol in to_drop:
+        e = ledger[symbol]
+        if e.get("status") == "SQUEEZE" and e.get("exit_reason"):
+            print(f"  Exited SQUEEZE {symbol}: {e['exit_reason']}")
         del ledger[symbol]
 
     return ledger
@@ -1458,7 +1542,8 @@ def scan_all_symbols(session: requests.Session, universe: list, as_of_date: str 
             df = fetch_history(session, symbol)
             if histories is not None:
                 fetched_histories[symbol] = df
-            time.sleep(0.25)  # be polite to NSE — only matters on real fetches
+            if SCAN_LIVE_FETCH:
+                time.sleep(0.25)  # be polite to NSE — only on real network fetches
 
         if df is None:
             continue
@@ -1588,7 +1673,7 @@ def run(backfill_days: int = 0, allow_weekend: bool = False):
     # ~84 to ~500 stocks directly improves SQUEEZE detection odds, since
     # only a small fraction of any universe sits in a tight consolidation
     # on a given day.
-    universe = fetch_nifty500_universe(session)
+    universe = load_scan_universe(session)
 
     ledger = load_ledger()
 
