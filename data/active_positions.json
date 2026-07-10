@@ -2968,7 +2968,7 @@
     "promoted_from_watchlist": true,
     "promoted_date": "2026-07-09",
     "confidence": "HIGH",
-    "reason": "BB nearly halved to 4.33% from 8.37%; stoch_k 3.55 at extreme oversold base."
+    "reason": "BB halved from 8.37% to 4.33%, stoch_k 3.55 extremely oversold with snap potential"
   },
   "NAM-INDIA": {
     "symbol": "NAM-INDIA",
@@ -3883,7 +3883,7 @@
     "promoted_from_watchlist": true,
     "promoted_date": "2026-07-09",
     "confidence": "MEDIUM",
-    "reason": "BB narrowed 4.02% from 4.78%; stoch_k 37.18 elevated, less oversold entry."
+    "reason": "BB at 4.02% squeeze, stoch_k 37.2 not yet deeply oversold for entry"
   },
   "PIDILITIND": {
     "symbol": "PIDILITIND",
@@ -5997,8 +5997,8 @@
     "status": "BLAST",
     "first_seen": "2026-07-08",
     "blast_triggered_date": "2026-07-08",
-    "confidence": "MEDIUM",
-    "reason": "Up 40.1% over 27d since entry at 123.23, stoch_k 76 overbought"
+    "confidence": "HIGH",
+    "reason": "Up 40.1% over 27 trading days since squeeze entry at 123.23"
   },
   "APLLTD": {
     "symbol": "APLLTD",
@@ -6695,7 +6695,7 @@
     "first_seen": "2026-07-08",
     "blast_triggered_date": "2026-07-08",
     "confidence": "HIGH",
-    "reason": "Up 34.8% over 22d since entry at 31.38, stoch_k 93 overbought"
+    "reason": "Up 34.8% over 22 trading days since squeeze entry at 31.38"
   },
   "DCMSRIND": {
     "symbol": "DCMSRIND",
@@ -7858,8 +7858,8 @@
     "status": "BLAST",
     "first_seen": "2026-07-08",
     "blast_triggered_date": "2026-07-08",
-    "confidence": "MEDIUM",
-    "reason": "Up 31.4% over 10d since entry at 178.0, stoch_k 85 overbought"
+    "confidence": "HIGH",
+    "reason": "Up 31.39% over 10 trading days since squeeze entry at 178.00"
   },
   "IGCL": {
     "symbol": "IGCL",
@@ -8446,7 +8446,7 @@
     "first_seen": "2026-07-08",
     "blast_triggered_date": "2026-07-08",
     "confidence": "HIGH",
-    "reason": "Up 36.9% over 13d since entry at 837.55, stoch_k 89 overbought"
+    "reason": "Up 36.85% over 13 trading days since squeeze entry at 837.55"
   },
   "KIRIINDUS": {
     "symbol": "KIRIINDUS",
@@ -9174,7 +9174,7 @@
     "first_seen": "2026-07-08",
     "blast_triggered_date": "2026-07-08",
     "confidence": "HIGH",
-    "reason": "Up 33.1% over 27d since entry at 421.9, stoch_k 95 overbought"
+    "reason": "Up 33.13% over 27 trading days since squeeze entry at 421.90"
   },
   "PAISALO": {
     "symbol": "PAISALO",
@@ -9791,8 +9791,8 @@
     "status": "BLAST",
     "first_seen": "2026-07-08",
     "blast_triggered_date": "2026-07-08",
-    "confidence": "HIGH",
-    "reason": "Up 30.3% over 3d since entry at 137.43, stoch_k 100 overbought"
+    "confidence": "MEDIUM",
+    "reason": "Up 30.27% over 3 trading days since squeeze entry at 137.43"
   },
   "SHIVATEX": {
     "symbol": "SHIVATEX",
@@ -10517,8 +10517,8 @@
     "status": "BLAST",
     "first_seen": "2026-07-08",
     "blast_triggered_date": "2026-07-08",
-    "confidence": "MEDIUM",
-    "reason": "Up 67.4% over 20d since entry at 9.21, stoch_k 82 overbought"
+    "confidence": "HIGH",
+    "reason": "Up 67.43% over 20 trading days since squeeze entry at 9.21"
   },
   "WEL": {
     "symbol": "WEL",
@@ -10814,7 +10814,7 @@
     "status": "SQUEEZE",
     "first_seen": "2026-07-09",
     "confidence": "MEDIUM",
-    "reason": "BB narrowed 4.17% from 4.86%; stoch_k 22.59 mid-range, less compelling reversal."
+    "reason": "BB narrowed to 4.17%, stoch_k 22.6 turning up but EMA30 still overhead"
   },
   "BAJAJELEC": {
     "symbol": "BAJAJELEC",
@@ -12877,7 +12877,7 @@
     "first_seen": "2026-07-09",
     "blast_triggered_date": "2026-07-09",
     "confidence": "MEDIUM",
-    "reason": "Up 36.3% over 2d since entry at 477.25, stoch_k 78 overbought"
+    "reason": "Up 36.32% over just 2 trading days since squeeze entry at 477.25"
   },
   "UNIPARTS": {
     "symbol": "UNIPARTS",
@@ -13474,8 +13474,8 @@
     "status": "BLAST",
     "first_seen": "2026-07-08",
     "blast_triggered_date": "2026-07-08",
-    "confidence": "MEDIUM",
-    "reason": "Up 46.5% over 15d since entry at 35.66, stoch_k 80 overbought"
+    "confidence": "HIGH",
+    "reason": "Up 46.55% over 15 trading days since squeeze entry at 35.66"
   },
   "CAPILLARY": {
     "symbol": "CAPILLARY",
@@ -13733,7 +13733,7 @@
     "status": "SQUEEZE",
     "first_seen": "2026-07-08",
     "confidence": "HIGH",
-    "reason": "Tightest BB at 3.22% from 4.06%; stoch_k 39.38 turning above stoch_d cleanly."
+    "reason": "Tightest BB at 3.22%, stoch_k 39.4 rising cleanly from oversold base"
   },
   "DCAL": {
     "symbol": "DCAL",
@@ -17099,7 +17099,7 @@
     "status": "SQUEEZE",
     "first_seen": "2026-07-09",
     "confidence": "MEDIUM",
-    "reason": "BB width 4.044953532642214%, Stoch K/D turning up at 10, target R1 72.4"
+    "reason": "BB width 4.04% slightly wider than 5d ago, stoch_k 10.2 early turn only"
   },
   "CENTUM": {
     "symbol": "CENTUM",
@@ -19512,7 +19512,7 @@
     "status": "SQUEEZE",
     "first_seen": "2026-07-09",
     "confidence": "HIGH",
-    "reason": "Tightest BB at 3.74% from 4.18%; stoch_k 4.41 turning sharply upward."
+    "reason": "BB tightened to 3.74%, stoch_k 4.4 turning up sharply from oversold"
   },
   "SILINV": {
     "symbol": "SILINV",
