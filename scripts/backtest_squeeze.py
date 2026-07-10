@@ -60,26 +60,23 @@ def add_indicators(df):
     df["ema10"] = df["close"].ewm(span=10, adjust=False).mean()
     df["ema30"] = df["close"].ewm(span=30, adjust=False).mean()
 
-    # Stoch RSI aligned to scan.py / the user's chart: RSI length 40 with
-    # Wilder's smoothing (EMA alpha=1/length), Stochastic length 60, %K 3, %D 3.
-    # MUST stay identical to scan.py's add_indicators or the backtest validates
-    # a different strategy than what runs live.
-    RSI_LENGTH, STOCH_LENGTH, K_SMOOTH, D_SMOOTH = 40, 60, 3, 3
+    # SIGNAL Stoch RSI — must match scan.py's signal stoch exactly: RSI 14
+    # (simple rolling mean), Stochastic 14, %K 3, %D 3. This is the money
+    # signal the strategy trades on; the 40/60 chart stoch is display-only in
+    # scan.py and plays no part in the backtest.
     delta = df["close"].diff()
-    gain = delta.clip(lower=0)
-    loss = -delta.clip(upper=0)
-    avg_gain = gain.ewm(alpha=1.0 / RSI_LENGTH, adjust=False).mean()
-    avg_loss = loss.ewm(alpha=1.0 / RSI_LENGTH, adjust=False).mean()
-    rs = avg_gain / avg_loss.replace(0, np.nan)
+    gain = delta.clip(lower=0).rolling(14).mean()
+    loss = (-delta.clip(upper=0)).rolling(14).mean()
+    rs = gain / loss.replace(0, np.nan)
     df["rsi"] = 100 - (100 / (1 + rs))
-    df.loc[(avg_loss == 0) & (avg_gain > 0), "rsi"] = 100.0
-    df.loc[(avg_loss == 0) & (avg_gain == 0), "rsi"] = 50.0
-    rsi_min = df["rsi"].rolling(STOCH_LENGTH).min()
-    rsi_max = df["rsi"].rolling(STOCH_LENGTH).max()
+    df.loc[(loss == 0) & (gain > 0), "rsi"] = 100.0
+    df.loc[(loss == 0) & (gain == 0), "rsi"] = 50.0
+    rsi_min = df["rsi"].rolling(14).min()
+    rsi_max = df["rsi"].rolling(14).max()
     stoch = (df["rsi"] - rsi_min) / (rsi_max - rsi_min).replace(0, np.nan) * 100
     stoch = stoch.where(rsi_max != rsi_min, 100.0)
-    df["stoch_k"] = stoch.rolling(K_SMOOTH).mean()
-    df["stoch_d"] = df["stoch_k"].rolling(D_SMOOTH).mean()
+    df["stoch_k"] = stoch.rolling(3).mean()
+    df["stoch_d"] = df["stoch_k"].rolling(3).mean()
     df["bb_width_5d_min"] = df["bb_width_pct"].rolling(5).min()
     return df
 
@@ -199,7 +196,7 @@ def main():
     # (e.g. the Stoch RSI was realigned to 40/60), every cached trade was
     # computed under a different rule and is invalid — force a full rebuild
     # rather than mixing old and new trades.
-    param_sig = f"bb{BB_THRESHOLD}_rsi40_stoch60_k3_d3_tgt{TARGET_PCT}_stp{STOP_PCT}_hold{MAX_HOLD}"
+    param_sig = f"bb{BB_THRESHOLD}_rsi14_stoch14_k3_d3_tgt{TARGET_PCT}_stp{STOP_PCT}_hold{MAX_HOLD}"
     if prior and prior.get("param_sig") != param_sig:
         print(f"Strategy params changed (was {prior.get('param_sig')}, now {param_sig}); "
               f"discarding cache and rebuilding from scratch.")
@@ -247,7 +244,7 @@ def main():
         "param_sig": param_sig,
         "params": {"bb_threshold": BB_THRESHOLD, "target_pct": TARGET_PCT*100,
                    "stop_pct": STOP_PCT*100, "max_hold_days": MAX_HOLD,
-                   "rsi_length": 40, "stoch_length": 60, "stoch_k": 3, "stoch_d": 3},
+                   "rsi_length": 14, "stoch_length": 14, "stoch_k": 3, "stoch_d": 3},
         "count": len(trades),
         "trades": trades,
     }
