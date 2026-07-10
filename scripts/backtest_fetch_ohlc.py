@@ -23,6 +23,14 @@ CHUNK_DAYS = int(os.environ.get("BACKTEST_CHUNK_DAYS", "28"))
 START_DATE = os.environ.get("BACKTEST_START_DATE", "2020-09-01")
 UNIVERSE = os.environ.get("BACKTEST_UNIVERSE", "nifty500")  # "nifty500" or "all"
 
+# Daily incremental refresh: keeps the OHLC frontier current every evening,
+# independent of the historical backfill. The backfill sets done=True once it
+# reaches the frontier and then stops forever, which froze the data at the last
+# completed chunk (the stale-price root cause). Daily mode ignores that flag and
+# just re-fetches a short trailing window, merging new trading days in.
+DAILY_MODE = os.environ.get("BACKTEST_MODE", "").lower() == "daily"
+DAILY_LOOKBACK_DAYS = int(os.environ.get("BACKTEST_DAILY_LOOKBACK_DAYS", "12"))
+
 DATA_DIR = "data/backtest"
 OHLC_DIR = os.path.join(DATA_DIR, "raw_ohlc")
 PROGRESS_PATH = os.path.join(DATA_DIR, "progress_ohlc.json")  # separate progress file — new collection pass
@@ -165,6 +173,52 @@ def process_one_chunk(symbols, progress):
     return "advanced"
 
 
+def run_daily_refresh(symbols):
+    """Incremental frontier refresh — the daily keep-current pass.
+
+    Re-fetches the last DAILY_LOOKBACK_DAYS days for all symbols and merges.
+    merge_ohlc dedupes by date, so overlapping days are harmless and the pass
+    is fully idempotent (safe to run repeatedly / after holidays). Fetches
+    through TODAY because it runs in the evening after the bhavcopy is
+    published; if today's isn't available yet the worker simply returns
+    nothing for it. Does NOT touch the historical-backfill chunk progress."""
+    today = datetime.date.today()
+    start = (today - datetime.timedelta(days=DAILY_LOOKBACK_DAYS)).isoformat()
+    end = today.isoformat()
+    print(f"Daily OHLC refresh: {start} -> {end} for {len(symbols)} symbols...")
+    for attempt in range(1, 4):
+        try:
+            result = fetch_chunk(start, end, symbols)
+        except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError) as e:
+            print(f"  attempt {attempt}: fetch failed ({e}); retrying...")
+            time.sleep(6); continue
+        if result.get("error"):
+            print(f"  attempt {attempt}: worker error ({result['error']}); retrying...")
+            time.sleep(6); continue
+        ohlc = result.get("ohlc", {})
+        tdf = result.get("trading_days_fetched", 0)
+        print(f"  fetched days={tdf}, symbols_in_response={len(ohlc)}")
+        if tdf == 0 or not ohlc:
+            print(f"  attempt {attempt}: empty response; retrying...")
+            time.sleep(6); continue
+        updated = merge_ohlc(ohlc)
+        # newest date now held across the fetched symbols (visibility only)
+        newest = ""
+        for series in ohlc.values():
+            if series:
+                d = series[-1].get("date", "")
+                if d > newest:
+                    newest = d
+        prog = load_json(PROGRESS_PATH, {})
+        prog["last_daily_refresh"] = datetime.datetime.now().isoformat()
+        prog["last_daily_range"] = f"{start}..{end}"
+        prog["last_daily_newest_date"] = newest
+        save_json(PROGRESS_PATH, prog)
+        print(f"  daily refresh merged {len(updated)} symbols; newest bar = {newest}.")
+        return
+    print("  Daily refresh FAILED after 3 attempts (last-known data preserved).")
+
+
 def main():
     if not WORKER_URL:
         print("ERROR: BACKTEST_WORKER_URL not set.")
@@ -175,6 +229,11 @@ def main():
         print("ERROR: no symbol universe found.")
         sys.exit(1)
     print(f"Tracking {len(symbols)} symbols (universe={UNIVERSE}).")
+
+    # Daily keep-current pass runs independently of the historical backfill.
+    if DAILY_MODE:
+        run_daily_refresh(symbols)
+        return
 
     progress = load_json(PROGRESS_PATH, {
         "start_date": START_DATE, "next_chunk_start": START_DATE,
