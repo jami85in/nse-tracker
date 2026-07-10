@@ -202,6 +202,15 @@ def is_etf_symbol(sym: str) -> bool:
         return True
     if any(k in s for k in ("GOLDETF", "SILVERETF", "GOLDCASE", "GOLDIETF", "GOLDBEES")):
         return True
+    # Index / sector ETF name fragments (no real EQ stock contains these).
+    if any(k in s for k in ("BANKNIFTY", "NIFBAN", "NIFBK", "PVTBAN", "PSUBAN",
+                            "PSUBANK", "NIFTYBEES", "NIFTYETF", "SENSEXETF",
+                            "MID150", "SMALL250", "NEXT50", "NIF100", "MOM30",
+                            "MOM50", "LOWVOL", "QUAL30", "ALPHAETF", "MULTICAP")):
+        return True
+    # AMC passive "…ADD" series (e.g. BANKADD, FLEXIADD, MIDQ50ADD, HEALTHADD).
+    if s.endswith("ADD"):
+        return True
     return False
 
 
@@ -214,36 +223,68 @@ def apply_universe_filters(symbols: list) -> list:
     (and entirely if symbols_meta.json is absent), so the scan degrades safely
     to ETF-only exclusion until the metadata is populated — it never silently
     drops the whole universe. Populate the metadata with build_symbols_meta.py."""
-    meta = {}
-    try:
-        meta = json.load(open(SYMBOLS_META_PATH))
-    except Exception:
-        meta = {}
-
+    meta = load_symbols_meta()
     kept, dropped_etf, dropped_mcap, dropped_vol = [], 0, 0, 0
     for sym in symbols:
-        m = meta.get(sym, {})
-        # ETF: authoritative meta flag if present, else the heuristic.
-        is_etf = m.get("is_etf") if ("is_etf" in m) else is_etf_symbol(sym)
-        if EXCLUDE_ETFS and is_etf:
+        reason = symbol_excluded(sym, meta)
+        if reason == "etf":
             dropped_etf += 1
-            continue
-        # Market cap / volume only when we actually have the data for it.
-        mcap = m.get("market_cap_cr")
-        if mcap is not None and mcap < MIN_MARKET_CAP_CR:
+        elif reason == "mcap":
             dropped_mcap += 1
-            continue
-        vol = m.get("avg_volume")
-        if vol is not None and vol < MIN_AVG_VOLUME:
+        elif reason == "vol":
             dropped_vol += 1
-            continue
-        kept.append(sym)
+        else:
+            kept.append(sym)
 
     print(f"Universe filters: {len(symbols)} -> {len(kept)} "
           f"(dropped {dropped_etf} ETFs, {dropped_mcap} < ₹{MIN_MARKET_CAP_CR:.0f}cr, "
           f"{dropped_vol} < {MIN_AVG_VOLUME:.0f} avg vol"
           f"{'; no symbols_meta.json — mcap/vol skipped' if not meta else ''})")
     return kept
+
+
+def load_symbols_meta():
+    try:
+        m = json.load(open(SYMBOLS_META_PATH))
+        return m if isinstance(m, dict) else {}
+    except Exception:
+        return {}
+
+
+def symbol_excluded(sym: str, meta: dict = None):
+    """Return why a symbol should be excluded from the universe/ledger, or None
+    to keep it. Reasons: 'etf', 'mcap', 'vol'. Market-cap/volume only fire when
+    we actually have that datum — missing data never excludes a symbol."""
+    if meta is None:
+        meta = load_symbols_meta()
+    m = meta.get(sym, {}) if isinstance(meta, dict) else {}
+    is_etf = m.get("is_etf") if ("is_etf" in m) else is_etf_symbol(sym)
+    if EXCLUDE_ETFS and is_etf:
+        return "etf"
+    mcap = m.get("market_cap_cr")
+    if mcap is not None and mcap < MIN_MARKET_CAP_CR:
+        return "mcap"
+    vol = m.get("avg_volume")
+    if vol is not None and vol < MIN_AVG_VOLUME:
+        return "vol"
+    return None
+
+
+def purge_excluded_from_ledger(ledger: dict) -> int:
+    """Remove ledger entries whose symbol is now excluded by the universe
+    filters (ETFs, and — when metadata exists — sub-threshold market cap /
+    volume). The universe filter only stops NEW signals; without this, ETFs and
+    micro-caps that entered the ledger before the filters existed would linger
+    on the dashboard forever. Runs every scan; safe and idempotent."""
+    meta = load_symbols_meta()
+    drop = [s for s in list(ledger.keys()) if symbol_excluded(s, meta)]
+    for s in drop:
+        del ledger[s]
+    if drop:
+        print(f"Purged {len(drop)} excluded symbol(s) from ledger "
+              f"(ETF/micro-cap): {', '.join(sorted(drop)[:12])}"
+              f"{'…' if len(drop) > 12 else ''}")
+    return len(drop)
 
 
 def load_scan_universe(session):
@@ -1831,6 +1872,11 @@ def run(backfill_days: int = 0, allow_weekend: bool = False):
     universe = load_scan_universe(session)
 
     ledger = load_ledger()
+
+    # Purge ETFs / micro-caps that entered the ledger before the universe
+    # filters existed — the filter blocks new signals but doesn't retroactively
+    # remove old entries, so without this they'd linger on the dashboard.
+    purge_excluded_from_ledger(ledger)
 
     if backfill_days > 0:
         # Reconstruct the last N trading days sequentially, feeding each
