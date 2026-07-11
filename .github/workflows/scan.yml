@@ -1,11 +1,22 @@
 name: NSE Squeeze & Blast Scan
 
+# The scan runs AFTER the "NSE Daily OHLC Refresh" workflow completes, so it
+# always scans on fully-settled closing prices. Previously it ran at 15:45 IST
+# — before NSE publishes the final bhavcopy (~18:30) and before the 19:00 OHLC
+# refresh — so it used the PREVIOUS day's close for the entry bar, which is why
+# dashboard prices lagged a day. Chaining it to the OHLC refresh also means any
+# time you re-run the OHLC refresh (e.g. to pull final closes), the scan
+# re-runs automatically on the fresh data — no manual trigger needed.
+#
+# Note: the scan chains off the OHLC refresh (which needs no Kite token), NOT
+# the metadata build (which does), so a stale Kite token can never block the
+# daily scan. The scan uses the most recently committed symbols_meta.json.
+
 on:
-  schedule:
-    - cron: "15 10 * * 1-5"   # 15:45 IST weekdays — ~15 min after close, candle settled
-    - cron: "15 10 * * 0,6"   # 15:45 IST weekends — no-ops on ordinary Sat/Sun,
-                                # scans if NSE schedules a special weekend session
-  workflow_dispatch:          # manual trigger from the Actions tab / GitHub app
+  workflow_run:
+    workflows: ["NSE Daily OHLC Refresh"]
+    types: [completed]
+  workflow_dispatch:
     inputs:
       backfill_days:
         description: "Reconstruct the last N trading days into the ledger (0 = normal single-day scan)"
@@ -55,8 +66,8 @@ jobs:
           BACKFILL_DAYS: ${{ github.event.inputs.backfill_days || '0' }}
           DIAGNOSE: ${{ github.event.inputs.diagnose || 'false' }}
           # Manual triggers (workflow_dispatch) default force_weekend=true so a
-          # weekend analysis run actually executes. Scheduled runs have no inputs,
-          # so this evaluates empty and the flag is not passed.
+          # weekend analysis run actually executes. workflow_run / scheduled
+          # runs have no inputs, so this evaluates empty and the flag isn't set.
           FORCE_WEEKEND: ${{ github.event.inputs.force_weekend }}
         run: |
           if [ "$DIAGNOSE" = "true" ]; then
