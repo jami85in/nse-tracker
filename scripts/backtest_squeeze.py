@@ -46,6 +46,18 @@ BB_THRESHOLD = 4.5     # store everything qualifying at the production threshold
 TARGET_PCT   = 0.04
 STOP_PCT     = 0.05
 MAX_HOLD     = 20      # trading days
+
+# ── Execution realism ──────────────────────────────────────────────────
+# You only see the signal AFTER the close, so you cannot fill at that close —
+# entry is modelled at the NEXT day's open. Friction is modelled so expectancy
+# reflects what actually leaves the account, not a frictionless ideal.
+SLIPPAGE_PCT = float(os.environ.get("BT_SLIPPAGE_PCT", "0.15")) / 100.0   # each side
+# Round-trip taxes/fees as a fraction of trade value. Default ≈ Zerodha
+# delivery: STT 0.20% (0.10% buy + 0.10% sell) + stamp 0.015% (buy) +
+# exchange/SEBI/GST ≈ 0.007% -> ~0.222% round trip, zero brokerage. Add
+# brokerage via BT_BROKERAGE_PCT (per side) for a full-service broker.
+COST_ROUND_TRIP = float(os.environ.get("BT_COST_ROUND_TRIP_PCT", "0.222")) / 100.0
+COST_ROUND_TRIP += 2 * (float(os.environ.get("BT_BROKERAGE_PCT", "0.0")) / 100.0)
 REPLAY_BUFFER_DAYS = 45   # calendar days of tail to re-simulate on incremental runs
 
 
@@ -95,6 +107,7 @@ def simulate_stock(symbol, raw, entry_after=None):
     df = add_indicators(df)
 
     closes = df["close"].values; highs = df["high"].values; lows = df["low"].values
+    opens  = df["open"].values if "open" in df else df["close"].values
     dates  = df["date"].astype(str).values
     bbw = df["bb_width_pct"].values; bbw5 = df["bb_width_5d_min"].values
     sk = df["stoch_k"].values; sd = df["stoch_d"].values
@@ -103,38 +116,59 @@ def simulate_stock(symbol, raw, entry_after=None):
 
     out = []
     i = 20
-    while i < n - 1:
+    while i < n - 2:  # need bar i+1 to exist for the next-open entry
         if (not np.isnan(bbw[i]) and not np.isnan(sk[i]) and not np.isnan(sd[i])
                 and not np.isnan(bbw5[i])
                 and bbw[i] < BB_THRESHOLD
                 and bbw[i] <= bbw5[i] * 1.6
                 and sk[i] < 50 and sk[i] > sd[i]):
-            entry = closes[i]
-            if entry <= 0:
+            # Enter at the NEXT day's open (the earliest achievable fill).
+            entry_raw = opens[i + 1]
+            if not (entry_raw > 0):
                 i += 1; continue
-            entry_date = dates[i]
-            tgt = entry * (1 + TARGET_PCT); stp = entry * (1 - STOP_PCT)
-            result, ret, hold = "TIMEOUT", None, MAX_HOLD
-            exit_idx = min(i + MAX_HOLD, n - 1)
-            for j in range(i + 1, min(i + MAX_HOLD + 1, n)):
+            entry_fill = entry_raw * (1 + SLIPPAGE_PCT)          # pay up on the buy
+            entry_date = dates[i]                                # signal date
+            tgt = entry_fill * (1 + TARGET_PCT)
+            stp = entry_fill * (1 - STOP_PCT)
+
+            result, exit_raw, exit_idx = "TIMEOUT", None, None
+            last_j = min(i + 1 + MAX_HOLD, n - 1)
+            for j in range(i + 1, last_j + 1):
+                # Stop checked first (conservative). Gap-through fills at the
+                # open, which for a stop is WORSE than the stop price — models
+                # the real cost of gap-downs.
                 if lows[j] <= stp:
-                    result, ret, hold, exit_idx = "STOP", -STOP_PCT * 100, j - i, j; break
+                    exit_raw = min(stp, opens[j]); result = "STOP"; exit_idx = j; break
                 if highs[j] >= tgt:
-                    result, ret, hold, exit_idx = "TARGET", TARGET_PCT * 100, j - i, j; break
+                    exit_raw = max(tgt, opens[j]); result = "TARGET"; exit_idx = j; break
             if result == "TIMEOUT":
-                ret = (closes[exit_idx] - entry) / entry * 100
-                hold = exit_idx - i
-            # Was there enough forward data to actually resolve this trade?
-            resolved = (result != "TIMEOUT") or (i + MAX_HOLD < n)
+                exit_idx = last_j
+                exit_raw = closes[exit_idx]
+
+            exit_fill = exit_raw * (1 - SLIPPAGE_PCT)            # give up on the sell
+            gross = (exit_raw - entry_raw) / entry_raw * 100     # frictionless, next-open
+            net = ((exit_fill - entry_fill) / entry_fill - COST_ROUND_TRIP) * 100
+            hold = exit_idx - (i + 1)
+
+            # Benchmark: buy the SAME stock at the same next-open and just hold
+            # MAX_HOLD days (net of the same friction). Isolates whether the
+            # target/stop logic adds anything over passive holding.
+            bh_idx = min(i + 1 + MAX_HOLD, n - 1)
+            bh_exit_fill = closes[bh_idx] * (1 - SLIPPAGE_PCT)
+            bh_net = ((bh_exit_fill - entry_fill) / entry_fill - COST_ROUND_TRIP) * 100
+
+            resolved = (result != "TIMEOUT") or (i + 1 + MAX_HOLD < n)
             if entry_after is None or entry_date > entry_after:
                 out.append({
                     "symbol": symbol,
                     "entry_date": entry_date,
                     "result": result,
-                    "ret": round(float(ret), 3),
+                    "ret": round(float(net), 3),        # NET is the headline return now
+                    "gross": round(float(gross), 3),    # frictionless next-open, for comparison
+                    "bh_net": round(float(bh_net), 3),  # buy-and-hold benchmark, net
                     "hold": int(hold),
                     "bb_width": round(float(bbw[i]), 3),
-                    "trend_conflict": bool((entry < e10[i]) and (entry < e30[i])),
+                    "trend_conflict": bool((entry_raw < e10[i]) and (entry_raw < e30[i])),
                     "resolved": bool(resolved),
                 })
             i = exit_idx + 1
@@ -151,10 +185,15 @@ def build_report(trades):
         tg = sum(1 for t in ts if t["result"] == "TARGET")
         st = sum(1 for t in ts if t["result"] == "STOP")
         tm = sum(1 for t in ts if t["result"] == "TIMEOUT")
-        exp = sum(t["ret"] for t in ts) / n
+        net = sum(t["ret"] for t in ts) / n
+        gross = sum(t.get("gross", t["ret"]) for t in ts) / n
+        bh = sum(t.get("bh_net", 0) for t in ts) / n
         return {"trades": n, "target_pct": round(tg/n*100, 1),
                 "stop_pct": round(st/n*100, 1), "timeout_pct": round(tm/n*100, 1),
-                "expectancy_pct": round(exp, 3)}
+                "expectancy_pct": round(net, 3),            # NET (after costs+slippage)
+                "gross_pct": round(gross, 3),               # frictionless next-open
+                "buyhold_net_pct": round(bh, 3),            # buy-and-hold same period, net
+                "edge_vs_buyhold": round(net - bh, 3)}      # does the exit logic add value?
     by_year = {}
     for t in trades:
         by_year.setdefault(t["entry_date"][:4], []).append(t)
@@ -196,7 +235,7 @@ def main():
     # (e.g. the Stoch RSI was realigned to 40/60), every cached trade was
     # computed under a different rule and is invalid — force a full rebuild
     # rather than mixing old and new trades.
-    param_sig = f"bb{BB_THRESHOLD}_rsi14_stoch14_k3_d3_tgt{TARGET_PCT}_stp{STOP_PCT}_hold{MAX_HOLD}"
+    param_sig = f"bb{BB_THRESHOLD}_rsi14_stoch14_nextopen_slip{SLIPPAGE_PCT}_cost{COST_ROUND_TRIP}_tgt{TARGET_PCT}_stp{STOP_PCT}_hold{MAX_HOLD}"
     if prior and prior.get("param_sig") != param_sig:
         print(f"Strategy params changed (was {prior.get('param_sig')}, now {param_sig}); "
               f"discarding cache and rebuilding from scratch.")
