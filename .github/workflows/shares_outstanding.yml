@@ -1,0 +1,63 @@
+name: NSE Shares Outstanding (market cap source)
+
+# Occasional, resumable backfill of shares-outstanding data, used to compute
+# market_cap_cr daily in build_symbols_meta.py (issued_size × price). Weekly
+# is plenty — shares outstanding barely changes day to day. Uses worker.js's
+# /marketcap endpoint, which hits NSE's LIVE quote-equity API (different
+# mechanism from the archive endpoints the rest of this repo uses — see
+# fetch_shares_outstanding.py's docstring). First run will take several
+# invocations to backfill the full ~2300-symbol universe; after that it's
+# just picking up newly-listed symbols.
+#
+# TEST WITH A SMALL BATCH FIRST: this endpoint is new, untested against the
+# live site from this environment. Before relying on it, trigger this
+# workflow manually once and check the Actions log — look for "batch 1: N
+# ok" with N > 0. If every batch fails with a session-cookie error, the
+# live-API route isn't working for this Worker/IP, and the fallback is the
+# manual CSV route (data/market_cap_cr.csv) described in build_symbols_meta.py.
+
+on:
+  schedule:
+    - cron: "0 3 * * 0"   # 08:30 IST Sunday — quiet day, well clear of trading hours
+  workflow_dispatch:
+    inputs:
+      refresh_all:
+        description: "Re-fetch ALL symbols (not just missing ones)?"
+        required: false
+        default: "false"
+        type: choice
+        options: ["false", "true"]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: nse-shares-outstanding
+  cancel-in-progress: false
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Fetch shares outstanding
+        env:
+          BACKTEST_WORKER_URL: ${{ secrets.BACKTEST_WORKER_URL }}
+          SHARES_TIME_BUDGET_SECONDS: "420"
+          SHARES_REFRESH_ALL: ${{ github.event.inputs.refresh_all || 'false' }}
+        run: python scripts/fetch_shares_outstanding.py
+
+      - name: Commit cache
+        if: always()
+        run: |
+          git config user.name "nse-tracker-bot"
+          git config user.email "actions@github.com"
+          git add data/shares_outstanding.json
+          git diff --staged --quiet || git commit -m "shares-outstanding: refresh $(date -u +'%Y-%m-%d %H:%M UTC')"
+          git pull --rebase --autostash origin main || true
+          git push
