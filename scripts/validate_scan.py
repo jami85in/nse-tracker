@@ -137,17 +137,36 @@ import json as _json
 uni_all = _json.load(open(os.path.join(os.path.dirname(OHLC_DIR), "symbols_all.json"))) \
     if os.path.exists(os.path.join(os.path.dirname(OHLC_DIR), "symbols_all.json")) else \
     [os.path.basename(f).replace(".json","") for f in files]
-filtered = scan.apply_universe_filters(uni_all)
-n_etf = len(uni_all) - len(filtered)
-check(n_etf > 50 and n_etf < 300, f"ETF exclusion dropped a sane count ({n_etf} of {len(uni_all)})")
-real_must_keep = ["GOLDIAM","SKYGOLD","PNBGILTS","RELIANCE","SUNTV","UBL","SBIN","TITAN"]
+_meta_for_filters = scan.load_symbols_meta()
+reasons = {s: scan.symbol_excluded(s, _meta_for_filters) for s in uni_all}
+n_etf = sum(1 for r in reasons.values() if r == "etf")
+n_mcap = sum(1 for r in reasons.values() if r == "mcap")
+n_vol = sum(1 for r in reasons.values() if r == "vol")
+filtered = [s for s, r in reasons.items() if r is None]
+print(f"    breakdown: {n_etf} ETF, {n_mcap} sub-mcap, {n_vol} sub-volume, "
+      f"{len(filtered)} kept (of {len(uni_all)})")
+# ETF-only bound: sanity range regardless of whether volume/mcap filtering is
+# also active. Kite's own instrument_type typically catches more genuine
+# ETFs than a text-pattern heuristic could, so the range is intentionally wide.
+check(100 <= n_etf <= 400, f"ETF exclusion alone dropped a sane count ({n_etf} of {len(uni_all)})")
+real_must_keep = ["GOLDIAM","SKYGOLD","PNBGILTS","SHANTIGOLD","JETFREIGHT",
+                   "RELIANCE","SUNTV","UBL","SBIN","TITAN"]
 wrongly = [s for s in real_must_keep if s in uni_all and s not in filtered]
-check(not wrongly, f"no real stocks wrongly excluded ({wrongly})")
+if wrongly:
+    print("    excluded-for reasons:", {s: reasons.get(s) for s in wrongly})
+check(not wrongly, f"no real, liquid stocks wrongly excluded ({wrongly})")
 known_etfs = [s for s in ["BANKBEES","NIFTYBEES","GOLDBEES","CPSEETF","LIQUIDBEES"] if s in uni_all]
 etf_caught = [s for s in known_etfs if s not in filtered]
 check(len(etf_caught) == len(known_etfs), f"known ETFs all excluded ({len(etf_caught)}/{len(known_etfs)})")
-# Safe degradation: no symbols_meta.json -> must NOT collapse the universe
-check(len(filtered) > 2000, f"universe not over-filtered without meta ({len(filtered)} kept)")
+# Safe degradation: distinguish "no metadata at all" (must not collapse the
+# universe) from "metadata exists and is legitimately filtering by volume/mcap"
+# (expected to reduce the universe further — that's the feature working).
+if _meta_for_filters:
+    check(len(filtered) > 1500,
+          f"universe not over-filtered WITH meta active ({len(filtered)} kept, "
+          f"{n_mcap} dropped for mcap, {n_vol} dropped for volume)")
+else:
+    check(len(filtered) > 2000, f"universe not over-filtered without meta ({len(filtered)} kept)")
 
 print("\n" + "="*56)
 if failures:
