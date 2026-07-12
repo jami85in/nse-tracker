@@ -31,8 +31,6 @@ API_KEY     = os.environ.get("KITE_API_KEY", "")
 ROLL_DAYS   = int(os.environ.get("META_VOLUME_ROLL_DAYS", "20"))  # EMA horizon
 BATCH       = 400  # Kite quote() supports up to 500/call
 
-ETF_NAME_MARKERS = ("ETF", "BEES", "LIQUID", "GOLD", "SILVER", "BHARATBOND", "GILT")
-
 
 def load_json(path, default):
     try:
@@ -63,9 +61,17 @@ def mark_etfs(kite, symbols):
             continue
         itype = (info.get("instrument_type") or "").upper()
         name = (info.get("name") or "").upper()
-        seg = (info.get("segment") or "").upper()
-        is_etf = (itype == "ETF") or ("ETF" in name) or \
-                 (any(m in s.upper() for m in ETF_NAME_MARKERS) and "EQ" not in seg)
+        # Trust ONLY Kite's own instrument_type (exchange-sourced ground
+        # truth) plus the full descriptive NAME field. A prior version also
+        # matched generic words (GOLD/SILVER/GILT/LIQUID/ETF/BEES/...)
+        # against the raw TICKER, which wrongly flagged real companies whose
+        # symbol happens to contain one of those substrings — confirmed in
+        # production: GOLDIAM, SKYGOLD, SHANTIGOLD (ticker contains "GOLD"),
+        # PNBGILTS ("GILT"), and JETFREIGHT ("ETF" literally appears inside
+        # "J-ETF-REIGHT"). The ticker is just a symbol; it proves nothing
+        # about instrument type. NAME is the registered instrument name
+        # from the exchange and is safe to substring-match.
+        is_etf = (itype == "ETF") or ("ETF" in name)
         flags[s] = bool(is_etf)
     return flags
 
