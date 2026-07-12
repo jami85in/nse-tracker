@@ -13,12 +13,16 @@ Data sources (only what's reliably reachable from GitHub Actions):
                   rolling exponential average in the meta file, so running this
                   daily converges to a true ~20-day average with only a handful
                   of batched API calls (no 2000+ historical requests).
-  • market_cap  — Kite does NOT expose market cap. If you drop a CSV at
-                  data/market_cap_cr.csv with rows "SYMBOL,MARKET_CAP_CR"
-                  (from screener/Tickertape/NSE, refreshed occasionally), it's
-                  merged in. Symbols without a market-cap value are simply NOT
-                  cap-filtered (the scan only excludes when it KNOWS a value is
-                  below the threshold), so partial data is safe and useful.
+  • market_cap  — computed daily as issued_size × today's price, using a
+                  shares-outstanding cache built separately by
+                  fetch_shares_outstanding.py (see that file for why it's a
+                  separate, occasional job rather than a daily fetch — shares
+                  outstanding barely changes day to day). If a symbol isn't in
+                  that cache yet, an optional CSV at data/market_cap_cr.csv
+                  (SYMBOL,MARKET_CAP_CR) is used as a fallback. Symbols with
+                  neither source are simply NOT cap-filtered (the scan only
+                  excludes when it KNOWS a value is below the threshold), so
+                  partial data is always safe.
 
 Safe by design: a symbol missing volume/cap data is never dropped on that basis.
 """
@@ -26,6 +30,7 @@ import os, sys, json, csv, datetime
 
 META_PATH   = "data/symbols_meta.json"
 MCAP_CSV    = "data/market_cap_cr.csv"
+SHARES_CACHE_PATH = "data/shares_outstanding.json"
 SYMBOLS_ALL = "data/backtest/symbols_all.json"
 API_KEY     = os.environ.get("KITE_API_KEY", "")
 ROLL_DAYS   = int(os.environ.get("META_VOLUME_ROLL_DAYS", "20"))  # EMA horizon
@@ -76,9 +81,12 @@ def mark_etfs(kite, symbols):
     return flags
 
 
-def fetch_today_volume(kite, symbols):
-    """Today's traded volume per symbol via batched quote()."""
-    vol = {}
+def fetch_today_quotes(kite, symbols):
+    """Today's traded volume AND last price per symbol, via batched quote().
+    Kite's quote() response already includes last_price alongside volume in
+    the same payload — capturing both here is free (no extra API calls),
+    and last_price is exactly what market-cap computation needs."""
+    vol, price = {}, {}
     for i in range(0, len(symbols), BATCH):
         batch = [f"NSE:{s}" for s in symbols[i:i + BATCH]]
         try:
@@ -91,7 +99,39 @@ def fetch_today_volume(kite, symbols):
             v = data.get("volume")
             if v is not None:
                 vol[sym] = float(v)
-    return vol
+            lp = data.get("last_price")
+            if lp:
+                price[sym] = float(lp)
+    return vol, price
+
+
+def compute_market_cap(meta, today_price):
+    """market_cap_cr = issued_size × price / 1e7 (1 crore = 1e7), using the
+    shares-outstanding cache built by fetch_shares_outstanding.py. Prefers
+    today's live Kite price; falls back to the price that was captured
+    alongside issued_size at cache-build time if today's isn't available
+    (e.g. Kite token stale this run) — a slightly older price is still far
+    better than no market-cap value at all for a slow-moving figure like
+    this. Returns the count of symbols updated."""
+    shares = load_json(SHARES_CACHE_PATH, {})
+    if not shares:
+        print(f"  {SHARES_CACHE_PATH} not present/empty — run "
+              f"fetch_shares_outstanding.py first. Market cap stays inactive "
+              f"for symbols not covered by the CSV fallback.")
+        return 0
+    n = 0
+    for sym, s in shares.items():
+        issued = s.get("issued_size")
+        if not issued:
+            continue
+        price = today_price.get(sym) or s.get("fetched_price")
+        if not price:
+            continue
+        mcap_cr = round(issued * price / 1e7, 2)
+        meta.setdefault(sym, {})["market_cap_cr"] = mcap_cr
+        n += 1
+    print(f"  market_cap_cr computed for {n} symbols from shares_outstanding cache.")
+    return n
 
 
 def merge_market_cap(meta):
@@ -136,6 +176,7 @@ def main():
         print("  No fresh Kite token — updating market cap from CSV only, "
               "preserving existing volume/ETF data.")
 
+    today_price = {}
     if kite:
         # ETF flags (authoritative)
         flags = mark_etfs(kite, symbols)
@@ -144,7 +185,8 @@ def main():
         print(f"  ETF flags set for {len(flags)} symbols.")
 
         # Rolling average volume (EMA so a daily run converges to ~ROLL_DAYS avg)
-        today_vol = fetch_today_volume(kite, symbols)
+        # + today's price, captured together at no extra API cost.
+        today_vol, today_price = fetch_today_quotes(kite, symbols)
         alpha = 2.0 / (ROLL_DAYS + 1)
         updated = 0
         for s, v in today_vol.items():
@@ -154,7 +196,11 @@ def main():
             updated += 1
         print(f"  rolling avg_volume updated for {updated} symbols.")
 
+    # CSV first as a baseline/fallback, THEN the computed (issued_size ×
+    # price) value overwrites it where available — the computed source is
+    # fresher and automated, the CSV just fills gaps ahead of it.
     merge_market_cap(meta)
+    compute_market_cap(meta, today_price)
 
     meta["_meta"] = {"generated": datetime.datetime.now().isoformat(),
                      "roll_days": ROLL_DAYS,
