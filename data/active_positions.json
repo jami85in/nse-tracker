@@ -1477,7 +1477,7 @@
     "promoted_from_watchlist": true,
     "promoted_date": "2026-07-09",
     "confidence": "HIGH",
-    "reason": "BB halved 6.0 to 3.9%, stoch 26/13 strong divergence with EMA rising"
+    "reason": "BB compressed to 3.9% from 6.0%, stoch 26/13 sharp bullish crossover forming"
   },
   "AXISBANK": {
     "symbol": "AXISBANK",
@@ -2343,7 +2343,7 @@
     "promoted_from_watchlist": true,
     "promoted_date": "2026-07-13",
     "confidence": "HIGH",
-    "reason": "BB halved 9.4 to 3.9%, stoch 18/14 oversold with strong EMA expansion"
+    "reason": "BB more than halved to 3.9%, stoch 18/14 turning up from oversold"
   },
   "SBFC": {
     "symbol": "SBFC",
@@ -3667,8 +3667,8 @@
     "watchlist_first_price": 170.2,
     "promoted_from_watchlist": true,
     "promoted_date": "2026-07-10",
-    "confidence": "MEDIUM",
-    "reason": "BB at 4.4% tightened from 7.0%, stoch 29/17 moderate not deeply oversold"
+    "confidence": "HIGH",
+    "reason": "BB squeezed to 4.4% from 7.0%, stoch 29/17 crossing bullishly upward"
   },
   "MOTILALOFS": {
     "symbol": "MOTILALOFS",
@@ -8221,7 +8221,7 @@
     "status": "SQUEEZE",
     "first_seen": "2026-07-09",
     "confidence": "MEDIUM",
-    "reason": "BB width 3.7758140531877498%, Stoch K/D turning up at 22, target R1 911.6"
+    "reason": "BB flat at 3.8%, negligible compression, stoch 22/11 turning from low"
   },
   "HLEGLAS": {
     "symbol": "HLEGLAS",
@@ -13240,7 +13240,7 @@
     "status": "SQUEEZE",
     "first_seen": "2026-07-09",
     "confidence": "MEDIUM",
-    "reason": "BB barely tightened 3.95 to 3.70%, stoch 22/14 mild setup only"
+    "reason": "BB tight at 3.7% but minimal compression, stoch 22/14 turning"
   },
   "SMLMAH": {
     "symbol": "SMLMAH",
@@ -13582,7 +13582,7 @@
     "promoted_from_watchlist": true,
     "promoted_date": "2026-07-10",
     "confidence": "HIGH",
-    "reason": "BB halved to 4.4%, stoch 18/17 turning up cleanly from oversold"
+    "reason": "BB halved to 4.4%, stoch 18/17 turning up from oversold"
   },
   "UTLSOLAR": {
     "symbol": "UTLSOLAR",
@@ -14070,7 +14070,7 @@
     "status": "SQUEEZE",
     "first_seen": "2026-07-10",
     "confidence": "MEDIUM",
-    "reason": "BB tightest at 2.6% but stoch 45/28 not oversold, EMA30 above price"
+    "reason": "BB tightest at 2.6% but mild compression, stoch 45/28 not oversold"
   },
   "ARVINDFASN": {
     "symbol": "ARVINDFASN",
@@ -14144,7 +14144,7 @@
     "status": "SQUEEZE",
     "first_seen": "2026-07-10",
     "confidence": "HIGH",
-    "reason": "BB halved 9.9 to 4.1%, stoch 39/23 wide divergence signals momentum build"
+    "reason": "BB halved to 4.1% from 9.9%, stoch 39/23 rising with wide spread"
   },
   "ASHIKA": {
     "symbol": "ASHIKA",
@@ -15353,7 +15353,7 @@
     "status": "SQUEEZE",
     "first_seen": "2026-07-10",
     "confidence": "MEDIUM",
-    "reason": "BB width 3.788017599221385%, Stoch K/D turning up at 14, target R1 339.8"
+    "reason": "BB slightly expanded to 3.8%, stoch 14/10 weak near oversold territory"
   },
   "INDTERRAIN": {
     "symbol": "INDTERRAIN",
@@ -15999,46 +15999,6 @@
     "reason": "BB width 6.070488769473664% tightening, stoch_k 36 turning up \u2014 not yet confirmed (needs <3.0% width)",
     "confidence": "WATCHING"
   },
-  "MOBANK10": {
-    "symbol": "MOBANK10",
-    "price": 17.44,
-    "bb_width": 4.328694590788733,
-    "bb_width_5d_ago": 8.839742031464596,
-    "stoch_k": 14.283651833779494,
-    "stoch_d": 6.226952903341324,
-    "ema10": 17.35108839364245,
-    "ema30": 17.039301129216376,
-    "pivot_r1": 17.87666666666667,
-    "pivot_r2": 18.333333333333336,
-    "pivot_s1": 16.956666666666667,
-    "predicted_return": 14.47,
-    "setup": "SQUEEZE",
-    "entry_price": 17.44,
-    "entry_date": "2026-07-13",
-    "target_price": 19.96,
-    "target_return_pct": 14.47,
-    "blast_entry_price": null,
-    "blast_entry_date": null,
-    "exit_price": null,
-    "exit_date": null,
-    "holding_period_days": null,
-    "return_since_entry": null,
-    "trend_conflict": false,
-    "weak_crossover": false,
-    "conviction_score": "STRONG",
-    "conviction_note": "Price aligned with trend direction and stoch crossover has a clear gap \u2014 technically consistent signal.",
-    "stoch_k_chart": 96.28891165580158,
-    "stoch_d_chart": 96.07481634636072,
-    "last_seen": "2026-07-13",
-    "status": "SQUEEZE",
-    "first_seen": "2026-07-10",
-    "watchlist_first_seen": "2026-07-10",
-    "watchlist_first_price": 17.42,
-    "promoted_from_watchlist": true,
-    "promoted_date": "2026-07-13",
-    "confidence": "HIGH",
-    "reason": "BB squeezed to 4.3%, stoch 14/6 sharp bullish divergence forming"
-  },
   "MOKSH": {
     "symbol": "MOKSH",
     "price": 11.57,
@@ -16298,8 +16258,8 @@
     "last_seen": "2026-07-13",
     "status": "SQUEEZE",
     "first_seen": "2026-07-10",
-    "confidence": "MEDIUM",
-    "reason": "BB narrowed 5.5 to 4.3%, stoch 25/15 moderate divergence near pivot"
+    "confidence": "HIGH",
+    "reason": "BB compressed to 4.3%, stoch 25/15 showing sharp bullish crossover momentum"
   },
   "PSB": {
     "symbol": "PSB",
@@ -17280,44 +17240,6 @@
     "watchlist_first_seen": "2026-07-10",
     "watchlist_first_price": 26.7,
     "reason": "BB width 8.51993735380177% tightening, stoch_k 30 turning up \u2014 not yet confirmed (needs <3.0% width)",
-    "confidence": "WATCHING"
-  },
-  "VALUE": {
-    "symbol": "VALUE",
-    "price": 16.19,
-    "bb_width": 5.421957195584854,
-    "bb_width_5d_ago": 5.019467678629601,
-    "stoch_k": 42.553894096698436,
-    "stoch_d": 25.496440005306965,
-    "ema10": 16.166440721381488,
-    "ema30": 16.315209163082887,
-    "pivot_r1": 16.226666666666667,
-    "pivot_r2": 16.283333333333335,
-    "pivot_s1": 16.096666666666664,
-    "predicted_return": 4.5,
-    "setup": "WATCHLIST",
-    "entry_price": 16.19,
-    "entry_date": "2026-07-13",
-    "target_price": 16.92,
-    "target_return_pct": 4.5,
-    "blast_entry_price": null,
-    "blast_entry_date": null,
-    "exit_price": null,
-    "exit_date": null,
-    "holding_period_days": null,
-    "return_since_entry": null,
-    "trend_conflict": false,
-    "weak_crossover": false,
-    "conviction_score": null,
-    "conviction_note": null,
-    "stoch_k_chart": 74.58106117899429,
-    "stoch_d_chart": 69.43387903600036,
-    "last_seen": "2026-07-13",
-    "status": "WATCHLIST",
-    "first_seen": "2026-07-10",
-    "watchlist_first_seen": "2026-07-10",
-    "watchlist_first_price": 16.17,
-    "reason": "BB width 5.421957195584854% tightening, stoch_k 43 turning up \u2014 not yet confirmed (needs <3.0% width)",
     "confidence": "WATCHING"
   },
   "WAKEFIT": {
@@ -22032,7 +21954,7 @@
     "status": "SQUEEZE",
     "first_seen": "2026-07-13",
     "confidence": "HIGH",
-    "reason": "BB tightened 6.4 to 4.3%, stoch 18/16 low oversold with EMA support"
+    "reason": "BB tightened to 4.3% from 6.4%, stoch 18/16 coiling near oversold"
   },
   "AGI": {
     "symbol": "AGI",
@@ -23167,44 +23089,6 @@
     "reason": "BB width 8.99037069052194% tightening, stoch_k 10 turning up \u2014 not yet confirmed (needs <3.0% width)",
     "confidence": "WATCHING"
   },
-  "DEFENCE": {
-    "symbol": "DEFENCE",
-    "price": 78.54,
-    "bb_width": 5.817080381178993,
-    "bb_width_5d_ago": 11.03463750737704,
-    "stoch_k": 11.018275902586169,
-    "stoch_d": 5.225830865774473,
-    "ema10": 78.78418140161088,
-    "ema30": 77.86037378516068,
-    "pivot_r1": 79.57333333333332,
-    "pivot_r2": 80.14666666666666,
-    "pivot_s1": 78.05333333333333,
-    "predicted_return": 7.1,
-    "setup": "WATCHLIST",
-    "entry_price": 78.54,
-    "entry_date": "2026-07-13",
-    "target_price": 84.11,
-    "target_return_pct": 7.1,
-    "blast_entry_price": null,
-    "blast_entry_date": null,
-    "exit_price": null,
-    "exit_date": null,
-    "holding_period_days": null,
-    "return_since_entry": null,
-    "trend_conflict": false,
-    "weak_crossover": false,
-    "conviction_score": null,
-    "conviction_note": null,
-    "stoch_k_chart": 11.537098447461089,
-    "stoch_d_chart": 11.693195128930418,
-    "last_seen": "2026-07-13",
-    "status": "WATCHLIST",
-    "first_seen": "2026-07-13",
-    "watchlist_first_seen": "2026-07-13",
-    "watchlist_first_price": 78.54,
-    "reason": "BB width 5.817080381178993% tightening, stoch_k 11 turning up \u2014 not yet confirmed (needs <3.0% width)",
-    "confidence": "WATCHING"
-  },
   "DELTACORP": {
     "symbol": "DELTACORP",
     "price": 64.74,
@@ -23769,7 +23653,7 @@
     "status": "SQUEEZE",
     "first_seen": "2026-07-13",
     "confidence": "HIGH",
-    "reason": "BB compressed 6.3 to 4.2%, stoch 34/24 turning with EMA alignment"
+    "reason": "BB squeezed to 4.2% from 6.3%, stoch 34/24 crossing upward cleanly"
   },
   "IDFCFIRSTB": {
     "symbol": "IDFCFIRSTB",
@@ -23996,42 +23880,6 @@
     "watchlist_first_price": 175.05,
     "reason": "BB width 8.610422970002633% tightening, stoch_k 42 turning up \u2014 not yet confirmed (needs <3.0% width)",
     "confidence": "WATCHING"
-  },
-  "INFRA": {
-    "symbol": "INFRA",
-    "price": 12.29,
-    "bb_width": 3.24138371048731,
-    "bb_width_5d_ago": 8.033625240381191,
-    "stoch_k": 15.870907824413903,
-    "stoch_d": 9.021237413164249,
-    "ema10": 12.293380385117933,
-    "ema30": 12.212720451051142,
-    "pivot_r1": 12.413333333333334,
-    "pivot_r2": 12.476666666666667,
-    "pivot_s1": 12.243333333333334,
-    "predicted_return": 5.14,
-    "setup": "SQUEEZE",
-    "entry_price": 12.29,
-    "entry_date": "2026-07-13",
-    "target_price": 12.92,
-    "target_return_pct": 5.14,
-    "blast_entry_price": null,
-    "blast_entry_date": null,
-    "exit_price": null,
-    "exit_date": null,
-    "holding_period_days": null,
-    "return_since_entry": null,
-    "trend_conflict": false,
-    "weak_crossover": false,
-    "conviction_score": "MODERATE",
-    "conviction_note": "Price is between EMA10 and EMA30 \u2014 trend structure is mixed, not clearly aligned.",
-    "stoch_k_chart": 86.19871446946571,
-    "stoch_d_chart": 83.05073249850693,
-    "last_seen": "2026-07-13",
-    "status": "SQUEEZE",
-    "first_seen": "2026-07-13",
-    "confidence": "HIGH",
-    "reason": "BB dropped 8.0 to 3.2%, stoch 16/9 deeply oversold clean reversal signal"
   },
   "INOXGREEN": {
     "symbol": "INOXGREEN",
@@ -25124,7 +24972,7 @@
     "status": "SQUEEZE",
     "first_seen": "2026-07-13",
     "confidence": "MEDIUM",
-    "reason": "BB at 4.4% but stoch 41/33 less oversold, momentum turn less clean"
+    "reason": "BB squeezed to 4.4%, stoch 41/33 rising but not deeply oversold"
   },
   "NAVA": {
     "symbol": "NAVA",
@@ -26555,7 +26403,7 @@
     "status": "SQUEEZE",
     "first_seen": "2026-07-13",
     "confidence": "MEDIUM",
-    "reason": "BB barely moved 3.28 to 3.02%, stoch 28/25 not deeply oversold"
+    "reason": "BB very tight 3.0% with modest compression, stoch 28/25 mid-range"
   },
   "TNTELE": {
     "symbol": "TNTELE",
@@ -26666,7 +26514,7 @@
     "status": "SQUEEZE",
     "first_seen": "2026-07-13",
     "confidence": "HIGH",
-    "reason": "BB collapsed 14.7 to 4.4%, stoch 11/7 deeply oversold strong reversal"
+    "reason": "BB collapsed 70% to 4.4%, stoch 11/7 extremely oversold bullish turn"
   },
   "TRIDENT": {
     "symbol": "TRIDENT",
