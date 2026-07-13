@@ -182,8 +182,9 @@ _AMC_ETF_PREFIXES = ("HDFC", "SBI", "ICICI", "TATA", "AONE", "BBNPP", "BBNP", "L
 def is_etf_symbol(sym: str) -> bool:
     """Heuristic ETF/ETP detector for NSE symbols, tuned against the full
     committed universe to avoid false-positives on real stocks (Jet Freight,
-    PNB Gilts, Sky Gold, Shanti Gold, Goldiam are stocks, not ETFs). Used as
-    a fallback; an authoritative is_etf from symbols_meta.json wins when set."""
+    PNB Gilts, Sky Gold, Shanti Gold, Goldiam are stocks, not ETFs). Used
+    alongside (OR'd with) the authoritative is_etf from symbols_meta.json in
+    symbol_excluded() — either source saying True is enough to exclude."""
     s = (sym or "").upper()
     if s in _REAL_STOCK_ALLOWLIST:
         return False
@@ -254,11 +255,33 @@ def load_symbols_meta():
 def symbol_excluded(sym: str, meta: dict = None):
     """Return why a symbol should be excluded from the universe/ledger, or None
     to keep it. Reasons: 'etf', 'mcap', 'vol'. Market-cap/volume only fire when
-    we actually have that datum — missing data never excludes a symbol."""
+    we actually have that datum — missing data never excludes a symbol.
+
+    ETF check: a symbol is treated as an ETF if EITHER the Kite-derived meta
+    flag OR the pattern heuristic (is_etf_symbol) says so — NOT meta alone.
+    A prior version let meta fully override the pattern check whenever meta
+    had any is_etf value (even False), which let real ETFs slip through
+    whenever Kite's own instrument_type/name classification missed them
+    (confirmed in production: SBINMID150, BANK10ADD, AARTISURF all had meta
+    is_etf=False but are genuine ETFs the pattern heuristic already caught
+    correctly). The pattern heuristic has been validated with zero false
+    positives against real companies with ETF-like names, so OR-ing it in
+    only improves recall — it can't reintroduce a real stock being wrongly
+    excluded via the PATTERN side.
+
+    The _REAL_STOCK_ALLOWLIST is checked here directly, as an unconditional
+    guard, so it also protects against the META side being wrong — not just
+    the pattern side. Without this, if a future Kite refresh ever mis-flags
+    one of these known-real companies as is_etf=True, the OR logic above
+    would incorrectly exclude it even though the allowlist exists (the
+    allowlist alone only reaches into is_etf_symbol(), not the meta flag)."""
+    s = (sym or "").upper()
+    if s in _REAL_STOCK_ALLOWLIST:
+        return None
     if meta is None:
         meta = load_symbols_meta()
     m = meta.get(sym, {}) if isinstance(meta, dict) else {}
-    is_etf = m.get("is_etf") if ("is_etf" in m) else is_etf_symbol(sym)
+    is_etf = bool(m.get("is_etf")) or is_etf_symbol(sym)
     if EXCLUDE_ETFS and is_etf:
         return "etf"
     mcap = m.get("market_cap_cr")
