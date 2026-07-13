@@ -207,7 +207,16 @@ def is_etf_symbol(sym: str) -> bool:
     if any(k in s for k in ("BANKNIFTY", "NIFBAN", "NIFBK", "PVTBAN", "PSUBAN",
                             "PSUBANK", "NIFTYBEES", "NIFTYETF", "SENSEXETF",
                             "MID150", "SMALL250", "NEXT50", "NIF100", "MOM30",
-                            "MOM50", "LOWVOL", "QUAL30", "ALPHAETF", "MULTICAP")):
+                            "MOM50", "LOWVOL", "QUAL30", "ALPHAETF", "MULTICAP",
+                            "BANK10", "VALUE")):
+        return True
+    # EXACT-match only (not substring): "INFRA" and "TOP10" alone are
+    # genuine ETF tickers, but as a SUBSTRING they catch many real companies
+    # (GRINFRA, JSWINFRA, HGINFRA, PNCINFRA and 10+ others are real listed
+    # infrastructure/construction firms, not ETFs — confirmed by checking
+    # the full universe before shipping this rule, exactly the kind of
+    # false-positive risk that bit GOLDIAM/JETFREIGHT earlier this session).
+    if s in ("INFRA", "TOP10", "DEFENCE"):
         return True
     # AMC passive "…ADD" series (e.g. BANKADD, FLEXIADD, MIDQ50ADD, HEALTHADD).
     if s.endswith("ADD"):
@@ -257,31 +266,29 @@ def symbol_excluded(sym: str, meta: dict = None):
     to keep it. Reasons: 'etf', 'mcap', 'vol'. Market-cap/volume only fire when
     we actually have that datum — missing data never excludes a symbol.
 
-    ETF check: a symbol is treated as an ETF if EITHER the Kite-derived meta
-    flag OR the pattern heuristic (is_etf_symbol) says so — NOT meta alone.
-    A prior version let meta fully override the pattern check whenever meta
-    had any is_etf value (even False), which let real ETFs slip through
-    whenever Kite's own instrument_type/name classification missed them
-    (confirmed in production: SBINMID150, BANK10ADD, AARTISURF all had meta
-    is_etf=False but are genuine ETFs the pattern heuristic already caught
-    correctly). The pattern heuristic has been validated with zero false
-    positives against real companies with ETF-like names, so OR-ing it in
-    only improves recall — it can't reintroduce a real stock being wrongly
-    excluded via the PATTERN side.
-
-    The _REAL_STOCK_ALLOWLIST is checked here directly, as an unconditional
-    guard, so it also protects against the META side being wrong — not just
-    the pattern side. Without this, if a future Kite refresh ever mis-flags
-    one of these known-real companies as is_etf=True, the OR logic above
-    would incorrectly exclude it even though the allowlist exists (the
-    allowlist alone only reaches into is_etf_symbol(), not the meta flag)."""
+    ETF check: THREE independent signals, OR'd together — any one saying
+    True is enough to exclude:
+      1. meta['is_etf_nse']  — STABLE, authoritative: derived from NSE's own
+         official security name (fetch_security_names.py). A genuine ETF's
+         listed name always says "ETF" even when the ticker gives no hint
+         (e.g. MOBANK10's real name is "Motilal Oswal BSE Top 10 Banks
+         ETF"). Doesn't change with daily price/volume refreshes.
+      2. meta['is_etf']      — Kite's instrument_type classification. Useful
+         but has repeatedly proven incomplete on its own (confirmed misses:
+         SBINMID150, BANK10ADD, AARTISURF, MOBANK10, INFRA all had Kite
+         is_etf=False despite being genuine ETFs) — it's Kite's own
+         secondary/derived tagging, not the exchange's.
+      3. is_etf_symbol(sym)  — ticker-pattern heuristic, validated with zero
+         false positives against real companies with ETF-like names.
+    No single source is trusted alone; OR-ing three independently-sourced
+    signals means a symbol only needs ONE of them to catch it correctly."""
     s = (sym or "").upper()
     if s in _REAL_STOCK_ALLOWLIST:
         return None
     if meta is None:
         meta = load_symbols_meta()
     m = meta.get(sym, {}) if isinstance(meta, dict) else {}
-    is_etf = bool(m.get("is_etf")) or is_etf_symbol(sym)
+    is_etf = bool(m.get("is_etf_nse")) or bool(m.get("is_etf")) or is_etf_symbol(sym)
     if EXCLUDE_ETFS and is_etf:
         return "etf"
     mcap = m.get("market_cap_cr")

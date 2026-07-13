@@ -158,6 +158,34 @@ def merge_market_cap(meta):
     return n
 
 
+def merge_nse_etf_names(meta):
+    """Merge the STABLE, authoritative is_etf_nse signal (from NSE's own
+    security names, fetched separately/infrequently by
+    fetch_security_names.py — see that file's docstring). Read-only here:
+    this daily run never re-derives or overwrites this signal, only reads
+    it. Stored as a SEPARATE key (is_etf_nse) rather than overwriting
+    is_etf, so it's always clear which source said what."""
+    path = "data/nse_security_names.json"
+    if not os.path.exists(path):
+        print(f"  {path} not present — run fetch_security_names.py first. "
+              f"is_etf_nse stays absent (safe: falls through to the other "
+              f"ETF signals in scan.py's symbol_excluded()).")
+        return 0
+    try:
+        data = json.load(open(path))
+    except Exception as e:
+        print(f"  {path} unreadable ({e}); skipping.")
+        return 0
+    is_etf_nse = data.get("is_etf_nse", {})
+    n = 0
+    for sym, flag in is_etf_nse.items():
+        meta.setdefault(sym, {})["is_etf_nse"] = bool(flag)
+        n += 1
+    print(f"  merged is_etf_nse for {n} symbols from {path} "
+          f"({sum(1 for v in is_etf_nse.values() if v)} flagged ETF).")
+    return n
+
+
 def main():
     from kiteconnect import KiteConnect
     from kite_token_reader import get_kite_token
@@ -195,6 +223,9 @@ def main():
             e["avg_volume"] = round(v if prev is None else (alpha * v + (1 - alpha) * prev), 1)
             updated += 1
         print(f"  rolling avg_volume updated for {updated} symbols.")
+
+    # Stable, NSE-sourced ETF signal — read-only merge, never re-derived here.
+    merge_nse_etf_names(meta)
 
     # CSV first as a baseline/fallback, THEN the computed (issued_size ×
     # price) value overwrites it where available — the computed source is
