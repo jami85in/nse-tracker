@@ -1,0 +1,50 @@
+name: NSE Security Names (stable ETF signal)
+
+# Refreshes data/nse_security_names.json — the authoritative, NSE-sourced
+# ETF signal (derived from each security's OFFICIAL LISTED NAME, which says
+# "ETF" for genuine ETFs even when the ticker/Kite classification miss it).
+# Deliberately SEPARATE from the daily scan/metadata pipeline: this data
+# barely changes (only on new listings/delistings), and must NOT be
+# vulnerable to being reset or drifted by the daily Kite-driven price/volume
+# refresh. Weekly is more than enough.
+#
+# Uses worker.js's /security_names endpoint — a plain static NSE archive
+# file (EQUITY_L.csv), the SAME safe mechanism as the bhavcopy/OHLC fetch.
+# NOT the anti-bot-protected live API that blocked /marketcap.
+
+on:
+  schedule:
+    - cron: "30 4 * * 0"   # 10:00 IST Sunday — quiet day
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: nse-security-names
+  cancel-in-progress: false
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Fetch NSE security names
+        env:
+          BACKTEST_WORKER_URL: ${{ secrets.BACKTEST_WORKER_URL }}
+        run: python scripts/fetch_security_names.py
+
+      - name: Commit data
+        if: always()
+        run: |
+          git config user.name "nse-tracker-bot"
+          git config user.email "actions@github.com"
+          git add data/nse_security_names.json
+          git diff --staged --quiet || git commit -m "security-names: refresh $(date -u +'%Y-%m-%d %H:%M UTC')"
+          git pull --rebase --autostash origin main || true
+          git push
