@@ -1,6 +1,6 @@
 {
-  "date": "2026-07-12",
-  "market_open": false,
-  "reason": "Weekend",
-  "checked_at": "2026-07-12 23:42 IST"
+  "date": "2026-07-13",
+  "market_open": true,
+  "reason": "Regular trading day (live NSE calendar)",
+  "checked_at": "2026-07-13 21:35 IST"
 }
