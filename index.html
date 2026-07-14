@@ -440,6 +440,21 @@ async function fetchRelativeStrength() {
   }
 }
 
+async function fetchZerodhaHoldings() {
+  // Server-side sync only, written by fetch_zerodha_holdings.py — see that
+  // file's docstring for why this can't write directly into the app's
+  // localStorage-based holdings list. This just returns the raw synced
+  // data; the merge-without-duplicating logic lives where it's consumed.
+  try {
+    const url = `${RAW_BASE}/zerodha_holdings.json?t=${Date.now()}`;
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
+
 // workflow (prices.yml) that runs every 15 min during NSE market hours using
 // yfinance. This avoids all browser CORS/cookie issues with Yahoo Finance.
 async function fetchLivePrices() {
@@ -1039,9 +1054,11 @@ function LongTermRow({ holding, onDelete, scanData }) {
           <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
             <span style={{ color: T.text, fontWeight: 800, fontSize: 15, fontFamily: "monospace" }}>{holding.symbol}</span>
             {signalBadge && <Pill label={signalBadge.label} color={signalBadge.color} />}
+            {holding.source === "zerodha" && <Pill label="🔄 SYNCED" color={T.muted} />}
           </div>
           <div style={{ color: T.muted, fontSize: 11, marginTop: 2 }}>
-            {holding.qty} shares · avg ₹{fmt(holding.avgPrice)} · since {holding.addedDate}
+            {holding.qty} shares · avg ₹{fmt(holding.avgPrice)}
+            {holding.addedDate ? ` · since ${holding.addedDate}` : holding.source === "zerodha" ? " · synced from Zerodha" : ""}
           </div>
         </div>
         <div style={{ textAlign: "right", flexShrink: 0 }}>
@@ -1873,6 +1890,53 @@ function App() {
   useEffect(() => {
     fetchBacktestReport().then(r => { if (r) setBacktestReport(r); });
     fetchRelativeStrength().then(r => { if (r) setRelativeStrength(r); });
+  }, []);
+
+  // Auto-import real Zerodha holdings into Long-Term Holdings, without ever
+  // duplicating or overwriting anything added manually. Three cases per
+  // synced symbol:
+  //   1. Not in local holdings at all -> ADD it, tagged source:"zerodha".
+  //   2. Already present AND tagged source:"zerodha" (from a prior sync)
+  //      -> UPDATE qty/avgPrice so it tracks reality if you bought more.
+  //   3. Already present WITHOUT that tag (you added it yourself) -> LEAVE
+  //      IT ALONE. Your manual entry always wins; never duplicated either.
+  useEffect(() => {
+    fetchZerodhaHoldings().then(data => {
+      if (!data || !data.holdings) return;
+      setHoldings(current => {
+        const bySymbol = new Map(current.map(h => [h.symbol, h]));
+        let added = 0, updated = 0;
+        for (const [sym, z] of Object.entries(data.holdings)) {
+          const existing = bySymbol.get(sym);
+          if (!existing) {
+            bySymbol.set(sym, {
+              id: `zerodha-${sym}-${Date.now()}`,
+              symbol: sym,
+              qty: z.qty,
+              avgPrice: z.avgPrice,
+              targetExit: null,
+              reentryPrice: null,
+              notes: "",
+              addedDate: null,           // Kite's holdings API has no purchase date
+              source: "zerodha",
+            });
+            added++;
+          } else if (existing.source === "zerodha" &&
+                     (existing.qty !== z.qty || existing.avgPrice !== z.avgPrice)) {
+            bySymbol.set(sym, { ...existing, qty: z.qty, avgPrice: z.avgPrice });
+            updated++;
+          }
+          // else: manually-added entry for this symbol — left untouched.
+        }
+        if (added === 0 && updated === 0) return current; // no state change, no re-render
+        const merged = Array.from(bySymbol.values());
+        try { localStorage.setItem("nse_lt_holdings", JSON.stringify(merged)); } catch {}
+        if (added > 0) {
+          showToast(`Imported ${added} holding${added===1?"":"s"} from Zerodha`);
+        }
+        return merged;
+      });
+    });
   }, []);
 
   const [showRefreshMenu, setShowRefreshMenu] = useState(false);
