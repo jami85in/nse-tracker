@@ -39,12 +39,20 @@ jobs:
           SECRETS_REPO: ${{ secrets.SECRETS_REPO }}
         run: python scripts/build_symbols_meta.py
 
+      - name: Sync Zerodha holdings
+        env:
+          KITE_API_KEY: ${{ secrets.KITE_API_KEY }}
+          KITE_API_SECRET: ${{ secrets.KITE_API_SECRET }}
+          SECRETS_REPO_PAT: ${{ secrets.SECRETS_REPO_PAT }}
+          SECRETS_REPO: ${{ secrets.SECRETS_REPO }}
+        run: python scripts/fetch_zerodha_holdings.py
+
       - name: Commit metadata
         if: always()
         run: |
           git config user.name "nse-tracker-bot"
           git config user.email "actions@github.com"
-          git add data/symbols_meta.json
-          git diff --staged --quiet || git commit -m "symbols-meta: refresh $(date -u +'%Y-%m-%d %H:%M UTC')"
+          git add data/symbols_meta.json data/zerodha_holdings.json
+          git diff --staged --quiet || git commit -m "symbols-meta+holdings: refresh $(date -u +'%Y-%m-%d %H:%M UTC')"
           git pull --rebase --autostash origin main || true
           git push
