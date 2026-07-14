@@ -1027,14 +1027,21 @@ function AddHoldingModal({ onClose, onAdd, scanData }) {
   );
 }
 
-function LongTermRow({ holding, onDelete, scanData }) {
+function LongTermRow({ holding, onDelete, scanData, livePrices }) {
   const [showDelete, setShowDelete] = useState(false);
   const blastSignal = (scanData?.blast_stocks || []).find(s => s.symbol === holding.symbol);
   const squeezeSignal = (scanData?.squeeze_stocks || []).find(s => s.symbol === holding.symbol);
   const watchSignal = (scanData?.watchlist_stocks || []).find(s => s.symbol === holding.symbol);
 
-  // Best current price: from scan data if available
-  const currentPrice = blastSignal?.price || squeezeSignal?.price || watchSignal?.price || null;
+  // Best current price: scan-signal price first (carries richer exit/re-entry
+  // context), then fall back to the general live-price feed — the same
+  // source SqueezeCard/BlastCard already use. Without this fallback, any
+  // holding with no active squeeze/blast/watchlist signal (i.e. most normal
+  // stocks, most of the time) showed "no price" — invisible when holdings
+  // were mostly hand-picked signal stocks, but obvious the moment 23 real
+  // Zerodha holdings synced in at once.
+  const currentPrice = blastSignal?.price || squeezeSignal?.price || watchSignal?.price
+                        || livePrices?.[holding.symbol] || null;
   const currentReturn = currentPrice ? ((currentPrice - holding.avgPrice) / holding.avgPrice) * 100 : null;
   const investedValue = holding.avgPrice * holding.qty;
   const currentValue = currentPrice ? currentPrice * holding.qty : null;
@@ -1821,6 +1828,7 @@ function App() {
         ...(data.short_squeeze_stocks || []).map(s => s.symbol),
         ...(data.short_breakdown_stocks || []).map(s => s.symbol),
         ...positions.filter(p => p.status === "OPEN").map(p => p.symbol),
+        ...holdings.map(h => h.symbol),
       ])];
       fetchLivePrices().then(async ({ prices, updatedAt, marketOpen, liveFeed }) => {
         // Set backend prices immediately so the UI isn't empty
@@ -1845,9 +1853,7 @@ function App() {
     } finally {
       setLoading(false);
     }
-  }, []);
-
-  // Refresh live prices every 5 minutes independently of the main scan reload
+  }, [holdings, positions]);
   const livePriceRef = useRef(null);
   useEffect(() => {
     if (!scanData) return;
@@ -1867,6 +1873,7 @@ function App() {
         ...(scanData.short_squeeze_stocks || []).map(s => s.symbol),
         ...(scanData.short_breakdown_stocks || []).map(s => s.symbol),
         ...positions.filter(p => p.status === "OPEN").map(p => p.symbol),
+        ...holdings.map(h => h.symbol),
       ])];
       const { prices: live, source } = await fetchBrowserPrices(syms);
       if (Object.keys(live).length > 0) {
@@ -1879,7 +1886,7 @@ function App() {
     };
     livePriceRef.current = setInterval(refreshPrices, 3 * 60 * 1000);  // every 3 min while app open
     return () => clearInterval(livePriceRef.current);
-  }, [scanData]);
+  }, [scanData, holdings, positions]);
 
   useEffect(() => {
     loadData();
@@ -2304,18 +2311,18 @@ function App() {
                       </div>
                       {/* Exit alerts first */}
                       {holdings.filter(h => (scanData?.blast_stocks || []).some(b => b.symbol === h.symbol)).map(h => (
-                        <LongTermRow key={h.id} holding={h} onDelete={id => saveHoldings(holdings.filter(x => x.id !== id))} scanData={scanData} />
+                        <LongTermRow key={h.id} holding={h} onDelete={id => saveHoldings(holdings.filter(x => x.id !== id))} scanData={scanData} livePrices={livePrices} />
                       ))}
                       {/* Then re-entry signals */}
                       {holdings.filter(h => (scanData?.squeeze_stocks || []).some(sq => sq.symbol === h.symbol)).map(h => (
-                        <LongTermRow key={h.id} holding={h} onDelete={id => saveHoldings(holdings.filter(x => x.id !== id))} scanData={scanData} />
+                        <LongTermRow key={h.id} holding={h} onDelete={id => saveHoldings(holdings.filter(x => x.id !== id))} scanData={scanData} livePrices={livePrices} />
                       ))}
                       {/* Then the rest */}
                       {holdings.filter(h =>
                         !(scanData?.blast_stocks || []).some(b => b.symbol === h.symbol) &&
                         !(scanData?.squeeze_stocks || []).some(sq => sq.symbol === h.symbol)
                       ).map(h => (
-                        <LongTermRow key={h.id} holding={h} onDelete={id => saveHoldings(holdings.filter(x => x.id !== id))} scanData={scanData} />
+                        <LongTermRow key={h.id} holding={h} onDelete={id => saveHoldings(holdings.filter(x => x.id !== id))} scanData={scanData} livePrices={livePrices} />
                       ))}
                     </>
                   )}
