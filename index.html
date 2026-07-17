@@ -516,26 +516,27 @@ const PRICE_PROXY_URL = "";  // ← PASTE YOUR CLOUDFLARE WORKER URL HERE
 //   3. Yahoo via public CORS proxy
 // Returns the first that yields prices.
 async function fetchBrowserPrices(symbols) {
-  if (!symbols || symbols.length === 0) return { prices: {}, source: null };
+  if (!symbols || symbols.length === 0) return { prices: {}, source: null, debug: [] };
 
   // Merge across sources rather than stopping at the first that returns
-  // ANY result. A source returning prices for most-but-not-all requested
-  // symbols used to make this function return immediately with that
-  // partial set, silently abandoning the rest — which is exactly how
-  // holdings could show "no price" even for large, liquid, well-covered
-  // names: if the primary source dropped even a few symbols, nothing else
-  // was ever tried for them. Now each subsequent source is only asked for
-  // whatever is STILL missing, and sources used are tracked per-symbol.
+  // ANY result (see earlier comment history / chat for why). ALSO now
+  // captures real diagnostics per source attempt — status codes, actual
+  // caught errors, and exactly which requested symbols came back vs. were
+  // silently missing — because guessing at root cause from outside the
+  // browser has twice been wrong. This makes the real failure visible
+  // in-app instead of needing DevTools access on a phone.
   const out = {};
   const sourcesUsed = new Set();
+  const debug = [];
   const remaining = () => symbols.filter(s => !(s in out));
 
   // Source 1: Cloudflare Worker proxy to NSE
   if (PRICE_PROXY_URL && remaining().length > 0) {
+    const need = remaining();
     try {
-      const need = remaining();
       const url = `${PRICE_PROXY_URL}?symbols=${encodeURIComponent(need.join(","))}&t=${Date.now()}`;
       const res = await fetch(url);
+      const entry = { source: "NSE (worker)", requested: need, status: res.status };
       if (res.ok) {
         const data = await res.json();
         if (data.prices) {
@@ -543,51 +544,93 @@ async function fetchBrowserPrices(symbols) {
             if (price) { out[sym] = price; sourcesUsed.add("NSE"); }
           }
         }
+        entry.found = Object.keys(data.prices || {});
+        entry.missing = need.filter(s => !entry.found.includes(s));
+      } else {
+        entry.error = `HTTP ${res.status}`;
       }
-    } catch {}
+      debug.push(entry);
+    } catch (e) {
+      debug.push({ source: "NSE (worker)", requested: need, error: String(e) });
+    }
   }
 
   // Source 2: Yahoo Finance v7 quote (batch, direct) — only for what's still missing
   if (remaining().length > 0) {
+    const need = remaining();
     try {
-      const need = remaining();
       const tickers = need.map(s => s + ".NS").join(",");
       const res = await fetch(
         `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${tickers}`,
         { headers: { "Accept": "application/json" } }
       );
+      const entry = { source: "Yahoo (direct)", requested: need, status: res.status };
       if (res.ok) {
         const data = await res.json();
+        const found = [];
         for (const q of (data?.quoteResponse?.result || [])) {
+          const sym = q.symbol.replace(".NS", "");
           if (q.regularMarketPrice) {
-            out[q.symbol.replace(".NS", "")] = q.regularMarketPrice;
+            out[sym] = q.regularMarketPrice;
             sourcesUsed.add("Yahoo");
+            found.push(sym);
+          } else {
+            found.push(`${sym}(no regularMarketPrice)`);
           }
         }
+        entry.resultCount = (data?.quoteResponse?.result || []).length;
+        entry.found = found;
+        entry.missing = need.filter(s => !found.includes(s) && !(s in out));
+        entry.errorField = data?.quoteResponse?.error || data?.finance?.error || null;
+      } else {
+        entry.error = `HTTP ${res.status}`;
+        try { entry.body = (await res.text()).slice(0, 200); } catch {}
       }
-    } catch {}
+      debug.push(entry);
+    } catch (e) {
+      debug.push({ source: "Yahoo (direct)", requested: need, error: String(e) });
+    }
   }
 
   // Source 3: Yahoo via public CORS proxy — last resort for whatever's left
   if (remaining().length > 0) {
+    const need = remaining();
     try {
-      const need = remaining();
       const tickers = need.map(s => s + ".NS").join(",");
       const target = encodeURIComponent(`https://query1.finance.yahoo.com/v7/finance/quote?symbols=${tickers}`);
       const res = await fetch(`https://corsproxy.io/?url=${target}`);
+      const entry = { source: "Yahoo (CORS proxy)", requested: need, status: res.status };
       if (res.ok) {
         const data = await res.json();
+        const found = [];
         for (const q of (data?.quoteResponse?.result || [])) {
+          const sym = q.symbol.replace(".NS", "");
           if (q.regularMarketPrice) {
-            out[q.symbol.replace(".NS", "")] = q.regularMarketPrice;
+            out[sym] = q.regularMarketPrice;
             sourcesUsed.add("Yahoo (proxy)");
+            found.push(sym);
+          } else {
+            found.push(`${sym}(no regularMarketPrice)`);
           }
         }
+        entry.resultCount = (data?.quoteResponse?.result || []).length;
+        entry.found = found;
+        entry.missing = need.filter(s => !found.includes(s) && !(s in out));
+      } else {
+        entry.error = `HTTP ${res.status}`;
+        try { entry.body = (await res.text()).slice(0, 200); } catch {}
       }
-    } catch {}
+      debug.push(entry);
+    } catch (e) {
+      debug.push({ source: "Yahoo (CORS proxy)", requested: need, error: String(e) });
+    }
   }
 
-  return { prices: out, source: sourcesUsed.size ? Array.from(sourcesUsed).join("+") : null };
+  if (remaining().length > 0) {
+    console.warn("[fetchBrowserPrices] symbols with NO price from any source:", remaining());
+  }
+  console.log("[fetchBrowserPrices] diagnostics:", debug);
+  return { prices: out, source: sourcesUsed.size ? Array.from(sourcesUsed).join("+") : null, debug };
 }
 
 // ── Utility ───────────────────────────────────────────────────────────────────
@@ -1808,6 +1851,8 @@ function App() {
   const [showAddHolding, setShowAddHolding] = useState(false);
   const [portfolioTab, setPortfolioTab] = useState("swing");
   const [livePrices, setLivePrices] = useState({});   // symbol → live price
+  const [priceDebug, setPriceDebug] = useState(null);  // last fetchBrowserPrices() diagnostics, for surfacing "no price" root cause in-app
+  const [showPriceDebug, setShowPriceDebug] = useState(false);
   const [backtestReport, setBacktestReport] = useState(null);
   const [relativeStrength, setRelativeStrength] = useState(null);
   const [priceUpdated, setPriceUpdated] = useState(null); // last live price fetch time
@@ -1868,7 +1913,8 @@ function App() {
           setPricesStale(!liveFeed);
         }
         // Then try browser-side live prices and overlay them
-        const { prices: live, source } = await fetchBrowserPrices(uniqueSyms);
+        const { prices: live, source, debug } = await fetchBrowserPrices(uniqueSyms);
+        if (debug) setPriceDebug({ at: new Date().toLocaleTimeString("en-IN"), requested: uniqueSyms, debug });
         if (Object.keys(live).length > 0) {
           merged = { ...merged, ...live };
           setLivePrices(merged);
@@ -1898,7 +1944,8 @@ function App() {
         ...positions.filter(p => p.status === "OPEN").map(p => p.symbol),
         ...holdings.map(h => h.symbol),
       ])];
-      const { prices: live, source } = await fetchBrowserPrices(syms);
+      const { prices: live, source, debug } = await fetchBrowserPrices(syms);
+      if (debug) setPriceDebug({ at: new Date().toLocaleTimeString("en-IN"), requested: syms, debug });
       if (Object.keys(live).length > 0) {
         merged = { ...merged, ...live };
         setLivePrices(merged);
@@ -2332,6 +2379,38 @@ function App() {
                           <Stat label="Re-entry Signals" value={(scanData?.squeeze_stocks || []).filter(sq => holdings.some(h => h.symbol === sq.symbol)).length} color={T.accent} />
                         </div>
                       </div>
+                      {/* Price fetch diagnostics — only shown if something has no price, so
+                          this stays out of the way normally but is easy to find and screenshot
+                          when it's actually needed. */}
+                      {holdings.some(h => !(livePrices[h.symbol])
+                          && !(scanData?.blast_stocks||[]).some(b=>b.symbol===h.symbol)
+                          && !(scanData?.squeeze_stocks||[]).some(s=>s.symbol===h.symbol)
+                          && !(scanData?.watchlist_stocks||[]).some(s=>s.symbol===h.symbol)) && priceDebug && (
+                        <div style={{ background: T.card, border: `1px solid ${T.warn}44`, borderRadius: 10, padding: 12, marginBottom: 14 }}>
+                          <div onClick={() => setShowPriceDebug(v => !v)}
+                               style={{ display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer" }}>
+                            <div style={{ color: T.warn, fontSize: 11, fontWeight: 700 }}>
+                              🔍 Price fetch diagnostics — some holdings have no price {showPriceDebug ? "▾" : "▸"}
+                            </div>
+                          </div>
+                          {showPriceDebug && (
+                            <div style={{ marginTop: 10, fontSize: 10, color: T.muted, fontFamily: "monospace", lineHeight: 1.6 }}>
+                              <div style={{ marginBottom: 6 }}>Last attempt: {priceDebug.at} · requested {priceDebug.requested.length} symbols</div>
+                              {priceDebug.debug.map((d, i) => (
+                                <div key={i} style={{ marginBottom: 8, paddingBottom: 8, borderBottom: i < priceDebug.debug.length-1 ? `1px solid ${T.border}` : "none" }}>
+                                  <div style={{ color: T.text, fontWeight: 700 }}>{d.source} {d.status != null ? `(HTTP ${d.status})` : ""}</div>
+                                  {d.error && <div style={{ color: T.red }}>error: {d.error}</div>}
+                                  {d.body && <div style={{ color: T.red }}>body: {d.body}</div>}
+                                  {d.resultCount != null && <div>API returned {d.resultCount} quote(s) for {d.requested.length} requested</div>}
+                                  {d.missing && d.missing.length > 0 && <div style={{ color: T.warn }}>missing: {d.missing.join(", ")}</div>}
+                                  {d.found && d.found.length > 0 && <div style={{ color: T.green }}>found: {d.found.join(", ")}</div>}
+                                </div>
+                              ))}
+                              <div style={{ marginTop: 4, color: T.muted }}>Full details also logged to the browser console.</div>
+                            </div>
+                          )}
+                        </div>
+                      )}
                       {/* Exit alerts first */}
                       {holdings.filter(h => (scanData?.blast_stocks || []).some(b => b.symbol === h.symbol)).map(h => (
                         <LongTermRow key={h.id} holding={h} onDelete={id => saveHoldings(holdings.filter(x => x.id !== id))} scanData={scanData} livePrices={livePrices} />
