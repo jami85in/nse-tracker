@@ -518,53 +518,76 @@ const PRICE_PROXY_URL = "";  // ← PASTE YOUR CLOUDFLARE WORKER URL HERE
 async function fetchBrowserPrices(symbols) {
   if (!symbols || symbols.length === 0) return { prices: {}, source: null };
 
+  // Merge across sources rather than stopping at the first that returns
+  // ANY result. A source returning prices for most-but-not-all requested
+  // symbols used to make this function return immediately with that
+  // partial set, silently abandoning the rest — which is exactly how
+  // holdings could show "no price" even for large, liquid, well-covered
+  // names: if the primary source dropped even a few symbols, nothing else
+  // was ever tried for them. Now each subsequent source is only asked for
+  // whatever is STILL missing, and sources used are tracked per-symbol.
+  const out = {};
+  const sourcesUsed = new Set();
+  const remaining = () => symbols.filter(s => !(s in out));
+
   // Source 1: Cloudflare Worker proxy to NSE
-  if (PRICE_PROXY_URL) {
+  if (PRICE_PROXY_URL && remaining().length > 0) {
     try {
-      const url = `${PRICE_PROXY_URL}?symbols=${encodeURIComponent(symbols.join(","))}&t=${Date.now()}`;
+      const need = remaining();
+      const url = `${PRICE_PROXY_URL}?symbols=${encodeURIComponent(need.join(","))}&t=${Date.now()}`;
       const res = await fetch(url);
       if (res.ok) {
         const data = await res.json();
-        if (data.prices && Object.keys(data.prices).length > 0) {
-          return { prices: data.prices, source: "NSE" };
+        if (data.prices) {
+          for (const [sym, price] of Object.entries(data.prices)) {
+            if (price) { out[sym] = price; sourcesUsed.add("NSE"); }
+          }
         }
       }
     } catch {}
   }
 
-  // Source 2: Yahoo Finance v7 quote (batch, direct)
-  try {
-    const tickers = symbols.map(s => s + ".NS").join(",");
-    const res = await fetch(
-      `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${tickers}`,
-      { headers: { "Accept": "application/json" } }
-    );
-    if (res.ok) {
-      const data = await res.json();
-      const out = {};
-      for (const q of (data?.quoteResponse?.result || [])) {
-        if (q.regularMarketPrice) out[q.symbol.replace(".NS", "")] = q.regularMarketPrice;
+  // Source 2: Yahoo Finance v7 quote (batch, direct) — only for what's still missing
+  if (remaining().length > 0) {
+    try {
+      const need = remaining();
+      const tickers = need.map(s => s + ".NS").join(",");
+      const res = await fetch(
+        `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${tickers}`,
+        { headers: { "Accept": "application/json" } }
+      );
+      if (res.ok) {
+        const data = await res.json();
+        for (const q of (data?.quoteResponse?.result || [])) {
+          if (q.regularMarketPrice) {
+            out[q.symbol.replace(".NS", "")] = q.regularMarketPrice;
+            sourcesUsed.add("Yahoo");
+          }
+        }
       }
-      if (Object.keys(out).length > 0) return { prices: out, source: "Yahoo" };
-    }
-  } catch {}
+    } catch {}
+  }
 
-  // Source 3: Yahoo via public CORS proxy
-  try {
-    const tickers = symbols.map(s => s + ".NS").join(",");
-    const target = encodeURIComponent(`https://query1.finance.yahoo.com/v7/finance/quote?symbols=${tickers}`);
-    const res = await fetch(`https://corsproxy.io/?url=${target}`);
-    if (res.ok) {
-      const data = await res.json();
-      const out = {};
-      for (const q of (data?.quoteResponse?.result || [])) {
-        if (q.regularMarketPrice) out[q.symbol.replace(".NS", "")] = q.regularMarketPrice;
+  // Source 3: Yahoo via public CORS proxy — last resort for whatever's left
+  if (remaining().length > 0) {
+    try {
+      const need = remaining();
+      const tickers = need.map(s => s + ".NS").join(",");
+      const target = encodeURIComponent(`https://query1.finance.yahoo.com/v7/finance/quote?symbols=${tickers}`);
+      const res = await fetch(`https://corsproxy.io/?url=${target}`);
+      if (res.ok) {
+        const data = await res.json();
+        for (const q of (data?.quoteResponse?.result || [])) {
+          if (q.regularMarketPrice) {
+            out[q.symbol.replace(".NS", "")] = q.regularMarketPrice;
+            sourcesUsed.add("Yahoo (proxy)");
+          }
+        }
       }
-      if (Object.keys(out).length > 0) return { prices: out, source: "Yahoo (proxy)" };
-    }
-  } catch {}
+    } catch {}
+  }
 
-  return { prices: {}, source: null };
+  return { prices: out, source: sourcesUsed.size ? Array.from(sourcesUsed).join("+") : null };
 }
 
 // ── Utility ───────────────────────────────────────────────────────────────────
@@ -1820,13 +1843,19 @@ function App() {
       if (silent) showToast(`✓ Fetched · scan was ${data.scan_time}`);
       // Kick off live price fetch: backend baseline first, then supplement
       // with browser-side live prices (phone IP isn't NSE-blocked).
+      // Scan-signal symbols (squeeze/countertrend/blast/watchlist/shorts)
+      // already fall back cleanly to their own stock.price from scanData if
+      // livePrices is missing an entry (see SqueezeCard/BlastCard: `livePrice
+      // || stock.price`) — so they don't strictly need this fetch. Positions
+      // and holdings have much weaker fallbacks (a stale stored price, or
+      // none at all for holdings), so THEY are what this batch is really
+      // for. Keeping the batch small and focused on what actually needs it
+      // avoids the request growing so large (300-400+ symbols once there
+      // are hundreds of blast signals) that a live-price source silently
+      // truncates results — which is exactly what caused holdings appended
+      // at the end of the old combined array to intermittently show no
+      // price at all, even for large liquid names like NMDC/IRFC.
       const uniqueSyms = [...new Set([
-        ...(data.squeeze_stocks || []).map(s => s.symbol),
-        ...(data.countertrend_stocks || []).map(s => s.symbol),
-        ...(data.blast_stocks || []).map(s => s.symbol),
-        ...(data.watchlist_stocks || []).map(s => s.symbol),
-        ...(data.short_squeeze_stocks || []).map(s => s.symbol),
-        ...(data.short_breakdown_stocks || []).map(s => s.symbol),
         ...positions.filter(p => p.status === "OPEN").map(p => p.symbol),
         ...holdings.map(h => h.symbol),
       ])];
@@ -1866,12 +1895,6 @@ function App() {
         setPricesStale(!liveFeed);
       }
       const syms = [...new Set([
-        ...(scanData.squeeze_stocks || []).map(s => s.symbol),
-        ...(scanData.countertrend_stocks || []).map(s => s.symbol),
-        ...(scanData.blast_stocks || []).map(s => s.symbol),
-        ...(scanData.watchlist_stocks || []).map(s => s.symbol),
-        ...(scanData.short_squeeze_stocks || []).map(s => s.symbol),
-        ...(scanData.short_breakdown_stocks || []).map(s => s.symbol),
         ...positions.filter(p => p.status === "OPEN").map(p => p.symbol),
         ...holdings.map(h => h.symbol),
       ])];
