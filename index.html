@@ -1908,19 +1908,28 @@ function App() {
   }, []);
 
   // Auto-import real Zerodha holdings into Long-Term Holdings, without ever
-  // duplicating or overwriting anything added manually. Three cases per
-  // synced symbol:
-  //   1. Not in local holdings at all -> ADD it, tagged source:"zerodha".
-  //   2. Already present AND tagged source:"zerodha" (from a prior sync)
-  //      -> UPDATE qty/avgPrice so it tracks reality if you bought more.
-  //   3. Already present WITHOUT that tag (you added it yourself) -> LEAVE
-  //      IT ALONE. Your manual entry always wins; never duplicated either.
+  // duplicating or overwriting anything added manually. Four cases per
+  // symbol:
+  //   1. Synced symbol not in local holdings at all -> ADD it, tagged
+  //      source:"zerodha".
+  //   2. Synced symbol already present AND tagged source:"zerodha" (from a
+  //      prior sync) -> UPDATE qty/avgPrice so it tracks reality if you
+  //      bought more.
+  //   3. Synced symbol already present WITHOUT that tag (you added it
+  //      yourself) -> LEAVE IT ALONE. Your manual entry always wins.
+  //   4. A LOCAL holding is tagged source:"zerodha" but its symbol is NOT
+  //      in the latest sync at all -> REMOVE it. This is what actually
+  //      answers "does selling a stock take it off the list": the sync
+  //      only ever added/updated before, so a sold position just sat there
+  //      forever showing "no price" — because nothing genuinely has a
+  //      price for a position you no longer hold. This only ever removes
+  //      entries that WE added via a prior sync, never a manual entry.
   useEffect(() => {
     fetchZerodhaHoldings().then(data => {
       if (!data || !data.holdings) return;
       setHoldings(current => {
         const bySymbol = new Map(current.map(h => [h.symbol, h]));
-        let added = 0, updated = 0;
+        let added = 0, updated = 0, removed = 0;
         for (const [sym, z] of Object.entries(data.holdings)) {
           const existing = bySymbol.get(sym);
           if (!existing) {
@@ -1943,11 +1952,21 @@ function App() {
           }
           // else: manually-added entry for this symbol — left untouched.
         }
-        if (added === 0 && updated === 0) return current; // no state change, no re-render
+        const syncedSymbols = new Set(Object.keys(data.holdings));
+        for (const [sym, h] of Array.from(bySymbol.entries())) {
+          if (h.source === "zerodha" && !syncedSymbols.has(sym)) {
+            bySymbol.delete(sym);
+            removed++;
+          }
+        }
+        if (added === 0 && updated === 0 && removed === 0) return current; // no state change, no re-render
         const merged = Array.from(bySymbol.values());
         try { localStorage.setItem("nse_lt_holdings", JSON.stringify(merged)); } catch {}
-        if (added > 0) {
-          showToast(`Imported ${added} holding${added===1?"":"s"} from Zerodha`);
+        if (added > 0 || removed > 0) {
+          const parts = [];
+          if (added > 0) parts.push(`imported ${added}`);
+          if (removed > 0) parts.push(`removed ${removed} (no longer in your Zerodha account)`);
+          showToast(`Zerodha sync: ${parts.join(", ")}`);
         }
         return merged;
       });
