@@ -359,7 +359,7 @@ const RAW_BASE    = `https://raw.githubusercontent.com/${GITHUB_USER}/${GITHUB_R
 // instead of requiring a manual file diff to find out. This exists because
 // PWA/service-worker caching has repeatedly made "is this actually deployed
 // yet" the hardest part of diagnosing issues in this app.
-const BUILD_VERSION = "2026-07-20.1";
+const BUILD_VERSION = "2026-07-20.2";
 const GITHUB_APP_ACTIONS_URL = `https://github.com/${GITHUB_USER}/${GITHUB_REPO}/actions/workflows/scan.yml`;
 
 // ── Fetch strategy ────────────────────────────────────────────────────────────
@@ -1137,11 +1137,18 @@ function PortfolioRow({ pos, onClose, livePrice }) {
   const [sellPrice, setSellPrice] = useState("");
   const [showSell, setShowSell] = useState(false);
   const isOpen = pos.status === "OPEN";
-  const currentPrice = (isOpen && livePrice) ? livePrice : pos.currentPrice;
-  const liveReturn = ((currentPrice - pos.entryPrice) / pos.entryPrice) * 100;
+  // NEVER fall back to pos.currentPrice (frozen at entry price the moment
+  // this position was created — see the "Invest" confirm handler). That
+  // fallback silently displayed a flat 0% return whenever the live price
+  // was simply missing, indistinguishable from genuine breakeven — exactly
+  // the "prices under portfolio don't seem right" symptom. Missing means
+  // missing: show it honestly instead of a plausible-looking wrong number.
+  const currentPrice = isOpen ? (livePrice || null) : pos.exitPrice;
+  const hasPrice = currentPrice != null;
+  const liveReturn = hasPrice ? ((currentPrice - pos.entryPrice) / pos.entryPrice) * 100 : null;
   const targetReturn = pos.targetPrice ? ((pos.targetPrice - pos.entryPrice) / pos.entryPrice) * 100 : pos.predicted_return;
   const achieved = pos.status === "CLOSED" ? ((pos.exitPrice - pos.entryPrice) / pos.entryPrice) * 100 : null;
-  const priceLabel = isOpen ? (livePrice ? `Live ${curr(currentPrice)} ●` : `Last ${curr(currentPrice)}`) : `Sold ${curr(pos.exitPrice)}`;
+  const priceLabel = isOpen ? (hasPrice ? `Live ${curr(currentPrice)} ●` : "no price") : `Sold ${curr(pos.exitPrice)}`;
 
   return (
     <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: 14, marginBottom: 8 }}>
@@ -1154,8 +1161,8 @@ function PortfolioRow({ pos, onClose, livePrice }) {
           <div style={{ color: T.muted, fontSize: 11, marginTop: 3 }}>{pos.qty} sh @ {curr(pos.entryPrice)} · {pos.date}</div>
         </div>
         <div style={{ textAlign: "right", flexShrink: 0 }}>
-          <div style={{ color: isOpen ? (liveReturn >= 0 ? T.green : T.red) : achieved >= 0 ? T.green : T.red, fontWeight: 800, fontSize: 16 }}>
-            {isOpen ? pct(liveReturn) : pct(achieved)}
+          <div style={{ color: isOpen ? (hasPrice ? (liveReturn >= 0 ? T.green : T.red) : T.muted) : (achieved >= 0 ? T.green : T.red), fontWeight: 800, fontSize: 16 }}>
+            {isOpen ? (hasPrice ? pct(liveReturn) : "—") : pct(achieved)}
           </div>
           <div style={{ color: T.muted, fontSize: 11 }}>{priceLabel}</div>
         </div>
@@ -1227,10 +1234,14 @@ function NetPositionCard({ net, livePrice, onSell }) {
   const [sellQty, setSellQty] = useState(String(net.qty));
   const [sellPrice, setSellPrice] = useState(livePrice ? String(livePrice) : "");
 
-  const price = livePrice || net.avgEntry;
-  const ret = ((price - net.avgEntry) / net.avgEntry) * 100;
-  const currentValue = price * net.qty;
-  const gainLoss = currentValue - net.invested;
+  // NEVER fall back to net.avgEntry — that silently displayed a flat 0%
+  // return whenever the live price was simply missing, indistinguishable
+  // from genuine breakeven. Missing means missing.
+  const hasPrice = livePrice != null;
+  const price = hasPrice ? livePrice : null;
+  const ret = hasPrice ? ((price - net.avgEntry) / net.avgEntry) * 100 : null;
+  const currentValue = hasPrice ? price * net.qty : null;
+  const gainLoss = hasPrice ? currentValue - net.invested : null;
 
   const submitSell = () => {
     const qty = Number(sellQty), px = Number(sellPrice);
@@ -1243,7 +1254,7 @@ function NetPositionCard({ net, livePrice, onSell }) {
   };
 
   return (
-    <div style={{ background: T.card, border: `1px solid ${T.border}`, borderLeft: `3px solid ${ret >= 0 ? T.green : T.red}`, borderRadius: 10, padding: 14, marginBottom: 10 }}>
+    <div style={{ background: T.card, border: `1px solid ${T.border}`, borderLeft: `3px solid ${hasPrice ? (ret >= 0 ? T.green : T.red) : T.muted}`, borderRadius: 10, padding: 14, marginBottom: 10 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
         <div>
           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -1255,15 +1266,15 @@ function NetPositionCard({ net, livePrice, onSell }) {
           </div>
         </div>
         <div style={{ textAlign: "right" }}>
-          <div style={{ color: T.white, fontWeight: 700, fontSize: 16 }}>{curr(price)}{livePrice && <span style={{ color: T.accent, fontSize: 9, marginLeft: 3 }}>●live</span>}</div>
-          <div style={{ color: ret >= 0 ? T.green : T.red, fontSize: 13, fontWeight: 700 }}>{pct(ret)}</div>
+          <div style={{ color: T.white, fontWeight: 700, fontSize: 16 }}>{hasPrice ? curr(price) : "no price"}{livePrice && <span style={{ color: T.accent, fontSize: 9, marginLeft: 3 }}>●live</span>}</div>
+          <div style={{ color: hasPrice ? (ret >= 0 ? T.green : T.red) : T.muted, fontSize: 13, fontWeight: 700 }}>{hasPrice ? pct(ret) : "—"}</div>
         </div>
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(2,1fr)", gap: 8, marginTop: 10 }}>
         <Stat label="Invested" value={curr(net.invested)} />
-        <Stat label="Current Value" value={curr(currentValue)} color={gainLoss >= 0 ? T.green : T.red} />
-        <Stat label="Gain/Loss" value={(gainLoss >= 0 ? "+" : "-") + curr(Math.abs(gainLoss))} color={gainLoss >= 0 ? T.green : T.red} />
+        <Stat label="Current Value" value={hasPrice ? curr(currentValue) : "—"} color={hasPrice ? (gainLoss >= 0 ? T.green : T.red) : T.muted} />
+        <Stat label="Gain/Loss" value={hasPrice ? ((gainLoss >= 0 ? "+" : "-") + curr(Math.abs(gainLoss))) : "—"} color={hasPrice ? (gainLoss >= 0 ? T.green : T.red) : T.muted} />
         {net.targetPrice && <Stat label="Target" value={curr(net.targetPrice)} color={T.green} />}
       </div>
 
@@ -1307,10 +1318,14 @@ function PortfolioSummary({ positions, livePrices = {} }) {
   const open = positions.filter(p => p.status === "OPEN");
   const totalInvested = open.reduce((s, p) => s + p.invested, 0);
   const realizedPL = closed.reduce((s, p) => s + (p.exitPrice - p.entryPrice) * p.qty, 0);
-  const unrealizedPL = open.reduce((s, p) => {
-    const price = livePrices[p.symbol] || p.currentPrice;
-    return s + (price - p.entryPrice) * p.qty;
-  }, 0);
+  // EXCLUDE positions with no live price from the sum, rather than silently
+  // treating them as flat (price === entry, contributing exactly 0) — that
+  // previously understated real P&L with no indication anything was
+  // missing. missingCount is surfaced so an incomplete total is labeled as
+  // such instead of looking like a complete, precise number.
+  const pricedOpen = open.filter(p => livePrices[p.symbol] != null);
+  const missingCount = open.length - pricedOpen.length;
+  const unrealizedPL = pricedOpen.reduce((s, p) => s + (livePrices[p.symbol] - p.entryPrice) * p.qty, 0);
   const winRate = closed.length ? ((closed.filter(p => p.exitPrice > p.entryPrice).length / closed.length) * 100).toFixed(0) : 0;
 
   return (
@@ -1324,6 +1339,11 @@ function PortfolioSummary({ positions, livePrices = {} }) {
         <Stat label="Open" value={open.length} />
         <Stat label="Closed" value={closed.length} />
       </div>
+      {missingCount > 0 && (
+        <div style={{ marginTop: 10, color: T.warn, fontSize: 10 }}>
+          ⚠ Unrealized P&L excludes {missingCount} position{missingCount === 1 ? "" : "s"} with no live price yet — total is partial, not wrong-but-complete.
+        </div>
+      )}
     </div>
   );
 }
@@ -1391,10 +1411,11 @@ function MonitorPage({ scanData, positions, holdings, livePrices, priceUpdated, 
   const openPos = positions.filter(p => p.status === "OPEN");
   const closedPos = positions.filter(p => p.status === "CLOSED");
   const totalInvested = openPos.reduce((s, p) => s + p.invested, 0);
-  const unrealizedPL = openPos.reduce((s, p) => {
-    const price = px(p.symbol) || p.currentPrice;
-    return s + (price - p.entryPrice) * p.qty;
-  }, 0);
+  // Same fix as PortfolioSummary: exclude unpriced positions from the sum
+  // rather than silently treating them as flat (masks real gain/loss).
+  const pricedOpenPos = openPos.filter(p => px(p.symbol) != null);
+  const monitorMissingCount = openPos.length - pricedOpenPos.length;
+  const unrealizedPL = pricedOpenPos.reduce((s, p) => s + (px(p.symbol) - p.entryPrice) * p.qty, 0);
   const realizedPL = closedPos.reduce((s, p) => s + (p.exitPrice - p.entryPrice) * p.qty, 0);
 
   // ── Stop-loss & target alerts across open positions ──
@@ -1502,18 +1523,24 @@ function MonitorPage({ scanData, positions, holdings, livePrices, priceUpdated, 
             <Stat label="Realized P&L" value={(realizedPL >= 0 ? "+" : "-") + curr(Math.abs(realizedPL))} color={realizedPL >= 0 ? T.green : T.red} />
             <Stat label="Long-term Holdings" value={(holdings || []).length} />
           </div>
+          {monitorMissingCount > 0 && (
+            <div style={{ marginTop: 10, color: T.warn, fontSize: 10 }}>
+              ⚠ Unrealized P&L excludes {monitorMissingCount} position{monitorMissingCount === 1 ? "" : "s"} with no live price yet.
+            </div>
+          )}
         </div>
         {openPos.length > 0 && (
           <div style={{ marginTop: 10 }}>
             {openPos.map(p => {
-              const price = px(p.symbol) || p.currentPrice;
-              const ret = ((price - p.entryPrice) / p.entryPrice) * 100;
+              const price = px(p.symbol);
+              const hasPrice = price != null;
+              const ret = hasPrice ? ((price - p.entryPrice) / p.entryPrice) * 100 : null;
               return (
-                <MiniRow key={p.id} sym={p.symbol} borderColor={ret >= 0 ? T.green : T.red}
+                <MiniRow key={p.id} sym={p.symbol} borderColor={hasPrice ? (ret >= 0 ? T.green : T.red) : T.muted}
                   cols={[
                     { text: `${p.qty}sh @ ₹${fmt(p.entryPrice)}` },
-                    { text: `₹${fmt(price)}`, color: T.text },
-                    { text: pct(ret), color: ret >= 0 ? T.green : T.red, bold: true },
+                    { text: hasPrice ? `₹${fmt(price)}` : "no price", color: T.text },
+                    { text: hasPrice ? pct(ret) : "—", color: hasPrice ? (ret >= 0 ? T.green : T.red) : T.muted, bold: true },
                   ]} />
               );
             })}
@@ -1550,7 +1577,7 @@ function MonitorPage({ scanData, positions, holdings, livePrices, priceUpdated, 
             <MiniRow key={s.symbol} sym={`${i + 1}. ${s.symbol}`} borderColor={T.blast}
               cols={[
                 { text: `₹${fmt(price)}`, color: T.text },
-                { text: pct(ret), color: ret >= 0 ? T.green : T.red, bold: true },
+                { text: ret != null ? pct(ret) : "—", color: (ret != null && ret >= 0) ? T.green : T.red, bold: true },
                 { text: `Stoch ${fmt(s.stoch_k, 0)}` },
               ]} />
           );
