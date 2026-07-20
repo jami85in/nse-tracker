@@ -354,6 +354,12 @@ const GITHUB_USER = "jami85in";
 const GITHUB_REPO = "nse-tracker";
 const GITHUB_API  = `https://api.github.com/repos/${GITHUB_USER}/${GITHUB_REPO}/contents/data`;
 const RAW_BASE    = `https://raw.githubusercontent.com/${GITHUB_USER}/${GITHUB_REPO}/main/data`;
+// Bumped on every deployed change from here on — visible in the header, so
+// any screenshot instantly shows whether stale/cached code is running
+// instead of requiring a manual file diff to find out. This exists because
+// PWA/service-worker caching has repeatedly made "is this actually deployed
+// yet" the hardest part of diagnosing issues in this app.
+const BUILD_VERSION = "2026-07-20.1";
 const GITHUB_APP_ACTIONS_URL = `https://github.com/${GITHUB_USER}/${GITHUB_REPO}/actions/workflows/scan.yml`;
 
 // ── Fetch strategy ────────────────────────────────────────────────────────────
@@ -1927,6 +1933,18 @@ function App() {
   useEffect(() => {
     fetchZerodhaHoldings().then(data => {
       if (!data || !data.holdings) return;
+      // Defense in depth: the backend now refuses to write a suspiciously
+      // empty/shrunk result (see fetch_zerodha_holdings.py), but this
+      // frontend guard exists independently — an empty {} is truthy in JS
+      // and would otherwise sail past the check above, and the removal
+      // logic below would then treat "zero synced symbols" as "everything
+      // was sold" and delete every zerodha-tagged holding. Never trust a
+      // single layer for something this destructive.
+      if (Object.keys(data.holdings).length === 0) {
+        console.warn("[zerodha sync] Got an empty holdings result — skipping entirely " +
+                     "rather than risk treating it as a full sell-off.");
+        return;
+      }
       setHoldings(current => {
         const bySymbol = new Map(current.map(h => [h.symbol, h]));
         let added = 0, updated = 0, removed = 0;
@@ -2048,6 +2066,7 @@ function App() {
       <div style={{ background: T.surface, borderBottom: `1px solid ${T.border}`, padding: "calc(10px + env(safe-area-inset-top)) 16px 10px", display: "flex", justifyContent: "space-between", alignItems: "center", position: "sticky", top: 0, zIndex: 50 }}>
         <div style={{ minWidth: 0 }}>
           <span style={{ color: T.accent, fontWeight: 800, fontSize: 16, letterSpacing: -0.3 }}>⚡ NSE Tracker</span>
+          <span style={{ color: T.muted, fontSize: 9, marginLeft: 6, opacity: 0.6 }}>build {BUILD_VERSION}</span>
           <div style={{ color: T.muted, fontSize: 10, marginTop: 1, display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
             {scanData && <Pill label={scanData.market_mood} />}
             {nextPoll && <span>· next check <Countdown nextAt={nextPoll} /></span>}
