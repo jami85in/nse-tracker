@@ -1,5 +1,5 @@
 {
-  "scan_time": "2026-07-20 07:12 IST",
+  "scan_time": "2026-07-20 07:23 IST",
   "market_mood": "CAUTIOUS \u2014 14 clean squeeze entries (In Play) and 369 blast exit signals across 383 tracked setups. 16 lower-conviction countertrend signals held separately.",
   "squeeze_stocks": [
     {
@@ -116,7 +116,7 @@
       "status": "SQUEEZE",
       "first_seen": "2026-07-17",
       "confidence": "MEDIUM",
-      "reason": "BB width 2.71% slightly expanded from 2.28% with stoch_k rising moderately"
+      "reason": "BB narrow at 2.71% but slightly wider than 5d ago at 2.28%"
     },
     {
       "symbol": "TNPL",
@@ -152,7 +152,7 @@
       "status": "SQUEEZE",
       "first_seen": "2026-07-13",
       "confidence": "MEDIUM",
-      "reason": "BB marginally widened to 3.24% with stoch_k 47 at mid-range level"
+      "reason": "BB tight at 3.24% but stoch_k 47 mid-range limits directional conviction"
     },
     {
       "symbol": "ERIS",
@@ -192,7 +192,7 @@
       "promoted_from_watchlist": true,
       "promoted_date": "2026-07-15",
       "confidence": "HIGH",
-      "reason": "BB tightened from 8.18% to 5.2% with stoch_k 51.6 surging above stoch_d 28"
+      "reason": "BB compressed from 8.18% to 5.2% with stoch_k 51.6 surging above stoch_d 28"
     },
     {
       "symbol": "KUANTUM",
@@ -228,7 +228,7 @@
       "status": "SQUEEZE",
       "first_seen": "2026-07-17",
       "confidence": "MEDIUM",
-      "reason": "BB flat at 4.14% with stoch_k 48.4 showing minimal directional momentum"
+      "reason": "BB flat at 4.14% with stoch_k 48.4 mid-range showing no strong impulse"
     },
     {
       "symbol": "PVTBKGROWW",
@@ -614,7 +614,7 @@
       "status": "SQUEEZE",
       "first_seen": "2026-07-17",
       "confidence": "HIGH",
-      "reason": "BB tightened to 3.80% with stoch_k 16.6 and stoch_d aligned closely"
+      "reason": "BB tightened to 3.80% with stoch_k 16.6 and stoch_d closely aligned"
     },
     {
       "symbol": "NAHARPOLY",
@@ -650,7 +650,7 @@
       "status": "SQUEEZE",
       "first_seen": "2026-07-13",
       "confidence": "HIGH",
-      "reason": "BB tight at 3.63% with stoch_k 40.5 rising above stoch_d 36.8"
+      "reason": "BB tight at 3.63% with stoch_k 40.5 crossing above stoch_d 36.8"
     },
     {
       "symbol": "TRAVELFOOD",
@@ -686,7 +686,7 @@
       "status": "SQUEEZE",
       "first_seen": "2026-07-13",
       "confidence": "HIGH",
-      "reason": "BB crushed from 11.7% to 5.22% with stoch_k 12.2 at deep oversold"
+      "reason": "BB crushed from 11.7% to 5.22% with stoch_k 12.2 at extreme oversold"
     },
     {
       "symbol": "ADVANIHOTR",
@@ -722,7 +722,7 @@
       "status": "SQUEEZE",
       "first_seen": "2026-07-13",
       "confidence": "HIGH",
-      "reason": "BB narrowed to 5.3% with stoch_k at extreme low 4.7 turning up"
+      "reason": "BB tightened to 5.3% with stoch_k 4.7 at maximum oversold extreme"
     },
     {
       "symbol": "RSL",
@@ -758,7 +758,7 @@
       "status": "SQUEEZE",
       "first_seen": "2026-07-14",
       "confidence": "MEDIUM",
-      "reason": "BB barely narrowed to 3.08% with stoch_k 52.7 in neutral mid-zone"
+      "reason": "BB barely narrowing at 3.08% with stoch_k 52.7 in neutral mid-zone"
     },
     {
       "symbol": "ICRA",
@@ -794,7 +794,7 @@
       "status": "SQUEEZE",
       "first_seen": "2026-07-13",
       "confidence": "HIGH",
-      "reason": "BB nearly halved from 6.09% to 3.36% with stoch_k 3.7 extremely oversold"
+      "reason": "BB halved from 6.09% to 3.36% with stoch_k 3.7 at historic oversold extreme"
     },
     {
       "symbol": "TCI",
@@ -830,7 +830,7 @@
       "status": "SQUEEZE",
       "first_seen": "2026-07-14",
       "confidence": "MEDIUM",
-      "reason": "BB modestly narrowed to 3.09% with stoch_k 48.2 flat near stoch_d"
+      "reason": "BB narrowed to 3.09% but stoch_k 48.2 and stoch_d 48.3 nearly flat"
     },
     {
       "symbol": "UBL",
@@ -866,7 +866,7 @@
       "status": "SQUEEZE",
       "first_seen": "2026-07-14",
       "confidence": "MEDIUM",
-      "reason": "BB essentially flat at 3.96% with stoch_k 57.2 in neutral upper range"
+      "reason": "BB flat at 3.96% with stoch_k 57.2 slightly overbought limiting upside clarity"
     },
     {
       "symbol": "PFS",
