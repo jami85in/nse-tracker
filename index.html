@@ -518,19 +518,28 @@ const PRICE_PROXY_URL = "";  // ← PASTE YOUR CLOUDFLARE WORKER URL HERE
 async function fetchBrowserPrices(symbols) {
   if (!symbols || symbols.length === 0) return { prices: {}, source: null, debug: [] };
 
-  // Merge across sources rather than stopping at the first that returns
-  // ANY result (see earlier comment history / chat for why). ALSO now
-  // captures real diagnostics per source attempt — status codes, actual
-  // caught errors, and exactly which requested symbols came back vs. were
-  // silently missing — because guessing at root cause from outside the
-  // browser has twice been wrong. This makes the real failure visible
-  // in-app instead of needing DevTools access on a phone.
+  // Yahoo Finance (both direct and via CORS proxy) has been REMOVED as a
+  // source — confirmed permanently dead, not a transient issue: direct
+  // calls fail with CORS ("Failed to fetch"), and the CORS-proxy path gets
+  // HTTP 401 "User is unable to access this feature" straight from Yahoo,
+  // meaning they've locked down this unofficial endpoint entirely. This
+  // was never actually the intended primary source anyway — PRICE_PROXY_URL
+  // (a Cloudflare Worker) was meant to be that, but was left unconfigured,
+  // so every request silently fell through to Yahoo the whole time.
+  //
+  // The REAL fix for "Long-Term Holdings show no price": prices_kite.py now
+  // also fetches quotes for every symbol in data/zerodha_holdings.json (your
+  // actual synced holdings), not just active scan signals — server-side,
+  // via the same licensed Kite Connect feed already used everywhere else in
+  // this app. That's what actually closes the gap; this function is now
+  // just a thin, honest wrapper around the one remaining optional source.
   const out = {};
   const sourcesUsed = new Set();
   const debug = [];
   const remaining = () => symbols.filter(s => !(s in out));
 
-  // Source 1: Cloudflare Worker proxy to NSE
+  // Optional: Cloudflare Worker proxy to NSE, if PRICE_PROXY_URL is ever
+  // configured. Currently unconfigured by default — a no-op, not a failure.
   if (PRICE_PROXY_URL && remaining().length > 0) {
     const need = remaining();
     try {
@@ -552,77 +561,6 @@ async function fetchBrowserPrices(symbols) {
       debug.push(entry);
     } catch (e) {
       debug.push({ source: "NSE (worker)", requested: need, error: String(e) });
-    }
-  }
-
-  // Source 2: Yahoo Finance v7 quote (batch, direct) — only for what's still missing
-  if (remaining().length > 0) {
-    const need = remaining();
-    try {
-      const tickers = need.map(s => s + ".NS").join(",");
-      const res = await fetch(
-        `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${tickers}`,
-        { headers: { "Accept": "application/json" } }
-      );
-      const entry = { source: "Yahoo (direct)", requested: need, status: res.status };
-      if (res.ok) {
-        const data = await res.json();
-        const found = [];
-        for (const q of (data?.quoteResponse?.result || [])) {
-          const sym = q.symbol.replace(".NS", "");
-          if (q.regularMarketPrice) {
-            out[sym] = q.regularMarketPrice;
-            sourcesUsed.add("Yahoo");
-            found.push(sym);
-          } else {
-            found.push(`${sym}(no regularMarketPrice)`);
-          }
-        }
-        entry.resultCount = (data?.quoteResponse?.result || []).length;
-        entry.found = found;
-        entry.missing = need.filter(s => !found.includes(s) && !(s in out));
-        entry.errorField = data?.quoteResponse?.error || data?.finance?.error || null;
-      } else {
-        entry.error = `HTTP ${res.status}`;
-        try { entry.body = (await res.text()).slice(0, 200); } catch {}
-      }
-      debug.push(entry);
-    } catch (e) {
-      debug.push({ source: "Yahoo (direct)", requested: need, error: String(e) });
-    }
-  }
-
-  // Source 3: Yahoo via public CORS proxy — last resort for whatever's left
-  if (remaining().length > 0) {
-    const need = remaining();
-    try {
-      const tickers = need.map(s => s + ".NS").join(",");
-      const target = encodeURIComponent(`https://query1.finance.yahoo.com/v7/finance/quote?symbols=${tickers}`);
-      const res = await fetch(`https://corsproxy.io/?url=${target}`);
-      const entry = { source: "Yahoo (CORS proxy)", requested: need, status: res.status };
-      if (res.ok) {
-        const data = await res.json();
-        const found = [];
-        for (const q of (data?.quoteResponse?.result || [])) {
-          const sym = q.symbol.replace(".NS", "");
-          if (q.regularMarketPrice) {
-            out[sym] = q.regularMarketPrice;
-            sourcesUsed.add("Yahoo (proxy)");
-            found.push(sym);
-          } else {
-            found.push(`${sym}(no regularMarketPrice)`);
-          }
-        }
-        entry.resultCount = (data?.quoteResponse?.result || []).length;
-        entry.found = found;
-        entry.missing = need.filter(s => !found.includes(s) && !(s in out));
-      } else {
-        entry.error = `HTTP ${res.status}`;
-        try { entry.body = (await res.text()).slice(0, 200); } catch {}
-      }
-      debug.push(entry);
-    } catch (e) {
-      debug.push({ source: "Yahoo (CORS proxy)", requested: need, error: String(e) });
     }
   }
 
