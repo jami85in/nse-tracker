@@ -52,6 +52,25 @@ def get_symbols():
                 symbols.add(sym)
     except Exception as e:
         print(f"  Warning reading ledger: {e}")
+    # Real Zerodha holdings (written by fetch_zerodha_holdings.py). This is
+    # THE fix for Long-Term Holdings showing "no price" — those symbols live
+    # in the browser's localStorage, which no server-side script can see
+    # directly, but this file (built from the same kite.holdings() call) is
+    # a server-knowable proxy for "what the user actually holds". Without
+    # this, any holding with no active scan signal had no reliable price
+    # source at all — the frontend's browser-side Yahoo fallback was
+    # covering that gap, but Yahoo has since locked down that endpoint
+    # entirely (confirmed: HTTP 401 "user is unable to access this
+    # feature") — this is the real, durable fix, not another fallback.
+    n_before = len(symbols)
+    try:
+        with open("data/zerodha_holdings.json") as f:
+            zdata = json.load(f)
+        for sym in zdata.get("holdings", {}):
+            symbols.add(sym)
+    except Exception as e:
+        print(f"  Warning reading zerodha_holdings.json: {e}")
+    print(f"  +{len(symbols) - n_before} symbols added from Zerodha holdings.")
     return sorted(symbols)
 
 
