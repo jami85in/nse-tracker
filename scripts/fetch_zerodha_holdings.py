@@ -76,6 +76,31 @@ def main():
     for sym, h in list(holdings.items())[:5]:
         print(f"    {sym}: qty={h['qty']} avg={h['avgPrice']}")
 
+    # Sanity guard: the frontend now treats "symbol absent from this file"
+    # as "you sold it" and REMOVES it from Long-Term Holdings. That makes
+    # writing a suspiciously-empty or drastically-shrunk result dangerous —
+    # a transient Kite API glitch that returns an empty (not erroring) list
+    # could otherwise silently wipe out real holdings on the next page load.
+    # Compare against whatever's already committed and refuse to overwrite
+    # if this looks like a glitch rather than genuine, large-scale selling.
+    prev_count = 0
+    if os.path.exists(OUT_PATH):
+        try:
+            prev_count = json.load(open(OUT_PATH)).get("count", 0)
+        except Exception:
+            prev_count = 0
+    if prev_count >= 3 and len(holdings) == 0:
+        print(f"  REFUSING to write: got 0 holdings but {prev_count} were previously recorded — "
+              f"this looks like a transient API issue, not genuine full liquidation. "
+              f"Preserving existing file untouched.")
+        return
+    if prev_count >= 5 and len(holdings) < prev_count * 0.3:
+        print(f"  REFUSING to write: holdings count dropped from {prev_count} to {len(holdings)} "
+              f"(>70% drop) in a single sync — too large a swing to trust without confirmation. "
+              f"Preserving existing file untouched. If you genuinely sold this much, next run "
+              f"after the count stabilizes will pick it up correctly.")
+        return
+
     output = {
         "updated_at": now_ist.strftime("%Y-%m-%d %H:%M IST"),
         "source": "Kite Connect (licensed) — kite.holdings()",
