@@ -2381,34 +2381,34 @@ function App() {
                       </div>
                       {/* Price fetch diagnostics — only shown if something has no price, so
                           this stays out of the way normally but is easy to find and screenshot
-                          when it's actually needed. */}
+                          when it's actually needed. Content is always expanded (no tap-to-open
+                          step) after tap-to-expand didn't reliably register on mobile — this
+                          removes that whole class of failure rather than debugging it blind. */}
                       {holdings.some(h => !(livePrices[h.symbol])
                           && !(scanData?.blast_stocks||[]).some(b=>b.symbol===h.symbol)
                           && !(scanData?.squeeze_stocks||[]).some(s=>s.symbol===h.symbol)
                           && !(scanData?.watchlist_stocks||[]).some(s=>s.symbol===h.symbol)) && priceDebug && (
                         <div style={{ background: T.card, border: `1px solid ${T.warn}44`, borderRadius: 10, padding: 12, marginBottom: 14 }}>
-                          <div onClick={() => setShowPriceDebug(v => !v)}
-                               style={{ display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer" }}>
-                            <div style={{ color: T.warn, fontSize: 11, fontWeight: 700 }}>
-                              🔍 Price fetch diagnostics — some holdings have no price {showPriceDebug ? "▾" : "▸"}
-                            </div>
+                          <div style={{ color: T.warn, fontSize: 11, fontWeight: 700, marginBottom: 10 }}>
+                            🔍 Price fetch diagnostics — some holdings have no price
                           </div>
-                          {showPriceDebug && (
-                            <div style={{ marginTop: 10, fontSize: 10, color: T.muted, fontFamily: "monospace", lineHeight: 1.6 }}>
-                              <div style={{ marginBottom: 6 }}>Last attempt: {priceDebug.at} · requested {priceDebug.requested.length} symbols</div>
-                              {priceDebug.debug.map((d, i) => (
-                                <div key={i} style={{ marginBottom: 8, paddingBottom: 8, borderBottom: i < priceDebug.debug.length-1 ? `1px solid ${T.border}` : "none" }}>
-                                  <div style={{ color: T.text, fontWeight: 700 }}>{d.source} {d.status != null ? `(HTTP ${d.status})` : ""}</div>
-                                  {d.error && <div style={{ color: T.red }}>error: {d.error}</div>}
-                                  {d.body && <div style={{ color: T.red }}>body: {d.body}</div>}
-                                  {d.resultCount != null && <div>API returned {d.resultCount} quote(s) for {d.requested.length} requested</div>}
-                                  {d.missing && d.missing.length > 0 && <div style={{ color: T.warn }}>missing: {d.missing.join(", ")}</div>}
-                                  {d.found && d.found.length > 0 && <div style={{ color: T.green }}>found: {d.found.join(", ")}</div>}
-                                </div>
-                              ))}
-                              <div style={{ marginTop: 4, color: T.muted }}>Full details also logged to the browser console.</div>
-                            </div>
-                          )}
+                          <div style={{ fontSize: 10, color: T.muted, fontFamily: "monospace", lineHeight: 1.6 }}>
+                            <div style={{ marginBottom: 6 }}>Last attempt: {priceDebug.at} · requested {priceDebug.requested.length} symbols</div>
+                            {priceDebug.debug.length === 0 && (
+                              <div style={{ color: T.red }}>No sources were even attempted (debug array empty) — PRICE_PROXY_URL check or an early return may be skipping all sources.</div>
+                            )}
+                            {priceDebug.debug.map((d, i) => (
+                              <div key={i} style={{ marginBottom: 8, paddingBottom: 8, borderBottom: i < priceDebug.debug.length-1 ? `1px solid ${T.border}` : "none" }}>
+                                <div style={{ color: T.text, fontWeight: 700 }}>{d.source} {d.status != null ? `(HTTP ${d.status})` : ""}</div>
+                                {d.error && <div style={{ color: T.red }}>error: {d.error}</div>}
+                                {d.body && <div style={{ color: T.red }}>body: {d.body}</div>}
+                                {d.resultCount != null && <div>API returned {d.resultCount} quote(s) for {d.requested.length} requested</div>}
+                                {d.missing && d.missing.length > 0 && <div style={{ color: T.warn }}>missing: {d.missing.join(", ")}</div>}
+                                {d.found && d.found.length > 0 && <div style={{ color: T.green }}>found: {d.found.join(", ")}</div>}
+                              </div>
+                            ))}
+                            <div style={{ marginTop: 4, color: T.muted }}>Full details also logged to the browser console.</div>
+                          </div>
                         </div>
                       )}
                       {/* Exit alerts first */}
