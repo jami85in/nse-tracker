@@ -99,6 +99,45 @@ def main():
     for h, reason in skipped:
         print(f"    SKIPPED {h.get('tradingsymbol')}: {reason} (raw: {h})")
 
+    # Recently-bought stocks can sit in kite.positions() for up to a day
+    # before they settle into kite.holdings() (T+1 settlement) — a real,
+    # normal Zerodha/exchange behavior, not a bug. A stock bought yesterday
+    # or today would be invisible to holdings() alone. Merge in any CNC
+    # (delivery, not intraday) position with a positive net quantity that
+    # holdings() didn't already report, using the position's own average
+    # buy price. Only ADDS symbols missing from holdings() — never
+    # overwrites a holdings()-sourced entry, since that's the more
+    # authoritative, fully-settled source once it exists.
+    try:
+        raw_positions = kite.positions()
+        added_from_positions = []
+        for p in raw_positions.get("net", []):
+            sym = p.get("tradingsymbol")
+            if not sym or sym in holdings:
+                continue
+            if p.get("product") != "CNC":  # CNC = delivery equity, not MIS/intraday
+                continue
+            qty = p.get("quantity") or 0
+            if qty <= 0:
+                continue
+            avg_price = p.get("average_price")
+            holdings[sym] = {
+                "qty": int(qty),
+                "avgPrice": round(float(avg_price), 2) if avg_price is not None else 0.0,
+                "lastPrice": round(float(p.get("last_price") or 0), 2),
+                "pnl": round(float(p.get("pnl") or 0), 2),
+                "exchange": p.get("exchange"),
+                "source_note": "from positions() — not yet settled into holdings()",
+            }
+            added_from_positions.append(sym)
+        if added_from_positions:
+            print(f"  +{len(added_from_positions)} symbols from positions() not yet in "
+                  f"holdings() (likely bought very recently, pending T+1 settlement): "
+                  f"{added_from_positions}")
+    except Exception as e:
+        print(f"  WARNING: kite.positions() fetch failed ({e}) — continuing with "
+              f"holdings()-only data, not fatal.")
+
     # Sanity guard: the frontend now treats "symbol absent from this file"
     # as "you sold it" and REMOVES it from Long-Term Holdings. That makes
     # writing a suspiciously-empty or drastically-shrunk result dangerous —
