@@ -55,26 +55,49 @@ def main():
         return
 
     holdings = {}
+    skipped = []
     for h in raw_holdings:
-        if h.get("exchange") != "NSE":
-            continue  # NSE only, matching this project's convention throughout
-        qty = (h.get("quantity") or 0) + (h.get("t1_quantity") or 0)
-        if qty <= 0:
-            continue
         sym = h.get("tradingsymbol")
-        avg_price = h.get("average_price")
-        if not sym or not avg_price:
+        if not sym:
+            skipped.append((h, "no tradingsymbol at all"))
             continue
+        # NO exchange filter — a prior version dropped anything not tagged
+        # exchange=="NSE" in Kite's response, but Kite tags holdings by
+        # whichever exchange the position happens to be registered under
+        # (often BSE for some stocks even when the same shares are fully
+        # NSE-tradeable), which was very likely silently dropping real
+        # holdings (confirmed pattern: IDEA, IDFCFIRSTB, MEESHO and others
+        # went missing this way). Every symbol is captured regardless of
+        # its exchange tag; downstream price lookups are NSE-specific
+        # anyway and work correctly off the tradingsymbol alone.
+        #
+        # Quantity includes collateral (pledged shares) too — those are
+        # still real holdings you own, just not immediately sellable,
+        # and excluding them would be the same class of silent-drop bug.
+        qty = ((h.get("quantity") or 0) + (h.get("t1_quantity") or 0)
+               + (h.get("collateral_quantity") or 0))
+        if qty <= 0:
+            skipped.append((h, f"zero/negative total quantity ({qty})"))
+            continue
+        # NO avg_price filter — a prior version dropped any holding with a
+        # falsy average_price, which incorrectly treats a legitimate 0
+        # (e.g. bonus/gifted shares with no cost basis) the same as missing
+        # data. Missing is None; 0 is a valid, real value. Default to 0.0
+        # only when truly absent, never silently drop the holding.
+        avg_price = h.get("average_price")
         holdings[sym] = {
             "qty": int(qty),
-            "avgPrice": round(float(avg_price), 2),
+            "avgPrice": round(float(avg_price), 2) if avg_price is not None else 0.0,
             "lastPrice": round(float(h.get("last_price") or 0), 2),
             "pnl": round(float(h.get("pnl") or 0), 2),
+            "exchange": h.get("exchange"),  # kept for visibility/debugging, not filtered on
         }
 
-    print(f"  Fetched {len(raw_holdings)} raw holdings, {len(holdings)} NSE with qty > 0.")
-    for sym, h in list(holdings.items())[:5]:
-        print(f"    {sym}: qty={h['qty']} avg={h['avgPrice']}")
+    print(f"  Fetched {len(raw_holdings)} raw holdings from Kite, {len(holdings)} captured "
+          f"(no exchange/avg_price filtering), {len(skipped)} genuinely skipped.")
+    print(f"  All captured symbols: {sorted(holdings.keys())}")
+    for h, reason in skipped:
+        print(f"    SKIPPED {h.get('tradingsymbol')}: {reason} (raw: {h})")
 
     # Sanity guard: the frontend now treats "symbol absent from this file"
     # as "you sold it" and REMOVES it from Long-Term Holdings. That makes
