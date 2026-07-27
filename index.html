@@ -1050,8 +1050,16 @@ function LongTermRow({ holding, onDelete, scanData, livePrices }) {
   // stocks, most of the time) showed "no price" — invisible when holdings
   // were mostly hand-picked signal stocks, but obvious the moment 23 real
   // Zerodha holdings synced in at once.
-  const currentPrice = blastSignal?.price || squeezeSignal?.price || watchSignal?.price
-                        || livePrices?.[holding.symbol] || null;
+  // livePrices FIRST — Kite's feed refreshes every ~5 min during market
+  // hours; the scan's own price is a once-per-scan-run snapshot that can
+  // sit meaningfully behind on a fast-moving day (confirmed real case:
+  // IDFCFIRSTB's scan snapshot was ₹80.79 while the live feed, 5 minutes
+  // fresher, already showed ₹85.83 post-results). That ordering was fine
+  // for signal cards describing their own snapshot, but for a holding —
+  // where "Current Value" and "Gain/Loss" are literally computed from this
+  // number — the freshest available price should always win. Scan price
+  // now only fills in when livePrices has no entry for the symbol at all.
+  const currentPrice = livePrices?.[holding.symbol] || blastSignal?.price || squeezeSignal?.price || watchSignal?.price || null;
   const currentReturn = currentPrice ? ((currentPrice - holding.avgPrice) / holding.avgPrice) * 100 : null;
   const investedValue = holding.avgPrice * holding.qty;
   const currentValue = currentPrice ? currentPrice * holding.qty : null;
