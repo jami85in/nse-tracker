@@ -359,7 +359,7 @@ const RAW_BASE    = `https://raw.githubusercontent.com/${GITHUB_USER}/${GITHUB_R
 // instead of requiring a manual file diff to find out. This exists because
 // PWA/service-worker caching has repeatedly made "is this actually deployed
 // yet" the hardest part of diagnosing issues in this app.
-const BUILD_VERSION = "2026-07-27.1";
+const BUILD_VERSION = "2026-07-27.2";
 const GITHUB_APP_ACTIONS_URL = `https://github.com/${GITHUB_USER}/${GITHUB_REPO}/actions/workflows/scan.yml`;
 
 // ── Fetch strategy ────────────────────────────────────────────────────────────
@@ -604,6 +604,36 @@ function Stat({ label, value, color }) {
     <div style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0 }}>
       <span style={{ color: T.muted, fontSize: 10, letterSpacing: 0.6, textTransform: "uppercase" }}>{label}</span>
       <span style={{ color: color || T.text, fontSize: 13, fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{value}</span>
+    </div>
+  );
+}
+
+// Shared across LongTermRow, PortfolioRow, and NetPositionCard so a holding
+// and an open trade in the SAME symbol always show the SAME exit-watch
+// read — one source of truth (scanData.exit_watch, computed server-side in
+// scan.py's compute_exit_watch()), not three separate implementations that
+// could drift out of sync with each other.
+function exitWatchMessages(symbol, scanData) {
+  const ew = scanData?.exit_watch?.[symbol];
+  if (!ew || !ew.any) return [];
+  const messages = [];
+  if (ew.failed_squeeze) messages.push(`Failed squeeze — bands tightened to ${ew.recent_min_bb_width}% then widened back to ${ew.bb_width}% without a breakout`);
+  if (ew.trend_flip) messages.push("Trend flipped bearish — price now below both EMA10 and EMA30");
+  if (ew.momentum_down) messages.push("Momentum turning down — Stoch K has crossed below D");
+  return messages;
+}
+
+function ExitWatchBanner({ symbol, scanData }) {
+  const messages = exitWatchMessages(symbol, scanData);
+  if (messages.length === 0) return null;
+  return (
+    <div style={{ background: T.red + "18", border: `1px solid ${T.red}66`, borderRadius: 8, padding: "8px 10px", marginTop: 8, marginBottom: 4 }}>
+      <div style={{ color: T.red, fontSize: 11, fontWeight: 800, marginBottom: messages.length > 0 ? 3 : 0 }}>
+        ⚠ EXIT WATCH — {symbol}
+      </div>
+      {messages.map((m, i) => (
+        <div key={i} style={{ color: T.red, fontSize: 11, opacity: 0.9 }}>• {m}</div>
+      ))}
     </div>
   );
 }
@@ -1104,6 +1134,7 @@ function LongTermRow({ holding, onDelete, scanData, livePrices }) {
           {signalBadge.note}
         </div>
       )}
+      <ExitWatchBanner symbol={holding.symbol} scanData={scanData} />
 
       {/* Key numbers */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(2,1fr)", gap: 8, marginTop: 10 }}>
@@ -1141,7 +1172,7 @@ function LongTermRow({ holding, onDelete, scanData, livePrices }) {
 }
 
 // ── Portfolio Row ─────────────────────────────────────────────────────────────
-function PortfolioRow({ pos, onClose, livePrice }) {
+function PortfolioRow({ pos, onClose, livePrice, scanData }) {
   const [sellPrice, setSellPrice] = useState("");
   const [showSell, setShowSell] = useState(false);
   const isOpen = pos.status === "OPEN";
@@ -1175,6 +1206,7 @@ function PortfolioRow({ pos, onClose, livePrice }) {
           <div style={{ color: T.muted, fontSize: 11 }}>{priceLabel}</div>
         </div>
       </div>
+      {isOpen && <ExitWatchBanner symbol={pos.symbol} scanData={scanData} />}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(2,1fr)", gap: 8, marginTop: 10 }}>
         <Stat label="Invested" value={curr(pos.invested)} />
         <Stat label="Pred. %" value={"+" + fmt(targetReturn) + "%"} color={T.warn} />
@@ -1237,7 +1269,7 @@ function computeNetPositions(positions) {
   });
 }
 
-function NetPositionCard({ net, livePrice, onSell, onAdd }) {
+function NetPositionCard({ net, livePrice, onSell, onAdd, scanData }) {
   const [showSell, setShowSell] = useState(false);
   const [sellQty, setSellQty] = useState(String(net.qty));
   const [sellPrice, setSellPrice] = useState(livePrice ? String(livePrice) : "");
@@ -1298,6 +1330,8 @@ function NetPositionCard({ net, livePrice, onSell, onAdd }) {
           <div style={{ color: hasPrice ? (ret >= 0 ? T.green : T.red) : T.muted, fontSize: 13, fontWeight: 700 }}>{hasPrice ? pct(ret) : "—"}</div>
         </div>
       </div>
+
+      <ExitWatchBanner symbol={net.symbol} scanData={scanData} />
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(2,1fr)", gap: 8, marginTop: 10 }}>
         <Stat label="Invested" value={curr(net.invested)} />
@@ -2372,7 +2406,7 @@ function App() {
                       <>
                         <div style={{ color: T.text, fontWeight: 700, marginBottom: 10, fontSize: 14 }}>Open Positions (net)</div>
                         {nets.map(net => (
-                          <NetPositionCard key={net.symbol} net={net} livePrice={livePrices[net.symbol]} onSell={sellFromNetPosition} onAdd={addToNetPosition} />
+                          <NetPositionCard key={net.symbol} net={net} livePrice={livePrices[net.symbol]} onSell={sellFromNetPosition} onAdd={addToNetPosition} scanData={scanData} />
                         ))}
                       </>
                     ) : (
@@ -2422,13 +2456,13 @@ function App() {
                   {positions.filter(p => p.status === "OPEN").length > 0 && (
                     <>
                       <div style={{ color: T.text, fontWeight: 700, marginBottom: 10, fontSize: 14 }}>Open Lots</div>
-                      {positions.filter(p => p.status === "OPEN").map(p => <PortfolioRow key={p.id} pos={p} onClose={handleClosePosition} livePrice={livePrices[p.symbol]} />)}
+                      {positions.filter(p => p.status === "OPEN").map(p => <PortfolioRow key={p.id} pos={p} onClose={handleClosePosition} livePrice={livePrices[p.symbol]} scanData={scanData} />)}
                     </>
                   )}
                   {positions.filter(p => p.status === "CLOSED").length > 0 && (
                     <>
                       <div style={{ color: T.muted, fontWeight: 700, marginTop: 18, marginBottom: 10, fontSize: 14 }}>Closed Lots</div>
-                      {positions.filter(p => p.status === "CLOSED").map(p => <PortfolioRow key={p.id} pos={p} onClose={handleClosePosition} livePrice={livePrices[p.symbol]} />)}
+                      {positions.filter(p => p.status === "CLOSED").map(p => <PortfolioRow key={p.id} pos={p} onClose={handleClosePosition} livePrice={livePrices[p.symbol]} scanData={scanData} />)}
                     </>
                   )}
                   {positions.length === 0 && (
