@@ -359,7 +359,7 @@ const RAW_BASE    = `https://raw.githubusercontent.com/${GITHUB_USER}/${GITHUB_R
 // instead of requiring a manual file diff to find out. This exists because
 // PWA/service-worker caching has repeatedly made "is this actually deployed
 // yet" the hardest part of diagnosing issues in this app.
-const BUILD_VERSION = "2026-07-20.2";
+const BUILD_VERSION = "2026-07-27.1";
 const GITHUB_APP_ACTIONS_URL = `https://github.com/${GITHUB_USER}/${GITHUB_REPO}/actions/workflows/scan.yml`;
 
 // ── Fetch strategy ────────────────────────────────────────────────────────────
@@ -1237,10 +1237,14 @@ function computeNetPositions(positions) {
   });
 }
 
-function NetPositionCard({ net, livePrice, onSell }) {
+function NetPositionCard({ net, livePrice, onSell, onAdd }) {
   const [showSell, setShowSell] = useState(false);
   const [sellQty, setSellQty] = useState(String(net.qty));
   const [sellPrice, setSellPrice] = useState(livePrice ? String(livePrice) : "");
+  const [showAdd, setShowAdd] = useState(false);
+  const [addQty, setAddQty] = useState("");
+  const [addPrice, setAddPrice] = useState(livePrice ? String(livePrice) : "");
+  const [addDate, setAddDate] = useState(new Date().toISOString().slice(0, 10));
 
   // NEVER fall back to net.avgEntry — that silently displayed a flat 0%
   // return whenever the live price was simply missing, indistinguishable
@@ -1259,6 +1263,22 @@ function NetPositionCard({ net, livePrice, onSell }) {
     }
     onSell(net.symbol, qty, px);
     setShowSell(false);
+  };
+
+  const submitAdd = () => {
+    const qty = Number(addQty), px = Number(addPrice);
+    if (!qty || qty <= 0 || !px || px <= 0 || !addDate) {
+      showToast("⚠ Check quantity, price, and date");
+      return;
+    }
+    // Purchase date can't be in the future — this is a record of a real buy.
+    if (new Date(addDate) > new Date()) {
+      showToast("⚠ Purchase date can't be in the future");
+      return;
+    }
+    onAdd(net.symbol, qty, px, addDate);
+    setShowAdd(false);
+    setAddQty("");
   };
 
   return (
@@ -1286,11 +1306,47 @@ function NetPositionCard({ net, livePrice, onSell }) {
         {net.targetPrice && <Stat label="Target" value={curr(net.targetPrice)} color={T.green} />}
       </div>
 
-      {!showSell ? (
-        <button onClick={() => setShowSell(true)}
-          style={{ marginTop: 10, width: "100%", background: T.red + "18", border: `1px solid ${T.red}44`, color: T.red, borderRadius: 8, padding: "9px 0", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
-          📤 Sell (partial or full)
-        </button>
+      {!showSell && !showAdd ? (
+        <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+          <button onClick={() => setShowAdd(true)}
+            style={{ flex: 1, background: T.green + "18", border: `1px solid ${T.green}44`, color: T.green, borderRadius: 8, padding: "9px 0", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
+            ➕ Add Quantity
+          </button>
+          <button onClick={() => setShowSell(true)}
+            style={{ flex: 1, background: T.red + "18", border: `1px solid ${T.red}44`, color: T.red, borderRadius: 8, padding: "9px 0", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
+            📤 Sell (partial or full)
+          </button>
+        </div>
+      ) : showAdd ? (
+        <div style={{ marginTop: 10, background: T.surface, borderRadius: 8, padding: 10 }}>
+          <div style={{ display: "flex", gap: 8 }}>
+            <div style={{ flex: 1 }}>
+              <div style={{ color: T.muted, fontSize: 10, marginBottom: 3 }}>Qty to add</div>
+              <input type="number" value={addQty} onChange={e => setAddQty(e.target.value)} placeholder="e.g. 50"
+                style={{ width: "100%", background: T.bg, border: `1px solid ${T.border}`, borderRadius: 6, padding: "7px 8px", color: T.text, fontSize: 13 }} />
+            </div>
+            <div style={{ flex: 1 }}>
+              <div style={{ color: T.muted, fontSize: 10, marginBottom: 3 }}>Buy price ₹</div>
+              <input type="number" value={addPrice} onChange={e => setAddPrice(e.target.value)}
+                style={{ width: "100%", background: T.bg, border: `1px solid ${T.border}`, borderRadius: 6, padding: "7px 8px", color: T.text, fontSize: 13 }} />
+            </div>
+          </div>
+          <div style={{ marginTop: 8 }}>
+            <div style={{ color: T.muted, fontSize: 10, marginBottom: 3 }}>Purchase date</div>
+            <input type="date" value={addDate} max={new Date().toISOString().slice(0, 10)} onChange={e => setAddDate(e.target.value)}
+              style={{ width: "100%", background: T.bg, border: `1px solid ${T.border}`, borderRadius: 6, padding: "7px 8px", color: T.text, fontSize: 13 }} />
+          </div>
+          <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+            <button onClick={submitAdd}
+              style={{ flex: 1, background: T.green, color: "#000", border: "none", borderRadius: 8, padding: "9px 0", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
+              Confirm Add
+            </button>
+            <button onClick={() => setShowAdd(false)}
+              style={{ background: "none", border: `1px solid ${T.border}`, color: T.muted, borderRadius: 8, padding: "9px 14px", fontSize: 13, cursor: "pointer" }}>
+              Cancel
+            </button>
+          </div>
+        </div>
       ) : (
         <div style={{ marginTop: 10, background: T.surface, borderRadius: 8, padding: 10 }}>
           <div style={{ display: "flex", gap: 8 }}>
@@ -2087,6 +2143,35 @@ function App() {
     showToast(`✓ Sold ${qtyToSell} ${symbol} @ ₹${fmt(exitPrice)}`);
   };
 
+  // Adds a new OPEN lot for an existing (or new) symbol — this is how "Add
+  // Quantity" on the Portfolio page works. computeNetPositions() already
+  // aggregates all OPEN lots for a symbol into one combined view, so this
+  // new lot shows up correctly folded into qty/avgEntry/invested the
+  // moment it's saved — no separate merge logic needed.
+  const addToNetPosition = (symbol, qtyToAdd, buyPrice, purchaseDateStr) => {
+    // Inherit target/stop from any existing open lot for this symbol, so
+    // the combined view stays consistent — a manually-added lot has no
+    // scanner signal of its own to derive these from.
+    const existingLot = positions.find(p => p.symbol === symbol && p.status === "OPEN");
+    const displayDate = new Date(purchaseDateStr + "T00:00:00").toLocaleDateString("en-IN");
+    const newLot = {
+      id: uid(),
+      symbol,
+      qty: qtyToAdd,
+      entryPrice: buyPrice,
+      invested: qtyToAdd * buyPrice,
+      targetPrice: existingLot?.targetPrice ?? null,
+      stopLoss: existingLot?.stopLoss ?? null,
+      notes: "",
+      date: displayDate,
+      status: "OPEN",
+      currentPrice: buyPrice,
+      actualReturn: 0,
+    };
+    savePositions([...positions, newLot]);
+    showToast(`✓ Added ${qtyToAdd} ${symbol} @ ₹${fmt(buyPrice)} (${displayDate})`);
+  };
+
   // Kept for any remaining direct single-lot close call sites — closes one
   // specific lot entirely at the given price.
   const handleClosePosition = (id, exitPrice) => {
@@ -2287,7 +2372,7 @@ function App() {
                       <>
                         <div style={{ color: T.text, fontWeight: 700, marginBottom: 10, fontSize: 14 }}>Open Positions (net)</div>
                         {nets.map(net => (
-                          <NetPositionCard key={net.symbol} net={net} livePrice={livePrices[net.symbol]} onSell={sellFromNetPosition} />
+                          <NetPositionCard key={net.symbol} net={net} livePrice={livePrices[net.symbol]} onSell={sellFromNetPosition} onAdd={addToNetPosition} />
                         ))}
                       </>
                     ) : (
