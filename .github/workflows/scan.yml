@@ -53,6 +53,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Explicit pull, even right after checkout. workflow_run fires based on
+      # the OTHER workflow's completion EVENT, which can have a few seconds
+      # of propagation lag before `main` fully reflects its final commit —
+      # confirmed real case: this scan started ~20s after "NSE Daily OHLC
+      # Refresh" committed, and used Friday's close instead of the fresh bar
+      # that commit had just added (ESCORTS: showed 2905.1, a stale Friday
+      # close, when 2954.1 was already sitting in the just-pushed commit).
+      # A plain checkout can silently land on the commit just before that
+      # push. This makes it impossible to miss regardless of timing.
+      - name: Ensure absolute latest commit (workflow_run timing safety)
+        run: git pull --ff-only origin main
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
