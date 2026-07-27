@@ -359,7 +359,7 @@ const RAW_BASE    = `https://raw.githubusercontent.com/${GITHUB_USER}/${GITHUB_R
 // instead of requiring a manual file diff to find out. This exists because
 // PWA/service-worker caching has repeatedly made "is this actually deployed
 // yet" the hardest part of diagnosing issues in this app.
-const BUILD_VERSION = "2026-07-27.2";
+const BUILD_VERSION = "2026-07-27.3";
 const GITHUB_APP_ACTIONS_URL = `https://github.com/${GITHUB_USER}/${GITHUB_REPO}/actions/workflows/scan.yml`;
 
 // ── Fetch strategy ────────────────────────────────────────────────────────────
@@ -470,6 +470,19 @@ async function fetchLivePrices() {
   // so the file is stuck at an old snapshot — from showing an outdated price as
   // "live" (the SUNTV ₹510.95-vs-actual-₹496.60 case). Whichever file has the
   // more recent updated_at wins per-file; the other backfills missing symbols.
+  //
+  // IMPORTANT: the per-file comparison above is only RELATIVE — it picks
+  // whichever of the two files is less stale, which is not the same as
+  // "is this actually fresh". Confirmed real case: Kite silently stopped
+  // updating at 12:01 IST one day; by 10:35 PM that evening, its 12:01
+  // snapshot was STILL lexically newer than the previous day's scan
+  // baseline (which hadn't refreshed yet that evening), so the app showed
+  // a confident "●live" badge on 10+ hour old data for hours. liveFeed now
+  // also requires the Kite file's own timestamp to be within
+  // KITE_FRESHNESS_MINUTES of the actual current wall-clock time —
+  // independent of whatever the other file says — so a stale Kite feed is
+  // correctly flagged stale regardless of how old the fallback is.
+  const KITE_FRESHNESS_MINUTES = 20; // generous vs. the 5-min cron + normal Actions scheduling jitter
   const version = await fetchVersion();
   async function grab(filename) {
     try {
@@ -487,6 +500,16 @@ async function fetchLivePrices() {
     ]);
     const ts = (f) => (f && f.updated_at) ? String(f.updated_at) : '';
     const isKite = (f) => f && typeof f.source === 'string' && /kite/i.test(f.source);
+    const minutesAgo = (tsString) => {
+      // "YYYY-MM-DD HH:MM IST" is a wall-clock IST timestamp with no
+      // explicit UTC offset — parse it as such, then convert to real UTC
+      // millis (IST = UTC+5:30) so it's comparable against Date.now().
+      const m = /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2})/.exec(tsString || "");
+      if (!m) return Infinity;
+      const [y, mo, d, h, mi] = m.slice(1).map(Number);
+      const asUTCMillis = Date.UTC(y, mo - 1, d, h, mi) - (5.5 * 60 * 60 * 1000);
+      return (Date.now() - asUTCMillis) / 60000;
+    };
 
     // Primary = the fresher file by timestamp ("YYYY-MM-DD HH:MM …" compares
     // lexically). Secondary backfills any symbols the primary is missing.
@@ -497,8 +520,9 @@ async function fetchLivePrices() {
     if (!primary) return { prices: {}, updatedAt: null, marketOpen: false, liveFeed: false };
 
     const prices = { ...((secondary && secondary.prices) || {}), ...(primary.prices || {}) };
-    // Only a genuine, market-open Kite feed counts as "live" for the ●live badge.
-    const liveFeed = isKite(primary) && !!primary.market_open;
+    // Only a genuine, market-open, ACTUALLY-RECENT Kite feed counts as
+    // "live" for the ●live badge — see the freshness-gap comment above.
+    const liveFeed = isKite(primary) && !!primary.market_open && minutesAgo(primary.updated_at) <= KITE_FRESHNESS_MINUTES;
     return {
       prices,
       updatedAt: primary.updated_at || null,
@@ -1067,7 +1091,7 @@ function AddHoldingModal({ onClose, onAdd, scanData }) {
   );
 }
 
-function LongTermRow({ holding, onDelete, scanData, livePrices }) {
+function LongTermRow({ holding, onDelete, scanData, livePrices, pricesStale }) {
   const [showDelete, setShowDelete] = useState(false);
   const blastSignal = (scanData?.blast_stocks || []).find(s => s.symbol === holding.symbol);
   const squeezeSignal = (scanData?.squeeze_stocks || []).find(s => s.symbol === holding.symbol);
@@ -1120,7 +1144,7 @@ function LongTermRow({ holding, onDelete, scanData, livePrices }) {
           {currentReturn != null ? (
             <>
               <div style={{ color: currentReturn >= 0 ? T.green : T.red, fontWeight: 800, fontSize: 16 }}>{pct(currentReturn)}</div>
-              <div style={{ color: T.muted, fontSize: 11 }}>₹{fmt(currentPrice)}</div>
+              <div style={{ color: T.muted, fontSize: 11 }}>₹{fmt(currentPrice)}{pricesStale && <span style={{ marginLeft: 4 }}>(stale)</span>}</div>
             </>
           ) : (
             <div style={{ color: T.muted, fontSize: 12 }}>no price</div>
@@ -1172,7 +1196,7 @@ function LongTermRow({ holding, onDelete, scanData, livePrices }) {
 }
 
 // ── Portfolio Row ─────────────────────────────────────────────────────────────
-function PortfolioRow({ pos, onClose, livePrice, scanData }) {
+function PortfolioRow({ pos, onClose, livePrice, scanData, pricesStale }) {
   const [sellPrice, setSellPrice] = useState("");
   const [showSell, setShowSell] = useState(false);
   const isOpen = pos.status === "OPEN";
@@ -1187,7 +1211,7 @@ function PortfolioRow({ pos, onClose, livePrice, scanData }) {
   const liveReturn = hasPrice ? ((currentPrice - pos.entryPrice) / pos.entryPrice) * 100 : null;
   const targetReturn = pos.targetPrice ? ((pos.targetPrice - pos.entryPrice) / pos.entryPrice) * 100 : pos.predicted_return;
   const achieved = pos.status === "CLOSED" ? ((pos.exitPrice - pos.entryPrice) / pos.entryPrice) * 100 : null;
-  const priceLabel = isOpen ? (hasPrice ? `Live ${curr(currentPrice)} ●` : "no price") : `Sold ${curr(pos.exitPrice)}`;
+  const priceLabel = isOpen ? (hasPrice ? (pricesStale ? `Last ${curr(currentPrice)} (stale)` : `Live ${curr(currentPrice)} ●`) : "no price") : `Sold ${curr(pos.exitPrice)}`;
 
   return (
     <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: 14, marginBottom: 8 }}>
@@ -1269,7 +1293,7 @@ function computeNetPositions(positions) {
   });
 }
 
-function NetPositionCard({ net, livePrice, onSell, onAdd, scanData }) {
+function NetPositionCard({ net, livePrice, onSell, onAdd, scanData, pricesStale }) {
   const [showSell, setShowSell] = useState(false);
   const [sellQty, setSellQty] = useState(String(net.qty));
   const [sellPrice, setSellPrice] = useState(livePrice ? String(livePrice) : "");
@@ -1326,7 +1350,7 @@ function NetPositionCard({ net, livePrice, onSell, onAdd, scanData }) {
           </div>
         </div>
         <div style={{ textAlign: "right" }}>
-          <div style={{ color: T.white, fontWeight: 700, fontSize: 16 }}>{hasPrice ? curr(price) : "no price"}{livePrice && <span style={{ color: T.accent, fontSize: 9, marginLeft: 3 }}>●live</span>}</div>
+          <div style={{ color: T.white, fontWeight: 700, fontSize: 16 }}>{hasPrice ? curr(price) : "no price"}{livePrice && !pricesStale && <span style={{ color: T.accent, fontSize: 9, marginLeft: 3 }}>●live</span>}{livePrice && pricesStale && <span style={{ color: T.muted, fontSize: 9, marginLeft: 3 }}>(stale)</span>}</div>
           <div style={{ color: hasPrice ? (ret >= 0 ? T.green : T.red) : T.muted, fontSize: 13, fontWeight: 700 }}>{hasPrice ? pct(ret) : "—"}</div>
         </div>
       </div>
@@ -2406,7 +2430,7 @@ function App() {
                       <>
                         <div style={{ color: T.text, fontWeight: 700, marginBottom: 10, fontSize: 14 }}>Open Positions (net)</div>
                         {nets.map(net => (
-                          <NetPositionCard key={net.symbol} net={net} livePrice={livePrices[net.symbol]} onSell={sellFromNetPosition} onAdd={addToNetPosition} scanData={scanData} />
+                          <NetPositionCard key={net.symbol} net={net} livePrice={livePrices[net.symbol]} onSell={sellFromNetPosition} onAdd={addToNetPosition} scanData={scanData} pricesStale={pricesStale} />
                         ))}
                       </>
                     ) : (
@@ -2456,13 +2480,13 @@ function App() {
                   {positions.filter(p => p.status === "OPEN").length > 0 && (
                     <>
                       <div style={{ color: T.text, fontWeight: 700, marginBottom: 10, fontSize: 14 }}>Open Lots</div>
-                      {positions.filter(p => p.status === "OPEN").map(p => <PortfolioRow key={p.id} pos={p} onClose={handleClosePosition} livePrice={livePrices[p.symbol]} scanData={scanData} />)}
+                      {positions.filter(p => p.status === "OPEN").map(p => <PortfolioRow key={p.id} pos={p} onClose={handleClosePosition} livePrice={livePrices[p.symbol]} scanData={scanData} pricesStale={pricesStale} />)}
                     </>
                   )}
                   {positions.filter(p => p.status === "CLOSED").length > 0 && (
                     <>
                       <div style={{ color: T.muted, fontWeight: 700, marginTop: 18, marginBottom: 10, fontSize: 14 }}>Closed Lots</div>
-                      {positions.filter(p => p.status === "CLOSED").map(p => <PortfolioRow key={p.id} pos={p} onClose={handleClosePosition} livePrice={livePrices[p.symbol]} scanData={scanData} />)}
+                      {positions.filter(p => p.status === "CLOSED").map(p => <PortfolioRow key={p.id} pos={p} onClose={handleClosePosition} livePrice={livePrices[p.symbol]} scanData={scanData} pricesStale={pricesStale} />)}
                     </>
                   )}
                   {positions.length === 0 && (
@@ -2543,18 +2567,18 @@ function App() {
                       )}
                       {/* Exit alerts first */}
                       {holdings.filter(h => (scanData?.blast_stocks || []).some(b => b.symbol === h.symbol)).map(h => (
-                        <LongTermRow key={h.id} holding={h} onDelete={id => saveHoldings(holdings.filter(x => x.id !== id))} scanData={scanData} livePrices={livePrices} />
+                        <LongTermRow key={h.id} holding={h} onDelete={id => saveHoldings(holdings.filter(x => x.id !== id))} scanData={scanData} livePrices={livePrices} pricesStale={pricesStale} />
                       ))}
                       {/* Then re-entry signals */}
                       {holdings.filter(h => (scanData?.squeeze_stocks || []).some(sq => sq.symbol === h.symbol)).map(h => (
-                        <LongTermRow key={h.id} holding={h} onDelete={id => saveHoldings(holdings.filter(x => x.id !== id))} scanData={scanData} livePrices={livePrices} />
+                        <LongTermRow key={h.id} holding={h} onDelete={id => saveHoldings(holdings.filter(x => x.id !== id))} scanData={scanData} livePrices={livePrices} pricesStale={pricesStale} />
                       ))}
                       {/* Then the rest */}
                       {holdings.filter(h =>
                         !(scanData?.blast_stocks || []).some(b => b.symbol === h.symbol) &&
                         !(scanData?.squeeze_stocks || []).some(sq => sq.symbol === h.symbol)
                       ).map(h => (
-                        <LongTermRow key={h.id} holding={h} onDelete={id => saveHoldings(holdings.filter(x => x.id !== id))} scanData={scanData} livePrices={livePrices} />
+                        <LongTermRow key={h.id} holding={h} onDelete={id => saveHoldings(holdings.filter(x => x.id !== id))} scanData={scanData} livePrices={livePrices} pricesStale={pricesStale} />
                       ))}
                     </>
                   )}
