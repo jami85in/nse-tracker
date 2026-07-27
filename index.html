@@ -359,7 +359,7 @@ const RAW_BASE    = `https://raw.githubusercontent.com/${GITHUB_USER}/${GITHUB_R
 // instead of requiring a manual file diff to find out. This exists because
 // PWA/service-worker caching has repeatedly made "is this actually deployed
 // yet" the hardest part of diagnosing issues in this app.
-const BUILD_VERSION = "2026-07-27.3";
+const BUILD_VERSION = "2026-07-27.4";
 const GITHUB_APP_ACTIONS_URL = `https://github.com/${GITHUB_USER}/${GITHUB_REPO}/actions/workflows/scan.yml`;
 
 // ── Fetch strategy ────────────────────────────────────────────────────────────
@@ -464,25 +464,30 @@ async function fetchZerodhaHoldings() {
 // workflow (prices.yml) that runs every 15 min during NSE market hours using
 // yfinance. This avoids all browser CORS/cookie issues with Yahoo Finance.
 async function fetchLivePrices() {
-  // Prefer the Kite live feed (prices_live.json) when it is genuinely fresh,
-  // otherwise fall back to the scan's EOD baseline (prices_scan_baseline.json).
-  // This stops a stale prices_live.json — e.g. the Kite token wasn't refreshed,
-  // so the file is stuck at an old snapshot — from showing an outdated price as
-  // "live" (the SUNTV ₹510.95-vs-actual-₹496.60 case). Whichever file has the
-  // more recent updated_at wins per-file; the other backfills missing symbols.
+  // VALUE SELECTION is pure "latest timestamp wins", full stop — whichever
+  // of prices_live.json (Kite) or prices_scan_baseline.json (scan EOD) has
+  // the more recent updated_at supplies the prices; the other backfills any
+  // symbols it's missing. This part was never broken and never changes.
   //
-  // IMPORTANT: the per-file comparison above is only RELATIVE — it picks
-  // whichever of the two files is less stale, which is not the same as
-  // "is this actually fresh". Confirmed real case: Kite silently stopped
-  // updating at 12:01 IST one day; by 10:35 PM that evening, its 12:01
-  // snapshot was STILL lexically newer than the previous day's scan
-  // baseline (which hadn't refreshed yet that evening), so the app showed
-  // a confident "●live" badge on 10+ hour old data for hours. liveFeed now
-  // also requires the Kite file's own timestamp to be within
-  // KITE_FRESHNESS_MINUTES of the actual current wall-clock time —
-  // independent of whatever the other file says — so a stale Kite feed is
-  // correctly flagged stale regardless of how old the fallback is.
-  const KITE_FRESHNESS_MINUTES = 20; // generous vs. the 5-min cron + normal Actions scheduling jitter
+  // The separate question is what to tell the user about HOW CURRENT that
+  // data is — and that needs care. Confirmed real case: Kite silently
+  // stopped updating at 12:01 IST. Hours later, Kite's 12:01 snapshot was
+  // STILL the more recent of the two files (yesterday's baseline was even
+  // older), so it kept winning the timestamp comparison and got shown with
+  // a confident "live" badge despite being hours stale.
+  //
+  // The fix is NOT "reject Kite if it's more than N minutes old" — that
+  // would also flag the completely normal case of baseline correctly
+  // serving tonight's real closing price after Kite stops for the day,
+  // which isn't a problem at all, just the ordinary end of the trading
+  // day. The actual, narrower signal worth surfacing is: it is GENUINELY
+  // market hours right now (computed fresh from the real clock, not from
+  // any possibly-stale flag in either file) AND Kite — which claims to be
+  // our live source — hasn't kept pace with its own ~5-minute refresh
+  // cadence. That combination is the only thing that indicates something
+  // is actually wrong; baseline winning the comparison on its own, at any
+  // time of day, is not.
+  const KITE_REFRESH_TOLERANCE_MINUTES = 15; // 3x the 5-min cron cadence — tied to the real schedule, not an arbitrary guess
   const version = await fetchVersion();
   async function grab(filename) {
     try {
@@ -492,6 +497,17 @@ async function fetchLivePrices() {
       if (!text || text[0] !== '{') return null;
       return JSON.parse(text);
     } catch { return null; }
+  }
+  function isRealMarketHoursNow() {
+    // Computed fresh from the actual current moment — deliberately
+    // independent of primary.market_open, which is exactly the flag that
+    // was stale/frozen in the confirmed bug case.
+    const now = new Date();
+    const ist = new Date(now.getTime() + (now.getTimezoneOffset() * 60000) + (5.5 * 3600000));
+    const day = ist.getDay();
+    if (day === 0 || day === 6) return false;
+    const mins = ist.getHours() * 60 + ist.getMinutes();
+    return mins >= (9 * 60 + 15) && mins <= (15 * 60 + 30);
   }
   try {
     const [live, baseline] = await Promise.all([
@@ -511,26 +527,35 @@ async function fetchLivePrices() {
       return (Date.now() - asUTCMillis) / 60000;
     };
 
-    // Primary = the fresher file by timestamp ("YYYY-MM-DD HH:MM …" compares
-    // lexically). Secondary backfills any symbols the primary is missing.
+    // Primary = the fresher file by timestamp, unconditionally. Secondary
+    // backfills any symbols the primary is missing.
     let primary = live, secondary = baseline;
     if (baseline && (!live || ts(baseline) > ts(live))) {
       primary = baseline; secondary = live;
     }
-    if (!primary) return { prices: {}, updatedAt: null, marketOpen: false, liveFeed: false };
+    if (!primary) return { prices: {}, updatedAt: null, marketOpen: false, liveFeed: false, kiteDelayed: false };
 
     const prices = { ...((secondary && secondary.prices) || {}), ...(primary.prices || {}) };
-    // Only a genuine, market-open, ACTUALLY-RECENT Kite feed counts as
-    // "live" for the ●live badge — see the freshness-gap comment above.
-    const liveFeed = isKite(primary) && !!primary.market_open && minutesAgo(primary.updated_at) <= KITE_FRESHNESS_MINUTES;
+    const primaryIsKite = isKite(primary);
+    const kiteAge = primaryIsKite ? minutesAgo(primary.updated_at) : null;
+
+    // "Live" badge: Kite is our source AND genuinely within its own refresh cadence.
+    const liveFeed = primaryIsKite && !!primary.market_open && kiteAge <= KITE_REFRESH_TOLERANCE_MINUTES;
+    // "Delayed" warning: the ONE genuinely actionable case — it's really
+    // market hours right now, Kite is (still) our chosen source, but it
+    // hasn't updated as recently as it should have. NOT true just because
+    // baseline is serving a normal after-hours closing price.
+    const kiteDelayed = isRealMarketHoursNow() && primaryIsKite && kiteAge > KITE_REFRESH_TOLERANCE_MINUTES;
+
     return {
       prices,
       updatedAt: primary.updated_at || null,
       marketOpen: !!primary.market_open,
       liveFeed,
+      kiteDelayed,
     };
   } catch {
-    return { prices: {}, updatedAt: null, marketOpen: false, liveFeed: false };
+    return { prices: {}, updatedAt: null, marketOpen: false, liveFeed: false, kiteDelayed: false };
   }
 }
 
@@ -1144,7 +1169,7 @@ function LongTermRow({ holding, onDelete, scanData, livePrices, pricesStale }) {
           {currentReturn != null ? (
             <>
               <div style={{ color: currentReturn >= 0 ? T.green : T.red, fontWeight: 800, fontSize: 16 }}>{pct(currentReturn)}</div>
-              <div style={{ color: T.muted, fontSize: 11 }}>₹{fmt(currentPrice)}{pricesStale && <span style={{ marginLeft: 4 }}>(stale)</span>}</div>
+              <div style={{ color: T.muted, fontSize: 11 }}>₹{fmt(currentPrice)}</div>
             </>
           ) : (
             <div style={{ color: T.muted, fontSize: 12 }}>no price</div>
@@ -1211,7 +1236,7 @@ function PortfolioRow({ pos, onClose, livePrice, scanData, pricesStale }) {
   const liveReturn = hasPrice ? ((currentPrice - pos.entryPrice) / pos.entryPrice) * 100 : null;
   const targetReturn = pos.targetPrice ? ((pos.targetPrice - pos.entryPrice) / pos.entryPrice) * 100 : pos.predicted_return;
   const achieved = pos.status === "CLOSED" ? ((pos.exitPrice - pos.entryPrice) / pos.entryPrice) * 100 : null;
-  const priceLabel = isOpen ? (hasPrice ? (pricesStale ? `Last ${curr(currentPrice)} (stale)` : `Live ${curr(currentPrice)} ●`) : "no price") : `Sold ${curr(pos.exitPrice)}`;
+  const priceLabel = isOpen ? (hasPrice ? (!pricesStale ? `Live ${curr(currentPrice)} ●` : curr(currentPrice)) : "no price") : `Sold ${curr(pos.exitPrice)}`;
 
   return (
     <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: 14, marginBottom: 8 }}>
@@ -1350,7 +1375,7 @@ function NetPositionCard({ net, livePrice, onSell, onAdd, scanData, pricesStale 
           </div>
         </div>
         <div style={{ textAlign: "right" }}>
-          <div style={{ color: T.white, fontWeight: 700, fontSize: 16 }}>{hasPrice ? curr(price) : "no price"}{livePrice && !pricesStale && <span style={{ color: T.accent, fontSize: 9, marginLeft: 3 }}>●live</span>}{livePrice && pricesStale && <span style={{ color: T.muted, fontSize: 9, marginLeft: 3 }}>(stale)</span>}</div>
+          <div style={{ color: T.white, fontWeight: 700, fontSize: 16 }}>{hasPrice ? curr(price) : "no price"}{livePrice && !pricesStale && <span style={{ color: T.accent, fontSize: 9, marginLeft: 3 }}>●live</span>}</div>
           <div style={{ color: hasPrice ? (ret >= 0 ? T.green : T.red) : T.muted, fontSize: 13, fontWeight: 700 }}>{hasPrice ? pct(ret) : "—"}</div>
         </div>
       </div>
@@ -1950,6 +1975,7 @@ function App() {
   const [relativeStrength, setRelativeStrength] = useState(null);
   const [priceUpdated, setPriceUpdated] = useState(null); // last live price fetch time
   const [pricesStale, setPricesStale] = useState(true); // true when prices aren't from an active market session
+  const [kiteDelayed, setKiteDelayed] = useState(false); // true ONLY when it's genuinely market hours and Kite hasn't kept pace — the one case worth a real warning
   const BLAST_DISPLAY_CAP = 20;
   const [holdings, setHoldings] = useState(() => {
     try { return JSON.parse(localStorage.getItem("nse_lt_holdings") || "[]"); } catch { return []; }
@@ -1997,13 +2023,14 @@ function App() {
         ...positions.filter(p => p.status === "OPEN").map(p => p.symbol),
         ...holdings.map(h => h.symbol),
       ])];
-      fetchLivePrices().then(async ({ prices, updatedAt, marketOpen, liveFeed }) => {
+      fetchLivePrices().then(async ({ prices, updatedAt, marketOpen, liveFeed, kiteDelayed }) => {
         // Set backend prices immediately so the UI isn't empty
         let merged = { ...prices };
         if (Object.keys(merged).length > 0) {
           setLivePrices(merged);
           setPriceUpdated(updatedAt || "");
           setPricesStale(!liveFeed);
+          setKiteDelayed(kiteDelayed);
         }
         // Then try browser-side live prices and overlay them
         const { prices: live, source, debug } = await fetchBrowserPrices(uniqueSyms);
@@ -2026,12 +2053,13 @@ function App() {
   useEffect(() => {
     if (!scanData) return;
     const refreshPrices = async () => {
-      const { prices, updatedAt, marketOpen, liveFeed } = await fetchLivePrices();
+      const { prices, updatedAt, marketOpen, liveFeed, kiteDelayed } = await fetchLivePrices();
       let merged = { ...prices };
       if (Object.keys(merged).length > 0) {
         setLivePrices(merged);
         setPriceUpdated(updatedAt || "");
         setPricesStale(!liveFeed);
+        setKiteDelayed(kiteDelayed);
       }
       const syms = [...new Set([
         ...positions.filter(p => p.status === "OPEN").map(p => p.symbol),
@@ -2255,6 +2283,13 @@ function App() {
           {loading ? "⟳" : "↻"}
         </button>
       </div>
+
+      {kiteDelayed && (
+        <div style={{ background: T.warn + "18", borderBottom: `1px solid ${T.warn}44`, padding: "8px 16px", fontSize: 12, color: T.warn, fontWeight: 600 }}>
+          ⚠ Kite prices haven't updated in over 15 minutes during market hours — showing the last available price until it catches up.
+        </div>
+      )}
+
 
       {showRefreshMenu && (
         <div style={{ position: "fixed", inset: 0, background: "#000000DD", zIndex: 100, display: "flex", alignItems: "flex-end" }} onClick={() => setShowRefreshMenu(false)}>
