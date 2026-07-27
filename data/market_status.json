@@ -1,6 +1,6 @@
 {
   "date": "2026-07-27",
   "market_open": true,
-  "reason": "Regular trading day (live NSE calendar)",
-  "checked_at": "2026-07-27 21:29 IST"
+  "reason": "Market open \u2014 scan deferred until candle settles at 15:30 IST",
+  "checked_at": "2026-07-28 00:28 IST"
 }
