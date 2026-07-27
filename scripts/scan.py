@@ -747,6 +747,57 @@ class Candidate:
     stoch_d_chart: float = None
 
 
+def compute_exit_watch(df_ind: pd.DataFrame, lookback: int = 10) -> dict:
+    """For the LATEST bar, checks three deterioration signals a holder would
+    want to know about immediately — each reusing definitions already
+    established elsewhere in this file, not new arbitrary thresholds:
+      - failed_squeeze: bands had tightened to forming-or-tighter territory
+        (below WATCHLIST_BB_WIDTH_MAX) within the last `lookback` bars, but
+        have since re-expanded past that same ceiling without ever breaking
+        out cleanly. This is the DAVANGERE pattern: tightened to ~5%, then
+        blew back out to 11% without ever squeezing through.
+      - trend_flip: price is currently below BOTH EMA10 and EMA30 — the
+        same trend_conflict condition used throughout classify()/
+        classify_short().
+      - momentum_down: stoch K currently below stoch D — the same
+        momentum_down condition already used in the deterioration-exit
+        logic for tracked squeeze positions.
+    Returns None if there isn't enough clean (non-NaN) data to evaluate —
+    never guesses on partial data.
+    """
+    if df_ind is None or len(df_ind) < lookback + 5:
+        return None
+    tail = df_ind.tail(lookback + 1)  # last N+1 bars: N "recent" history + today
+    if (tail["bb_width_pct"].isna().any() or pd.isna(tail["stoch_k"].iloc[-1])
+            or pd.isna(tail["stoch_d"].iloc[-1]) or pd.isna(tail["ema10"].iloc[-1])
+            or pd.isna(tail["ema30"].iloc[-1])):
+        return None
+
+    today = tail.iloc[-1]
+    recent = tail.iloc[:-1]  # trailing N bars, excluding today
+
+    recent_min_bbw = float(recent["bb_width_pct"].min())
+    today_bbw = float(today["bb_width_pct"])
+    # 9.0 matches WATCHLIST_BB_WIDTH_MAX, defined locally inside classify()
+    # (not at module level, so referenced by value here) — keep these two
+    # in sync if that threshold is ever retuned.
+    watchlist_bb_width_max = 9.0
+    failed_squeeze = bool(recent_min_bbw < watchlist_bb_width_max and today_bbw > watchlist_bb_width_max)
+
+    trend_flip = bool(today["close"] < today["ema10"] and today["close"] < today["ema30"])
+    momentum_down = bool(today["stoch_k"] < today["stoch_d"])
+
+    return {
+        "failed_squeeze": failed_squeeze,
+        "trend_flip": trend_flip,
+        "momentum_down": momentum_down,
+        "any": failed_squeeze or trend_flip or momentum_down,
+        "bb_width": round(today_bbw, 2),
+        "recent_min_bb_width": round(recent_min_bbw, 2),
+    }
+
+
+
 def indicators_look_broken(df: pd.DataFrame) -> bool:
     """Detect obviously corrupted price history — almost always an
     unadjusted corporate action (split / bonus / demerger) in the source
@@ -1756,6 +1807,7 @@ def scan_all_symbols(session: requests.Session, universe: list, as_of_date: str 
     all_candidates = []
     short_candidates = []  # bearish setups — separate list, never mixed with longs
     scan_indicators = {}   # {symbol: current price/EMAs/stoch} for ALL scanned symbols
+    exit_watch = {}        # {symbol: failed_squeeze/trend_flip/momentum_down flags} for ALL scanned symbols
     scan_all_symbols._skipped_broken = 0  # count of symbols dropped for corrupted data
     fetched_histories = histories if histories is not None else {}
 
@@ -1812,6 +1864,10 @@ def scan_all_symbols(session: requests.Session, universe: list, as_of_date: str 
                 }
         except Exception:
             pass
+
+        ew = compute_exit_watch(df_ind)
+        if ew is not None:
+            exit_watch[symbol] = ew
         cand = classify(symbol, df_ind, scan_date=as_of_date)
         if cand:
             all_candidates.append(cand)
@@ -1827,6 +1883,7 @@ def scan_all_symbols(session: requests.Session, universe: list, as_of_date: str 
     # a function attribute.
     scan_all_symbols.last_short_candidates = short_candidates
     scan_all_symbols.last_indicators = scan_indicators
+    scan_all_symbols.last_exit_watch = exit_watch
     if getattr(scan_all_symbols, "_skipped_broken", 0):
         print(f"Skipped {scan_all_symbols._skipped_broken} symbol(s) with corrupted "
               f"indicators (likely unadjusted splits).")
@@ -2173,6 +2230,7 @@ def run(backfill_days: int = 0, allow_weekend: bool = False):
         "promoted_from_watchlist_today": len(promoted_today),
         "short_squeeze_total": len(short_squeeze),
         "short_breakdown_total": len(short_breakdown),
+        "exit_watch": getattr(scan_all_symbols, "last_exit_watch", {}),
     }
 
     os.makedirs("data", exist_ok=True)
