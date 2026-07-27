@@ -2261,6 +2261,20 @@ def run(backfill_days: int = 0, allow_weekend: bool = False):
         output.get("watchlist_stocks", [])
     )
     baseline_prices = {s["symbol"]: s["price"] for s in all_stocks if s.get("price")}
+    # Extend to EVERY scanned symbol, not just current squeeze/blast/watchlist
+    # candidates. scan_indicators already captures price for the full
+    # universe regardless of candidacy (see the comment where it's built:
+    # "for EVERY scanned symbol, whether or not it becomes a candidate").
+    # Without this, a real holding that simply isn't an active signal right
+    # now (confirmed real case: CIPLA) had NO fallback at all if Kite goes
+    # down — not even a once-daily close — because the old baseline only
+    # ever covered candidates. Candidate prices above are kept authoritative
+    # where they overlap (computed at the same point in the scan either way,
+    # so this is just filling gaps, not overriding anything).
+    all_indicators = getattr(scan_all_symbols, "last_indicators", {})
+    for sym, ind in all_indicators.items():
+        if sym not in baseline_prices and ind.get("price"):
+            baseline_prices[sym] = ind["price"]
     with open("data/prices_scan_baseline.json", "w") as f:
         dump_json_safe({
             "updated_at": now_ist_str(),
