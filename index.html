@@ -359,7 +359,7 @@ const RAW_BASE    = `https://raw.githubusercontent.com/${GITHUB_USER}/${GITHUB_R
 // instead of requiring a manual file diff to find out. This exists because
 // PWA/service-worker caching has repeatedly made "is this actually deployed
 // yet" the hardest part of diagnosing issues in this app.
-const BUILD_VERSION = "2026-07-29.1";
+const BUILD_VERSION = "2026-07-29.2";
 const GITHUB_APP_ACTIONS_URL = `https://github.com/${GITHUB_USER}/${GITHUB_REPO}/actions/workflows/scan.yml`;
 
 // ── Fetch strategy ────────────────────────────────────────────────────────────
@@ -650,6 +650,25 @@ function parseIndianDate(dateStr) {
   const [d, m, y] = parts.map(Number);
   if (!d || !m || !y) return new Date(NaN);
   return new Date(y, m - 1, d);
+}
+
+function toDateInputValue(dateStr) {
+  // Converts a stored display date ("DD/M/YYYY" or "DD/M/YYYY, HH:MM:SS",
+  // or empty/missing) into the "YYYY-MM-DD" string <input type="date">
+  // requires for its value. Uses the same parseIndianDate() as the sort
+  // fix, so editing a lot and the FIFO ordering always agree on what a
+  // given date string actually means.
+  const d = parseIndianDate(dateStr);
+  if (isNaN(d)) return "";
+  return d.toISOString().slice(0, 10);
+}
+
+function fromDateInputValue(isoStr) {
+  // Reverse of the above: "YYYY-MM-DD" from the picker -> the same
+  // "DD/M/YYYY" display format used everywhere else, via toLocaleDateString
+  // so it round-trips through parseIndianDate/toDateInputValue correctly.
+  if (!isoStr) return "";
+  return new Date(isoStr + "T00:00:00").toLocaleDateString("en-IN");
 }
 const uid = () => Math.random().toString(36).slice(2, 9);
 
@@ -1241,10 +1260,16 @@ function LongTermRow({ holding, onDelete, scanData, livePrices, pricesStale }) {
 }
 
 // ── Portfolio Row ─────────────────────────────────────────────────────────────
-function PortfolioRow({ pos, onClose, livePrice, scanData, pricesStale }) {
+function PortfolioRow({ pos, onClose, onEdit, livePrice, scanData, pricesStale }) {
   const [sellPrice, setSellPrice] = useState("");
   const [showSell, setShowSell] = useState(false);
+  const [showEdit, setShowEdit] = useState(false);
   const isOpen = pos.status === "OPEN";
+  const [editQty, setEditQty] = useState(String(pos.qty));
+  const [editEntryPrice, setEditEntryPrice] = useState(String(pos.entryPrice));
+  const [editDate, setEditDate] = useState(toDateInputValue(pos.date));
+  const [editExitPrice, setEditExitPrice] = useState(pos.exitPrice != null ? String(pos.exitPrice) : "");
+  const [editExitDate, setEditExitDate] = useState(toDateInputValue(pos.exitDate));
   // NEVER fall back to pos.currentPrice (frozen at entry price the moment
   // this position was created — see the "Invest" confirm handler). That
   // fallback silently displayed a flat 0% return whenever the live price
@@ -1283,14 +1308,88 @@ function PortfolioRow({ pos, onClose, livePrice, scanData, pricesStale }) {
         <Stat label="Stop" value={pos.stopLoss ? curr(pos.stopLoss) : "—"} color={T.red} />
       </div>
       {pos.notes && <div style={{ color: T.muted, fontSize: 11, marginTop: 8 }}>📝 {pos.notes}</div>}
-      {isOpen && (
+
+      {showEdit && (
+        <div style={{ marginTop: 10, background: T.surface, borderRadius: 8, padding: 10 }}>
+          <div style={{ display: "flex", gap: 8 }}>
+            <div style={{ flex: 1 }}>
+              <div style={{ color: T.muted, fontSize: 10, marginBottom: 3 }}>Qty</div>
+              <input type="number" value={editQty} onChange={e => setEditQty(e.target.value)}
+                style={{ width: "100%", background: T.bg, border: `1px solid ${T.border}`, borderRadius: 6, padding: "7px 8px", color: T.text, fontSize: 13 }} />
+            </div>
+            <div style={{ flex: 1 }}>
+              <div style={{ color: T.muted, fontSize: 10, marginBottom: 3 }}>Entry price ₹</div>
+              <input type="number" value={editEntryPrice} onChange={e => setEditEntryPrice(e.target.value)}
+                style={{ width: "100%", background: T.bg, border: `1px solid ${T.border}`, borderRadius: 6, padding: "7px 8px", color: T.text, fontSize: 13 }} />
+            </div>
+          </div>
+          <div style={{ marginTop: 8 }}>
+            <div style={{ color: T.muted, fontSize: 10, marginBottom: 3 }}>Entry date</div>
+            <input type="date" value={editDate} onChange={e => setEditDate(e.target.value)}
+              style={{ width: "100%", background: T.bg, border: `1px solid ${T.border}`, borderRadius: 6, padding: "7px 8px", color: T.text, fontSize: 13 }} />
+          </div>
+          {!isOpen && (
+            <>
+              <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                <div style={{ flex: 1 }}>
+                  <div style={{ color: T.muted, fontSize: 10, marginBottom: 3 }}>Exit price ₹</div>
+                  <input type="number" value={editExitPrice} onChange={e => setEditExitPrice(e.target.value)}
+                    style={{ width: "100%", background: T.bg, border: `1px solid ${T.border}`, borderRadius: 6, padding: "7px 8px", color: T.text, fontSize: 13 }} />
+                </div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ color: T.muted, fontSize: 10, marginBottom: 3 }}>Exit date</div>
+                  <input type="date" value={editExitDate} onChange={e => setEditExitDate(e.target.value)}
+                    style={{ width: "100%", background: T.bg, border: `1px solid ${T.border}`, borderRadius: 6, padding: "7px 8px", color: T.text, fontSize: 13 }} />
+                </div>
+              </div>
+            </>
+          )}
+          <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+            <button onClick={() => {
+                const qty = Number(editQty), entryPrice = Number(editEntryPrice);
+                if (!qty || qty <= 0 || !entryPrice || entryPrice <= 0 || !editDate) {
+                  showToast("⚠ Check quantity, entry price, and entry date"); return;
+                }
+                const patch = {
+                  qty, entryPrice, invested: qty * entryPrice,
+                  date: fromDateInputValue(editDate),
+                };
+                if (!isOpen) {
+                  const exitPrice = Number(editExitPrice);
+                  if (!exitPrice || exitPrice <= 0 || !editExitDate) {
+                    showToast("⚠ Check exit price and exit date"); return;
+                  }
+                  patch.exitPrice = exitPrice;
+                  patch.exitDate = fromDateInputValue(editExitDate);
+                  patch.actualReturn = ((exitPrice - entryPrice) / entryPrice) * 100;
+                }
+                onEdit(pos.id, patch);
+                setShowEdit(false);
+              }}
+              style={{ flex: 1, background: T.accent, color: "#000", border: "none", borderRadius: 8, padding: "9px 0", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
+              Save Changes
+            </button>
+            <button onClick={() => setShowEdit(false)}
+              style={{ background: "none", border: `1px solid ${T.border}`, color: T.muted, borderRadius: 8, padding: "9px 14px", fontSize: 13, cursor: "pointer" }}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {!showEdit && (
         <div style={{ marginTop: 10, display: "flex", gap: 8, flexWrap: "wrap" }}>
-          {!showSell ? (
+          <button onClick={() => setShowEdit(true)}
+            style={{ background: T.surface, border: `1px solid ${T.border}`, color: T.text, borderRadius: 8, padding: "10px 16px", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
+            ✏️ Edit
+          </button>
+          {isOpen && !showSell && (
             <button onClick={() => setShowSell(true)}
               style={{ background: T.blast + "22", border: `1px solid ${T.blast}`, color: T.blast, borderRadius: 8, padding: "10px 16px", fontSize: 13, fontWeight: 700, cursor: "pointer", flex: "1 1 auto" }}>
               📤 Mark Sold
             </button>
-          ) : (
+          )}
+          {isOpen && showSell && (
             <>
               <input type="number" inputMode="decimal" placeholder="Exit price ₹" value={sellPrice} onChange={e => setSellPrice(e.target.value)}
                 style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, padding: "10px 12px", color: T.text, fontSize: 14, flex: "1 1 100px", outline: "none" }} />
@@ -2287,6 +2386,17 @@ function App() {
     showToast("✓ Position closed");
   };
 
+  // Manual correction for a single lot — the direct fix for cases like the
+  // date-parsing bug that briefly made FIFO consume the wrong lot on a
+  // partial sell: that bug is fixed going forward, but it can't retroactively
+  // rewrite a sell that already executed under the old logic. This lets you
+  // fix the resulting bad entry price/qty/date yourself instead of asking
+  // for a one-off manual data patch every time something like this surfaces.
+  const editPosition = (id, patch) => {
+    savePositions(positions.map(p => (p.id === id ? { ...p, ...patch } : p)));
+    showToast("✓ Trade updated");
+  };
+
   return (
     <div style={{ background: T.bg, minHeight: "100vh", color: T.text, fontFamily: "'Inter', 'Segoe UI', sans-serif", paddingBottom: 76 }}>
       <div style={{ background: T.surface, borderBottom: `1px solid ${T.border}`, padding: "calc(10px + env(safe-area-inset-top)) 16px 10px", display: "flex", justifyContent: "space-between", alignItems: "center", position: "sticky", top: 0, zIndex: 50 }}>
@@ -2535,13 +2645,13 @@ function App() {
                   {positions.filter(p => p.status === "OPEN").length > 0 && (
                     <>
                       <div style={{ color: T.text, fontWeight: 700, marginBottom: 10, fontSize: 14 }}>Open Lots</div>
-                      {positions.filter(p => p.status === "OPEN").map(p => <PortfolioRow key={p.id} pos={p} onClose={handleClosePosition} livePrice={livePrices[p.symbol]} scanData={scanData} pricesStale={pricesStale} />)}
+                      {positions.filter(p => p.status === "OPEN").map(p => <PortfolioRow key={p.id} pos={p} onClose={handleClosePosition} onEdit={editPosition} livePrice={livePrices[p.symbol]} scanData={scanData} pricesStale={pricesStale} />)}
                     </>
                   )}
                   {positions.filter(p => p.status === "CLOSED").length > 0 && (
                     <>
                       <div style={{ color: T.muted, fontWeight: 700, marginTop: 18, marginBottom: 10, fontSize: 14 }}>Closed Lots</div>
-                      {positions.filter(p => p.status === "CLOSED").map(p => <PortfolioRow key={p.id} pos={p} onClose={handleClosePosition} livePrice={livePrices[p.symbol]} scanData={scanData} pricesStale={pricesStale} />)}
+                      {positions.filter(p => p.status === "CLOSED").map(p => <PortfolioRow key={p.id} pos={p} onClose={handleClosePosition} onEdit={editPosition} livePrice={livePrices[p.symbol]} scanData={scanData} pricesStale={pricesStale} />)}
                     </>
                   )}
                   {positions.length === 0 && (
