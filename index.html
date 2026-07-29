@@ -359,7 +359,7 @@ const RAW_BASE    = `https://raw.githubusercontent.com/${GITHUB_USER}/${GITHUB_R
 // instead of requiring a manual file diff to find out. This exists because
 // PWA/service-worker caching has repeatedly made "is this actually deployed
 // yet" the hardest part of diagnosing issues in this app.
-const BUILD_VERSION = "2026-07-27.4";
+const BUILD_VERSION = "2026-07-29.1";
 const GITHUB_APP_ACTIONS_URL = `https://github.com/${GITHUB_USER}/${GITHUB_REPO}/actions/workflows/scan.yml`;
 
 // ── Fetch strategy ────────────────────────────────────────────────────────────
@@ -631,6 +631,26 @@ const fmt = (n, d = 2) => (typeof n === "number" ? n.toFixed(d) : "—");
 const pct = n => (n >= 0 ? "+" : "") + fmt(n) + "%";
 const curr = n => "₹" + (n >= 1000 ? n.toLocaleString("en-IN", { maximumFractionDigits: 2 }) : fmt(n));
 const nowStr = () => new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata", hour12: false });
+
+function parseIndianDate(dateStr) {
+  // Position/lot dates are stored as India-locale strings — either from
+  // nowStr() ("DD/M/YYYY, HH:MM:SS") or toLocaleDateString("en-IN")
+  // ("DD/M/YYYY") — which new Date() cannot parse correctly: it expects
+  // MM/DD/YYYY for slash-separated strings, so "20/7/2026" silently
+  // becomes Invalid Date (month 20 doesn't exist). Comparing two Invalid
+  // Dates is NaN - NaN, which makes .sort() a silent no-op — confirmed
+  // real impact: FIFO lot consumption on partial sells picked whatever
+  // lot happened to already be array-first rather than the truly oldest
+  // one, and a multi-lot position's displayed Target price came from
+  // whichever lot was array-last, not the actually most recent one.
+  if (!dateStr) return new Date(NaN);
+  const datePart = String(dateStr).split(",")[0].trim(); // strip any ", HH:MM:SS"
+  const parts = datePart.split("/");
+  if (parts.length !== 3) return new Date(dateStr); // fallback for any other format (e.g. already-ISO)
+  const [d, m, y] = parts.map(Number);
+  if (!d || !m || !y) return new Date(NaN);
+  return new Date(y, m - 1, d);
+}
 const uid = () => Math.random().toString(36).slice(2, 9);
 
 function Pill({ label, color }) {
@@ -1308,11 +1328,11 @@ function computeNetPositions(positions) {
     // Target/stop shown from the most recent lot — these come from the
     // scanner signal at time of entry and can differ slightly across lots
     // bought on different days; showing the latest is the most relevant.
-    const latestLot = [...lots].sort((a, b) => new Date(b.date) - new Date(a.date))[0];
+    const latestLot = [...lots].sort((a, b) => parseIndianDate(b.date) - parseIndianDate(a.date))[0];
     return {
       symbol, lots, qty: totalQty, avgEntry, invested: totalInvested,
       targetPrice: latestLot.targetPrice, stopLoss: latestLot.stopLoss,
-      earliestDate: [...lots].sort((a, b) => new Date(a.date) - new Date(b.date))[0].date,
+      earliestDate: [...lots].sort((a, b) => parseIndianDate(a.date) - parseIndianDate(b.date))[0].date,
       lotCount: lots.length,
     };
   });
@@ -2190,7 +2210,7 @@ function App() {
     let remaining = qtyToSell;
     const openLots = positions
       .filter(p => p.symbol === symbol && p.status === "OPEN")
-      .sort((a, b) => new Date(a.date) - new Date(b.date)); // oldest first (FIFO)
+      .sort((a, b) => parseIndianDate(a.date) - parseIndianDate(b.date)); // oldest first (FIFO)
 
     if (remaining <= 0 || openLots.reduce((s, l) => s + l.qty, 0) < remaining) {
       showToast("⚠ Not enough open quantity to sell that much");
