@@ -1655,9 +1655,27 @@ def update_ledger(ledger: dict, all_candidates: list, scan_date: str, scan_indic
 
         elif cand.setup == "WATCHLIST":
             if existing and existing.get("status") in ("SQUEEZE", "BLAST"):
-                # Never downgrade — a stock that already earned SQUEEZE or
-                # is mid-BLAST stays there; a softer WATCHLIST read on a
-                # later scan doesn't overwrite real progress.
+                # Never downgrade the STATUS — a stock that already earned
+                # SQUEEZE or is mid-BLAST stays there; a softer WATCHLIST
+                # read on a later scan doesn't overwrite real progress. But
+                # live/display fields — price above all — must still
+                # refresh every scan regardless of status. A blanket
+                # `continue` here was silently freezing price indefinitely
+                # the moment a tracked SQUEEZE/BLAST symbol's fresh read
+                # softened to WATCHLIST, even though nothing about the
+                # symbol's underlying DATA was stale. Confirmed real case:
+                # SUNTV and CIPLA both stuck a full calendar day behind, at
+                # the PREVIOUS day's price, while every other symbol
+                # refreshed normally that same run. Only entry-specific
+                # fields stay frozen here, mirroring the same live-vs-frozen
+                # split already used for the SQUEEZE and BLAST refresh
+                # branches above.
+                refreshed = dict(existing)
+                for live_field in ("price", "bb_width", "stoch_k", "stoch_d"):
+                    if live_field in cand_dict:
+                        refreshed[live_field] = cand_dict[live_field]
+                refreshed["last_seen"] = scan_date
+                ledger[symbol] = refreshed
                 continue
             cand_dict["status"] = "WATCHLIST"
             if not existing:
