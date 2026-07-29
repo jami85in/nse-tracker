@@ -359,7 +359,7 @@ const RAW_BASE    = `https://raw.githubusercontent.com/${GITHUB_USER}/${GITHUB_R
 // instead of requiring a manual file diff to find out. This exists because
 // PWA/service-worker caching has repeatedly made "is this actually deployed
 // yet" the hardest part of diagnosing issues in this app.
-const BUILD_VERSION = "2026-07-29.2";
+const BUILD_VERSION = "2026-07-29.3";
 const GITHUB_APP_ACTIONS_URL = `https://github.com/${GITHUB_USER}/${GITHUB_REPO}/actions/workflows/scan.yml`;
 
 // ── Fetch strategy ────────────────────────────────────────────────────────────
@@ -1627,10 +1627,11 @@ function Countdown({ nextAt }) {
   return <span style={{ color: T.muted, fontFamily: "monospace", fontSize: 11 }}>{m}m {s}s</span>;
 }
 
-function BottomNav({ tab, setTab, scanCount, posCount, shortCount }) {
+function BottomNav({ tab, setTab, scanCount, posCount, shortCount, hsCount }) {
   const items = [
     { id: "monitor", icon: "📊", label: "Monitor" },
     { id: "scanner", icon: "🎯", label: "Long", badge: scanCount },
+    { id: "highstrong", icon: "⭐", label: "H+S", badge: hsCount },
     { id: "shorts", icon: "🔻", label: "Short", badge: shortCount },
     { id: "portfolio", icon: "💼", label: "Portfolio", badge: posCount },
     { id: "guide", icon: "📖", label: "Guide" },
@@ -2471,6 +2472,60 @@ function App() {
             <ShortsPage scanData={scanData} livePrices={livePrices} pricesStale={pricesStale} backtestReport={backtestReport} relativeStrength={relativeStrength} />
           )}
 
+          {tab === "highstrong" && scanData && (() => {
+            // Focused view: signals where BOTH the AI-judged confidence is
+            // HIGH and the deterministic conviction score is STRONG — the
+            // two things layered together, matching how the badges work
+            // live. This is NOT the same as the rigid HIGH formula tested
+            // in backtesting (that one is essentially unusable on real
+            // equities — see the Guide tab); "confidence: HIGH" here is
+            // the AI's live per-signal judgment, which fires meaningfully
+            // more often and is what actually drives the HIGH badge you
+            // see day to day.
+            const isHS = s => s.confidence === "HIGH" && s.conviction_score === "STRONG";
+            const hsSqueeze = (scanData.squeeze_stocks || []).filter(isHS);
+            const hsCountertrend = (scanData.countertrend_stocks || []).filter(isHS);
+            const hsWatchlist = (scanData.watchlist_stocks || []).filter(isHS);
+            return (
+              <div>
+                <div style={{ marginBottom: 14 }}>
+                  <div style={{ fontWeight: 800, fontSize: 16, color: T.accent }}>⭐ High Confidence + Strong Conviction</div>
+                  <div style={{ color: T.muted, fontSize: 11 }}>Both the AI confidence read and the technical conviction score agree — the cleanest signals currently active.</div>
+                </div>
+                {hsSqueeze.length === 0 && hsCountertrend.length === 0 && hsWatchlist.length === 0 && (
+                  <div style={{ color: T.muted, textAlign: "center", padding: 28, background: T.card, borderRadius: 10, fontSize: 13, lineHeight: 1.6, marginBottom: 26 }}>
+                    Nothing currently qualifies as both HIGH confidence and STRONG conviction.<br/>
+                    <span style={{ fontSize: 11, color: T.muted }}>This is a deliberately narrow, high-bar filter — it's normal for it to be empty some days.</span>
+                  </div>
+                )}
+                {hsSqueeze.length > 0 && (
+                  <>
+                    <div style={{ color: T.muted, fontSize: 12, fontWeight: 700, marginBottom: 8 }}>SQUEEZE — {hsSqueeze.length}</div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 20 }}>
+                      {hsSqueeze.map((s, i) => <SqueezeCard key={s.symbol} stock={s} onInvest={handleInvest} rank={i + 1} livePrice={livePrices[s.symbol]} zoneStats={backtestReport?.report?.[s.symbol]?.zone_forward_return_10d} relStrength={relativeStrength?.results?.[s.symbol]} stale={pricesStale} />)}
+                    </div>
+                  </>
+                )}
+                {hsCountertrend.length > 0 && (
+                  <>
+                    <div style={{ color: T.muted, fontSize: 12, fontWeight: 700, marginBottom: 8 }}>COUNTERTREND — {hsCountertrend.length}</div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 20 }}>
+                      {hsCountertrend.map((s, i) => <SqueezeCard key={s.symbol} stock={s} onInvest={handleInvest} rank={i + 1} livePrice={livePrices[s.symbol]} zoneStats={backtestReport?.report?.[s.symbol]?.zone_forward_return_10d} relStrength={relativeStrength?.results?.[s.symbol]} stale={pricesStale} />)}
+                    </div>
+                  </>
+                )}
+                {hsWatchlist.length > 0 && (
+                  <>
+                    <div style={{ color: T.muted, fontSize: 12, fontWeight: 700, marginBottom: 8 }}>WATCHLIST — {hsWatchlist.length}</div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 26 }}>
+                      {hsWatchlist.map((s, i) => <SqueezeCard key={s.symbol} stock={s} onInvest={handleInvest} rank={i + 1} livePrice={livePrices[s.symbol]} zoneStats={backtestReport?.report?.[s.symbol]?.zone_forward_return_10d} relStrength={relativeStrength?.results?.[s.symbol]} stale={pricesStale} />)}
+                    </div>
+                  </>
+                )}
+              </div>
+            );
+          })()}
+
           {tab === "scanner" && scanData && (
             <div>
               {marketStatus && marketStatus.market_open === false && (
@@ -2779,7 +2834,8 @@ function App() {
       <BottomNav tab={tab} setTab={setTab}
         scanCount={scanData ? (scanData.blast_stocks?.length || 0) : 0}
         shortCount={scanData ? ((scanData.short_squeeze_stocks?.length || 0) + (scanData.short_breakdown_stocks?.length || 0)) : 0}
-        posCount={positions.filter(p => p.status === "OPEN").length + holdings.length} />
+        posCount={positions.filter(p => p.status === "OPEN").length + holdings.length}
+        hsCount={scanData ? [...(scanData.squeeze_stocks||[]), ...(scanData.countertrend_stocks||[]), ...(scanData.watchlist_stocks||[])].filter(s => s.confidence === "HIGH" && s.conviction_score === "STRONG").length : 0} />
 
       {investTarget && <InvestModal stock={investTarget} onClose={() => setInvestTarget(null)} onConfirm={handleConfirmInvest} />}
       {showAddHolding && <AddHoldingModal onClose={() => setShowAddHolding(false)} onAdd={h => saveHoldings([...holdings, h])} scanData={scanData} />}
