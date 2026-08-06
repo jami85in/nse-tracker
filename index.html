@@ -359,7 +359,7 @@ const RAW_BASE    = `https://raw.githubusercontent.com/${GITHUB_USER}/${GITHUB_R
 // instead of requiring a manual file diff to find out. This exists because
 // PWA/service-worker caching has repeatedly made "is this actually deployed
 // yet" the hardest part of diagnosing issues in this app.
-const BUILD_VERSION = "2026-08-04.1";
+const BUILD_VERSION = "2026-08-05.1";
 const GITHUB_APP_ACTIONS_URL = `https://github.com/${GITHUB_USER}/${GITHUB_REPO}/actions/workflows/scan.yml`;
 
 // ── Fetch strategy ────────────────────────────────────────────────────────────
@@ -402,6 +402,11 @@ async function fetchFile(filename) {
 }
 
 async function fetchScanData() { return fetchFile("scan_latest.json"); }
+async function fetchHistoricalScan(dateStr) {
+  // dateStr must be "YYYY-MM-DD", matching how data/history/scan_*.json is named.
+  try { return await fetchFile(`history/scan_${dateStr}.json`); }
+  catch { return null; } // no snapshot for that date (weekend/holiday/before history started)
+}
 async function fetchMarketStatus() {
   try { return await fetchFile("market_status.json"); } catch { return null; }
 }
@@ -2097,6 +2102,32 @@ function App() {
   const [priceUpdated, setPriceUpdated] = useState(null); // last live price fetch time
   const [pricesStale, setPricesStale] = useState(true); // true when prices aren't from an active market session
   const [kiteDelayed, setKiteDelayed] = useState(false); // true ONLY when it's genuinely market hours and Kite hasn't kept pace — the one case worth a real warning
+  const [showHistory, setShowHistory] = useState(false);
+  const [historyDate, setHistoryDate] = useState("");
+  const [historyData, setHistoryData] = useState(null);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState("");
+
+  const loadHistoryDate = async (dateStr) => {
+    setHistoryDate(dateStr);
+    setHistoryData(null);
+    setHistoryError("");
+    if (!dateStr) return;
+    setHistoryLoading(true);
+    try {
+      const data = await fetchHistoricalScan(dateStr);
+      if (!data) {
+        setHistoryError("No snapshot saved for that date — likely a weekend, holiday, or before daily history started (June 19, 2026).");
+      } else {
+        setHistoryData(data);
+      }
+    } catch {
+      setHistoryError("Couldn't load that date — try again in a moment.");
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
+
   const BLAST_DISPLAY_CAP = 20;
   const [holdings, setHoldings] = useState(() => {
     try { return JSON.parse(localStorage.getItem("nse_lt_holdings") || "[]"); } catch { return []; }
@@ -2538,6 +2569,59 @@ function App() {
                   </div>
                 </div>
               )}
+
+              <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: 12, marginBottom: 20 }}>
+                <div onClick={() => setShowHistory(v => !v)}
+                     style={{ display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer" }}>
+                  <div style={{ fontWeight: 700, fontSize: 13, color: T.text }}>📅 View a past day's Long listing</div>
+                  <span style={{ color: T.muted, fontSize: 13 }}>{showHistory ? "▾" : "▸"}</span>
+                </div>
+                {showHistory && (
+                  <div style={{ marginTop: 10 }}>
+                    <input type="date" value={historyDate}
+                      min="2026-06-19" max={new Date().toISOString().slice(0, 10)}
+                      onChange={e => loadHistoryDate(e.target.value)}
+                      style={{ width: "100%", background: T.bg, border: `1px solid ${T.border}`, borderRadius: 6, padding: "8px 10px", color: T.text, fontSize: 13 }} />
+                    <div style={{ color: T.muted, fontSize: 10, marginTop: 4 }}>Daily history available from 19 June 2026 onward.</div>
+
+                    {historyLoading && <div style={{ color: T.muted, fontSize: 12, marginTop: 10, textAlign: "center" }}>Loading {historyDate}…</div>}
+                    {historyError && <div style={{ color: T.warn, fontSize: 12, marginTop: 10 }}>{historyError}</div>}
+
+                    {historyData && (() => {
+                      const hSqueeze = historyData.squeeze_stocks || [];
+                      const hCountertrend = historyData.countertrend_stocks || [];
+                      const hScanDate = historyData.scan_time ? historyData.scan_time.split(" ")[0] : historyDate;
+                      return (
+                        <div style={{ marginTop: 12 }}>
+                          <div style={{ color: T.muted, fontSize: 11, marginBottom: 10 }}>
+                            {hSqueeze.length + hCountertrend.length} stock{hSqueeze.length + hCountertrend.length === 1 ? "" : "s"} on the Long listing as of {historyData.scan_time || historyDate}
+                          </div>
+                          {hSqueeze.length === 0 && hCountertrend.length === 0 && (
+                            <div style={{ color: T.muted, fontSize: 12, textAlign: "center", padding: 16 }}>No squeeze or countertrend candidates that day.</div>
+                          )}
+                          {hSqueeze.length > 0 && (
+                            <>
+                              <div style={{ color: T.muted, fontSize: 11, fontWeight: 700, marginBottom: 6 }}>SQUEEZE — {hSqueeze.length}</div>
+                              <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 16 }}>
+                                {hSqueeze.map((s, i) => <SqueezeCard key={s.symbol} stock={s} onInvest={handleInvest} rank={i + 1} livePrice={null} stale={true} scanDate={hScanDate} />)}
+                              </div>
+                            </>
+                          )}
+                          {hCountertrend.length > 0 && (
+                            <>
+                              <div style={{ color: T.muted, fontSize: 11, fontWeight: 700, marginBottom: 6 }}>COUNTERTREND — {hCountertrend.length}</div>
+                              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                                {hCountertrend.map((s, i) => <SqueezeCard key={s.symbol} stock={s} onInvest={handleInvest} rank={i + 1} livePrice={null} stale={true} scanDate={hScanDate} />)}
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      );
+                    })()}
+                  </div>
+                )}
+              </div>
+
                 <div style={{ marginBottom: 14 }}>
                 <div style={{ fontWeight: 800, fontSize: 16, color: T.accent }}>🟢 In Play — Post-Squeeze</div>
                 <div style={{ color: T.muted, fontSize: 11 }}>BB &lt;4.5% + Stoch turning up · ATR target shown per card</div>
