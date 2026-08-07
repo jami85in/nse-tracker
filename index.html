@@ -359,7 +359,7 @@ const RAW_BASE    = `https://raw.githubusercontent.com/${GITHUB_USER}/${GITHUB_R
 // instead of requiring a manual file diff to find out. This exists because
 // PWA/service-worker caching has repeatedly made "is this actually deployed
 // yet" the hardest part of diagnosing issues in this app.
-const BUILD_VERSION = "2026-08-05.2";
+const BUILD_VERSION = "2026-08-05.3";
 const GITHUB_APP_ACTIONS_URL = `https://github.com/${GITHUB_USER}/${GITHUB_REPO}/actions/workflows/scan.yml`;
 
 // ── Fetch strategy ────────────────────────────────────────────────────────────
@@ -637,6 +637,16 @@ const pct = n => (n >= 0 ? "+" : "") + fmt(n) + "%";
 const curr = n => "₹" + (n >= 1000 ? n.toLocaleString("en-IN", { maximumFractionDigits: 2 }) : fmt(n));
 const nowStr = () => new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata", hour12: false });
 
+function emaCushion(stock, price) {
+  // How much room price has above EMA30 — backtested finding: entries with
+  // under 1% cushion flip to a bearish trend mid-trade ~67% of the time,
+  // dropping to ~38% once there's a 3%+ buffer. Returns null if EMA30
+  // isn't available for this stock (shouldn't normally happen, but never
+  // divide by something missing).
+  if (stock?.ema30 == null || !price) return null;
+  return ((price - stock.ema30) / stock.ema30) * 100;
+}
+
 function parseIndianDate(dateStr) {
   // Position/lot dates are stored as India-locale strings — either from
   // nowStr() ("DD/M/YYYY, HH:MM:SS") or toLocaleDateString("en-IN")
@@ -765,6 +775,7 @@ function PullToRefresh({ onRefresh, children, refreshing }) {
 function SqueezeCard({ stock, onInvest, rank, livePrice, zoneStats, relStrength, stale, scanDate }) {
   const [expanded, setExpanded] = useState(false);
   const price = livePrice || stock.price;
+  const cushion = emaCushion(stock, price);
   const daysTracked = stock.entry_date ? Math.max(0, Math.round((new Date() - new Date(stock.entry_date)) / 86400000)) : null;
   const liveReturn = (stock.entry_price && price) ? ((price - stock.entry_price) / stock.entry_price) * 100 : null;
   return (
@@ -780,6 +791,11 @@ function SqueezeCard({ stock, onInvest, rank, livePrice, zoneStats, relStrength,
               <Pill label={stock.conviction_score} color={
                 stock.conviction_score === "STRONG" ? T.green :
                 stock.conviction_score === "MODERATE" ? T.warn : T.red
+              } />
+            )}
+            {cushion != null && (
+              <Pill label={`cushion ${cushion >= 0 ? "+" : ""}${cushion.toFixed(1)}%`} color={
+                cushion >= 3 ? T.green : cushion >= 1 ? T.warn : T.red
               } />
             )}
             {stock.promoted_from_watchlist && stock.promoted_date === scanDate && <Pill label="GRADUATED TODAY" color={T.warn} />}
@@ -1633,11 +1649,12 @@ function Countdown({ nextAt }) {
   return <span style={{ color: T.muted, fontFamily: "monospace", fontSize: 11 }}>{m}m {s}s</span>;
 }
 
-function BottomNav({ tab, setTab, scanCount, posCount, shortCount, hsCount, newCount }) {
+function BottomNav({ tab, setTab, scanCount, posCount, shortCount, hsCount, newCount, cushionCount }) {
   const items = [
     { id: "monitor", icon: "📊", label: "Monitor" },
     { id: "scanner", icon: "🎯", label: "Long", badge: scanCount },
     { id: "new", icon: "🆕", label: "New", badge: newCount },
+    { id: "cushion", icon: "🛡️", label: "3%+", badge: cushionCount },
     { id: "highstrong", icon: "⭐", label: "H+S", badge: hsCount },
     { id: "shorts", icon: "🔻", label: "Short", badge: shortCount },
     { id: "portfolio", icon: "💼", label: "Portfolio", badge: posCount },
@@ -2552,6 +2569,50 @@ function App() {
             </div>
           )}
 
+          {tab === "cushion" && scanData && (() => {
+            // Backtested finding: entries with under 1% cushion above EMA30
+            // flip to a bearish trend mid-trade ~67% of the time, dropping
+            // to ~38% once there's a 3%+ buffer. This is that filter,
+            // applied to the same squeeze+countertrend scope as the Long tab.
+            const withCushion = (list) => (list || [])
+              .map(s => ({ stock: s, cushion: emaCushion(s, livePrices[s.symbol] || s.price) }))
+              .filter(x => x.cushion != null && x.cushion >= 3)
+              .sort((a, b) => b.cushion - a.cushion)
+              .map(x => x.stock);
+            const cSqueeze = withCushion(scanData.squeeze_stocks);
+            const cCountertrend = withCushion(scanData.countertrend_stocks);
+            return (
+              <div>
+                <div style={{ marginBottom: 14 }}>
+                  <div style={{ fontWeight: 800, fontSize: 16, color: T.accent }}>🛡️ 3%+ Cushion Above EMA30</div>
+                  <div style={{ color: T.muted, fontSize: 11 }}>Backtested: this level of buffer roughly halves the mid-trade trend-flip rate (67%→38%) vs a barely-qualifying entry.</div>
+                </div>
+                {cSqueeze.length === 0 && cCountertrend.length === 0 && (
+                  <div style={{ color: T.muted, textAlign: "center", padding: 28, background: T.card, borderRadius: 10, fontSize: 13, lineHeight: 1.6 }}>
+                    Nothing currently has a 3%+ cushion above EMA30.<br/>
+                    <span style={{ fontSize: 11, color: T.muted }}>This is a deliberately strict filter — it's normal for it to be empty some days.</span>
+                  </div>
+                )}
+                {cSqueeze.length > 0 && (
+                  <>
+                    <div style={{ color: T.muted, fontSize: 12, fontWeight: 700, marginBottom: 8 }}>SQUEEZE — {cSqueeze.length}</div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 20 }}>
+                      {cSqueeze.map((s, i) => <SqueezeCard key={s.symbol} stock={s} onInvest={handleInvest} rank={i + 1} livePrice={livePrices[s.symbol]} zoneStats={backtestReport?.report?.[s.symbol]?.zone_forward_return_10d} relStrength={relativeStrength?.results?.[s.symbol]} stale={pricesStale} scanDate={scanData?.scan_time ? scanData.scan_time.split(" ")[0] : null} />)}
+                    </div>
+                  </>
+                )}
+                {cCountertrend.length > 0 && (
+                  <>
+                    <div style={{ color: T.muted, fontSize: 12, fontWeight: 700, marginBottom: 8 }}>COUNTERTREND — {cCountertrend.length}</div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                      {cCountertrend.map((s, i) => <SqueezeCard key={s.symbol} stock={s} onInvest={handleInvest} rank={i + 1} livePrice={livePrices[s.symbol]} zoneStats={backtestReport?.report?.[s.symbol]?.zone_forward_return_10d} relStrength={relativeStrength?.results?.[s.symbol]} stale={pricesStale} scanDate={scanData?.scan_time ? scanData.scan_time.split(" ")[0] : null} />)}
+                    </div>
+                  </>
+                )}
+              </div>
+            );
+          })()}
+
           {tab === "highstrong" && scanData && (() => {
             // Focused view: signals where BOTH the AI-judged confidence is
             // HIGH and the deterministic conviction score is STRONG — the
@@ -2916,7 +2977,8 @@ function App() {
         shortCount={scanData ? ((scanData.short_squeeze_stocks?.length || 0) + (scanData.short_breakdown_stocks?.length || 0)) : 0}
         posCount={positions.filter(p => p.status === "OPEN").length + holdings.length}
         hsCount={scanData ? [...(scanData.squeeze_stocks||[]), ...(scanData.countertrend_stocks||[]), ...(scanData.watchlist_stocks||[])].filter(s => s.confidence === "HIGH" && s.conviction_score === "STRONG").length : 0}
-        newCount={newTodayList ? newTodayList.length : 0} />
+        newCount={newTodayList ? newTodayList.length : 0}
+        cushionCount={scanData ? [...(scanData.squeeze_stocks||[]), ...(scanData.countertrend_stocks||[])].filter(s => { const c = emaCushion(s, livePrices[s.symbol] || s.price); return c != null && c >= 3; }).length : 0} />
 
       {investTarget && <InvestModal stock={investTarget} onClose={() => setInvestTarget(null)} onConfirm={handleConfirmInvest} />}
       {showAddHolding && <AddHoldingModal onClose={() => setShowAddHolding(false)} onAdd={h => saveHoldings([...holdings, h])} scanData={scanData} />}
