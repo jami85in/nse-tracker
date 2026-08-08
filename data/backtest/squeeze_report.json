@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-01 06:45 UTC",
+  "generated": "2026-08-08 05:14 UTC",
   "params": {
     "bb_threshold": 4.5,
     "target_pct": 3.0,
@@ -7,14 +7,14 @@
     "max_hold_days": 20
   },
   "overall": {
-    "trades": 6848,
-    "target_pct": 52.6,
+    "trades": 6882,
+    "target_pct": 53.8,
     "stop_pct": 26.3,
-    "timeout_pct": 21.2,
-    "expectancy_pct": -0.184,
-    "gross_pct": 0.257,
-    "buyhold_net_pct": -0.203,
-    "edge_vs_buyhold": 0.018
+    "timeout_pct": 20.0,
+    "expectancy_pct": -0.137,
+    "gross_pct": 0.303,
+    "buyhold_net_pct": -0.125,
+    "edge_vs_buyhold": -0.012
   },
   "by_year": {
     "2020": {
@@ -78,34 +78,34 @@
       "edge_vs_buyhold": 0.518
     },
     "2026": {
-      "trades": 1087,
-      "target_pct": 36.4,
-      "stop_pct": 28.4,
-      "timeout_pct": 35.1,
-      "expectancy_pct": -1.017,
-      "gross_pct": -0.553,
-      "buyhold_net_pct": -1.775,
-      "edge_vs_buyhold": 0.758
+      "trades": 1121,
+      "target_pct": 44.4,
+      "stop_pct": 28.2,
+      "timeout_pct": 27.4,
+      "expectancy_pct": -0.697,
+      "gross_pct": -0.245,
+      "buyhold_net_pct": -1.249,
+      "edge_vs_buyhold": 0.552
     }
   },
   "trend_aligned": {
-    "trades": 5421,
-    "target_pct": 51.2,
+    "trades": 5446,
+    "target_pct": 52.5,
     "stop_pct": 27.0,
-    "timeout_pct": 21.7,
-    "expectancy_pct": -0.269,
-    "gross_pct": 0.174,
-    "buyhold_net_pct": -0.191,
-    "edge_vs_buyhold": -0.078
+    "timeout_pct": 20.5,
+    "expectancy_pct": -0.219,
+    "gross_pct": 0.222,
+    "buyhold_net_pct": -0.128,
+    "edge_vs_buyhold": -0.091
   },
   "trend_conflict": {
-    "trades": 1427,
-    "target_pct": 57.6,
-    "stop_pct": 23.4,
-    "timeout_pct": 19.0,
-    "expectancy_pct": 0.137,
-    "gross_pct": 0.571,
-    "buyhold_net_pct": -0.249,
-    "edge_vs_buyhold": 0.386
+    "trades": 1436,
+    "target_pct": 58.6,
+    "stop_pct": 23.3,
+    "timeout_pct": 18.1,
+    "expectancy_pct": 0.175,
+    "gross_pct": 0.608,
+    "buyhold_net_pct": -0.115,
+    "edge_vs_buyhold": 0.291
   }
 }
