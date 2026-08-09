@@ -359,7 +359,7 @@ const RAW_BASE    = `https://raw.githubusercontent.com/${GITHUB_USER}/${GITHUB_R
 // instead of requiring a manual file diff to find out. This exists because
 // PWA/service-worker caching has repeatedly made "is this actually deployed
 // yet" the hardest part of diagnosing issues in this app.
-const BUILD_VERSION = "2026-08-05.3";
+const BUILD_VERSION = "2026-08-05.4";
 const GITHUB_APP_ACTIONS_URL = `https://github.com/${GITHUB_USER}/${GITHUB_REPO}/actions/workflows/scan.yml`;
 
 // ── Fetch strategy ────────────────────────────────────────────────────────────
@@ -2570,27 +2570,33 @@ function App() {
           )}
 
           {tab === "cushion" && scanData && (() => {
-            // Backtested finding: entries with under 1% cushion above EMA30
-            // flip to a bearish trend mid-trade ~67% of the time, dropping
-            // to ~38% once there's a 3%+ buffer. This is that filter,
-            // applied to the same squeeze+countertrend scope as the Long tab.
-            const withCushion = (list) => (list || [])
+            // Two backtested filters layered together:
+            //  - Cushion ≥3% above EMA30: cuts mid-trade trend-flip rate
+            //    roughly in half (67% -> 38%) vs a barely-qualifying entry.
+            //  - Weekly-timeframe trend also aligned (price above weekly
+            //    EMA10/30, using only the last COMPLETED week): a further,
+            //    smaller but real reduction (57.6% -> 48.4% flip rate in
+            //    the non-aligned vs aligned case, 1,445-trade sample).
+            // Layered as a hard filter rather than more badges — the point
+            // of this tab is fewer, cleaner things to look at, not more to
+            // read on every card.
+            const qualifies = (list) => (list || [])
               .map(s => ({ stock: s, cushion: emaCushion(s, livePrices[s.symbol] || s.price) }))
-              .filter(x => x.cushion != null && x.cushion >= 3)
+              .filter(x => x.cushion != null && x.cushion >= 3 && scanData.weekly_alignment?.[x.stock.symbol] === true)
               .sort((a, b) => b.cushion - a.cushion)
               .map(x => x.stock);
-            const cSqueeze = withCushion(scanData.squeeze_stocks);
-            const cCountertrend = withCushion(scanData.countertrend_stocks);
+            const cSqueeze = qualifies(scanData.squeeze_stocks);
+            const cCountertrend = qualifies(scanData.countertrend_stocks);
             return (
               <div>
                 <div style={{ marginBottom: 14 }}>
-                  <div style={{ fontWeight: 800, fontSize: 16, color: T.accent }}>🛡️ 3%+ Cushion Above EMA30</div>
-                  <div style={{ color: T.muted, fontSize: 11 }}>Backtested: this level of buffer roughly halves the mid-trade trend-flip rate (67%→38%) vs a barely-qualifying entry.</div>
+                  <div style={{ fontWeight: 800, fontSize: 16, color: T.accent }}>🛡️ 3%+ Cushion & Weekly-Aligned</div>
+                  <div style={{ color: T.muted, fontSize: 11 }}>Both backtested filters applied: EMA30 cushion ≥3%, and the weekly timeframe also confirms the trend.</div>
                 </div>
                 {cSqueeze.length === 0 && cCountertrend.length === 0 && (
                   <div style={{ color: T.muted, textAlign: "center", padding: 28, background: T.card, borderRadius: 10, fontSize: 13, lineHeight: 1.6 }}>
-                    Nothing currently has a 3%+ cushion above EMA30.<br/>
-                    <span style={{ fontSize: 11, color: T.muted }}>This is a deliberately strict filter — it's normal for it to be empty some days.</span>
+                    Nothing currently clears both filters.<br/>
+                    <span style={{ fontSize: 11, color: T.muted }}>This is deliberately strict — it's normal for it to be empty some days.</span>
                   </div>
                 )}
                 {cSqueeze.length > 0 && (
@@ -2978,7 +2984,7 @@ function App() {
         posCount={positions.filter(p => p.status === "OPEN").length + holdings.length}
         hsCount={scanData ? [...(scanData.squeeze_stocks||[]), ...(scanData.countertrend_stocks||[]), ...(scanData.watchlist_stocks||[])].filter(s => s.confidence === "HIGH" && s.conviction_score === "STRONG").length : 0}
         newCount={newTodayList ? newTodayList.length : 0}
-        cushionCount={scanData ? [...(scanData.squeeze_stocks||[]), ...(scanData.countertrend_stocks||[])].filter(s => { const c = emaCushion(s, livePrices[s.symbol] || s.price); return c != null && c >= 3; }).length : 0} />
+        cushionCount={scanData ? [...(scanData.squeeze_stocks||[]), ...(scanData.countertrend_stocks||[])].filter(s => { const c = emaCushion(s, livePrices[s.symbol] || s.price); return c != null && c >= 3 && scanData.weekly_alignment?.[s.symbol] === true; }).length : 0} />
 
       {investTarget && <InvestModal stock={investTarget} onClose={() => setInvestTarget(null)} onConfirm={handleConfirmInvest} />}
       {showAddHolding && <AddHoldingModal onClose={() => setShowAddHolding(false)} onAdd={h => saveHoldings([...holdings, h])} scanData={scanData} />}
