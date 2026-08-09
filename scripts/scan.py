@@ -1917,18 +1917,26 @@ def scan_all_symbols(session: requests.Session, universe: list, as_of_date: str 
         ew = compute_exit_watch(df_ind)
         if ew is not None:
             exit_watch[symbol] = ew
+        # Computed unconditionally, same scope as exit_watch above — NOT
+        # gated on `if cand:` below. Confirmed real bug: the final
+        # squeeze/countertrend output the frontend reads comes from the
+        # LEDGER, which carries forward already-tracked positions whether
+        # or not they re-trigger a fresh `cand` from classify() every
+        # single day (same pattern as the earlier SUNTV/CIPLA ledger-freeze
+        # issue). Gating this on `if cand:` meant most of today's actual
+        # candidates — carried forward, not freshly re-classified — never
+        # got a value computed at all (18 of 27 missing in the real run
+        # that surfaced this).
+        wa = None
+        try:
+            wa = compute_weekly_alignment(df_ind)
+        except Exception as e:
+            print(f"  weekly_alignment FAILED for {symbol}: {type(e).__name__}: {e}")
+        if wa is not None:
+            weekly_alignment[symbol] = wa
         cand = classify(symbol, df_ind, scan_date=as_of_date)
         if cand:
             all_candidates.append(cand)
-            # Only computed for symbols that actually qualify as candidates —
-            # unlike exit_watch (needed for the full universe, to cover
-            # arbitrary held symbols), this is purely for filtering the
-            # squeeze/countertrend listing, so there's no reason to spend
-            # the resample cost on the other ~2,300 symbols that don't
-            # currently qualify anyway.
-            wa = compute_weekly_alignment(df_ind)
-            if wa is not None:
-                weekly_alignment[symbol] = wa
         # Independent short detection — a symbol can only be one or the
         # other (the conditions are mutually exclusive by direction), but
         # we run both so nothing in the long path is disturbed.
@@ -1942,6 +1950,8 @@ def scan_all_symbols(session: requests.Session, universe: list, as_of_date: str 
     scan_all_symbols.last_short_candidates = short_candidates
     scan_all_symbols.last_indicators = scan_indicators
     scan_all_symbols.last_exit_watch = exit_watch
+    n_candidates_with_weekly = len(weekly_alignment)
+    print(f"  weekly_alignment computed for {n_candidates_with_weekly} symbols this run (full-universe scope, matching exit_watch).")
     scan_all_symbols.last_weekly_alignment = weekly_alignment
     if getattr(scan_all_symbols, "_skipped_broken", 0):
         print(f"Skipped {scan_all_symbols._skipped_broken} symbol(s) with corrupted "
