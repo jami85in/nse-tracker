@@ -359,7 +359,7 @@ const RAW_BASE    = `https://raw.githubusercontent.com/${GITHUB_USER}/${GITHUB_R
 // instead of requiring a manual file diff to find out. This exists because
 // PWA/service-worker caching has repeatedly made "is this actually deployed
 // yet" the hardest part of diagnosing issues in this app.
-const BUILD_VERSION = "2026-08-09.2";
+const BUILD_VERSION = "2026-08-09.3";
 const GITHUB_APP_ACTIONS_URL = `https://github.com/${GITHUB_USER}/${GITHUB_REPO}/actions/workflows/scan.yml`;
 
 // ── Fetch strategy ────────────────────────────────────────────────────────────
@@ -884,8 +884,11 @@ function SqueezeCard({ stock, onInvest, rank, livePrice, zoneStats, relStrength,
       <div style={{ display: "grid", gridTemplateColumns: "repeat(2,1fr)", gap: 10, marginTop: 12 }}>
         <Stat label="BB Width" value={fmt(stock.bb_width) + "%"} color={stock.bb_width < 1.8 ? T.accent : T.warn} />
         <Stat label="Stoch K (signal)" value={fmt(stock.stoch_k)} color={(stock.stoch_k != null && stock.stoch_k < 45) ? T.accent : T.warn} />
-        <Stat label="Target R1" value={curr(stock.pivot_r1)} color={T.green} />
-        <Stat label="Stop S1" value={curr(stock.pivot_s1)} color={T.red} />
+        {/* The validated +25%/-7% GTT pair, not pivot R1/S1. Pivot S1 in
+            particular could sit a fraction of a percent below entry, which
+            was never a placeable stop. */}
+        <Stat label="GTT Target +25%" value={stock.gtt_target ? curr(stock.gtt_target) : curr(price * 1.25)} color={T.green} />
+        <Stat label="GTT Stop −7%" value={stock.gtt_stop ? curr(stock.gtt_stop) : curr(price * 0.93)} color={T.red} />
       </div>
       {stock.stoch_k_chart != null && (
         <div style={{ color: T.muted, fontSize: 10, marginTop: 6, letterSpacing: 0.2 }}>
@@ -905,6 +908,15 @@ function SqueezeCard({ stock, onInvest, rank, livePrice, zoneStats, relStrength,
               <b>Technical conviction: {stock.conviction_score}.</b> {stock.conviction_note}
             </div>
           )}
+          <div style={{ background: T.green + "10", border: `1px solid ${T.green}33`, borderRadius: 8, padding: "8px 10px", marginBottom: 10, fontSize: 11, lineHeight: 1.5, color: T.muted }}>
+            <b style={{ color: T.green }}>GTT plan:</b> target <b style={{ color: T.green }}>{stock.gtt_target ? curr(stock.gtt_target) : curr(price * 1.25)}</b> (+25%),
+            stop <b style={{ color: T.red }}>{stock.gtt_stop ? curr(stock.gtt_stop) : curr(price * 0.93)}</b> (−7%).
+            <br/>
+            <b style={{ color: T.text }}>Don't want to cap at 25%?</b> If it reaches target and momentum still looks strong,
+            replacing the sell with a <b>10% trailing stop below the running high</b> tested slightly BETTER per trade
+            (+5.5% vs +4.9% avg) and captured outliers up to +275%, at essentially the same CAGR. Trailing earlier
+            (from +15%) tested clearly worse — so wait for +25% before switching.
+          </div>
           {(() => {
             const tq = trendQuality(stock.symbol, scanData);
             if (!tq) return null;
@@ -1125,9 +1137,25 @@ function InvestModal({ stock, onClose, onConfirm }) {
           <div style={{ background: T.surface, borderRadius: 10, padding: 14 }}>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
               <Stat label="Invested" value={curr(invested)} />
-              <Stat label="Target (R1)" value={curr(targetVal)} color={T.green} />
-              <Stat label="Pred. Return" value={"+" + predReturn + "%"} color={T.green} />
-              <Stat label="Stop Loss" value={curr(qty * (stock.pivot_s1 || stock.price * 0.96))} color={T.red} />
+              <Stat label="Qty" value={qty || "—"} />
+            </div>
+            {/* GTT levels are PER SHARE — these are the exact prices to
+                enter in Zerodha's GTT form. Previously this box showed
+                position VALUES (qty x price) next to a pivot-S1 stop that
+                could sit a fraction of a percent from entry (real case:
+                KKCL entry 496.00, S1 stop 495.77 = a 0.05% stop), which
+                was unusable for placing a real order. */}
+            <div style={{ marginTop: 12, paddingTop: 12, borderTop: `1px solid ${T.border}` }}>
+              <div style={{ color: T.muted, fontSize: 10, letterSpacing: 0.6, marginBottom: 8 }}>GTT LEVELS (PER SHARE)</div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                <Stat label="Target +25%" value={entryPrice ? curr(Number(entryPrice) * 1.25) : "—"} color={T.green} />
+                <Stat label="Stop −7%" value={entryPrice ? curr(Number(entryPrice) * 0.93) : "—"} color={T.red} />
+              </div>
+              <div style={{ color: T.muted, fontSize: 10, marginTop: 8, lineHeight: 1.5 }}>
+                Backtested pair (839 trades since 2020). If it reaches target and still looks strong,
+                consider switching to a 10% trailing stop below the running high rather than selling —
+                tested as roughly CAGR-neutral but keeps the big winners.
+              </div>
             </div>
           </div>
           <div>
@@ -1135,7 +1163,7 @@ function InvestModal({ stock, onClose, onConfirm }) {
             <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={2}
               style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, padding: "10px 12px", color: T.text, fontSize: 14, width: "100%", resize: "none", outline: "none" }} />
           </div>
-          <button onClick={() => onConfirm({ ...stock, qty, entryPrice, notes, invested, targetPrice: stock.pivot_r1, stopLoss: stock.pivot_s1, id: uid(), date: nowStr(), status: "OPEN", currentPrice: entryPrice, actualReturn: 0 })}
+          <button onClick={() => onConfirm({ ...stock, qty, entryPrice, notes, invested, targetPrice: Number((Number(entryPrice) * 1.25).toFixed(2)), stopLoss: Number((Number(entryPrice) * 0.93).toFixed(2)), id: uid(), date: nowStr(), status: "OPEN", currentPrice: entryPrice, actualReturn: 0 })}
             style={{ background: T.accent, color: "#000", border: "none", borderRadius: 10, padding: "14px", fontWeight: 800, fontSize: 15, cursor: "pointer" }}>
             ✅ Confirm Investment
           </button>
