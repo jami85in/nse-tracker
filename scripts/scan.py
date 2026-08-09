@@ -1495,15 +1495,25 @@ WATCHLIST_RETENTION_DAYS = 7  # drop a forming-but-unconfirmed watchlist entry a
 #                 (~the backtest's 20-trading-day timeout, in calendar days).
 #   DETERIORATE — gone countertrend AND momentum turning down, past a shorter
 #                 grace window; it's actively going wrong, exit early.
-# 730 days (~2 years) = effectively "hold until target or stop actually
+# 1460 days (~4 years) = effectively "hold until target or stop actually
 # triggers". The old 30-day cap was actively harmful under a 25% target:
 # backtested average time-to-resolution is ~76 days, so a 30-day cap
 # force-closed roughly half of all trades before they could reach target,
-# capturing neither the win nor a clean stop. In backtesting, only ~21% of
-# trades needed more than 90 days and just ~4% needed more than 200, so
-# 730 is a generous ceiling rather than a real constraint — it exists only
-# so a forgotten position can't linger indefinitely.
-SQUEEZE_MAX_HOLD_DAYS = int(os.environ.get("SQUEEZE_MAX_HOLD_DAYS", "730"))
+# capturing neither the win nor a clean stop.
+#
+# UNITS NOTE — this is CALENDAR days (held_days below is a date
+# subtraction), whereas the backtest counted TRADING BARS. 730 bars is
+# ~1,057 calendar days, so a 730-CALENDAR-day cap here would actually be
+# STRICTER than what was validated and could cut a trade the backtest
+# would have kept. 1460 calendar days clears the validated window with
+# margin in the permissive direction, so the app can never exit earlier
+# than the backtest assumed.
+#
+# This ceiling is not a real constraint on returns: only ~21% of backtested
+# trades needed more than 90 days, ~4% more than 200, and exactly 1 of 839
+# needed more than 730. Raising 730 -> 1460 left CAGR unchanged at +18.32%.
+# It exists only so a forgotten position can't linger indefinitely.
+SQUEEZE_MAX_HOLD_DAYS = int(os.environ.get("SQUEEZE_MAX_HOLD_DAYS", "1460"))
 SQUEEZE_DETERIORATION_DAYS = int(os.environ.get("SQUEEZE_DETERIORATION_DAYS", "7"))
 
 
