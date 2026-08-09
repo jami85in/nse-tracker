@@ -1,5 +1,5 @@
 {
-  "scan_time": "2026-08-09 20:58 IST",
+  "scan_time": "2026-08-09 21:02 IST",
   "market_mood": "CAUTIOUS \u2014 15 clean squeeze entries (In Play) and 430 blast exit signals across 445 tracked setups. 12 lower-conviction countertrend signals held separately.",
   "squeeze_stocks": [
     {
@@ -39,7 +39,7 @@
       "status": "SQUEEZE",
       "first_seen": "2026-08-05",
       "confidence": "MEDIUM",
-      "reason": "BB squeezed to 4.1% with stoch_k 38 crossing above stoch_d 26"
+      "reason": "BB squeezed to 4.11% from 4.95%, stoch_k 38 crossing above stoch_d 26"
     },
     {
       "symbol": "SANATHAN",
@@ -118,7 +118,7 @@
       "status": "SQUEEZE",
       "first_seen": "2026-08-06",
       "confidence": "MEDIUM",
-      "reason": "BB narrowed to 4.5% with stoch_k 33 turning above stoch_d 28"
+      "reason": "BB narrowed to 4.48% from 5.00%, stoch_k 33 edging above stoch_d 28"
     },
     {
       "symbol": "SHINDL",
@@ -161,7 +161,7 @@
       "promoted_from_watchlist": true,
       "promoted_date": "2026-08-06",
       "confidence": "HIGH",
-      "reason": "BB collapsed sharply to 3.2% from 11.5% with stoch deeply oversold"
+      "reason": "BB collapsed sharply to 3.24% from 11.46%, stoch turning from oversold 19"
     },
     {
       "symbol": "ARIHANTSUP",
@@ -460,7 +460,7 @@
       "status": "SQUEEZE",
       "first_seen": "2026-08-07",
       "confidence": "HIGH",
-      "reason": "BB compressed to 4.2% from 6.0% with stoch_k 9.4 extremely oversold"
+      "reason": "BB squeezed to 4.19% from 6.01%, stoch deeply oversold at 9 turning up"
     },
     {
       "symbol": "TEXINFRA",
@@ -503,7 +503,7 @@
       "promoted_from_watchlist": true,
       "promoted_date": "2026-07-28",
       "confidence": "HIGH",
-      "reason": "Tightest BB at 2.0% from 2.8% with stoch_k 47.7 confirming momentum turn"
+      "reason": "Tightest BB at 2.03% from 2.78%, stoch_k 47 closely aligned above stoch_d"
     },
     {
       "symbol": "APOLLOHOSP",
@@ -546,7 +546,7 @@
       "promoted_from_watchlist": true,
       "promoted_date": "2026-07-28",
       "confidence": "MEDIUM",
-      "reason": "BB width 3.0% slightly wider than 5d ago with stoch_k 40 midrange"
+      "reason": "BB width 3.00% slightly wider than 5d ago 2.75%, stoch_k 40 modestly leading"
     },
     {
       "symbol": "KRYSTAL",
@@ -803,7 +803,7 @@
       "status": "SQUEEZE",
       "first_seen": "2026-08-03",
       "confidence": "HIGH",
-      "reason": "BB tight at 3.9% with stoch_k 17.7 and stoch_d 15 both deeply oversold"
+      "reason": "BB tight at 3.93% from 4.47%, stoch_k 17 turning above stoch_d 15"
     },
     {
       "symbol": "GILLETTE",
@@ -1022,7 +1022,7 @@
       "status": "SQUEEZE",
       "first_seen": "2026-07-28",
       "confidence": "MEDIUM",
-      "reason": "BB modestly tighter at 3.4% with stoch_k 39 crossing above stoch_d 28"
+      "reason": "BB mildly compressed to 3.40% from 3.60%, stoch_k 39 crossing above stoch_d 28"
     }
   ],
   "blast_stocks": [
@@ -1138,7 +1138,7 @@
       "first_seen": "2026-07-13",
       "blast_triggered_date": "2026-07-13",
       "confidence": "HIGH",
-      "reason": "Up 70.91% over 10 trading days since squeeze entry at 28.6"
+      "reason": "Up 70.91% over 10 trading days since squeeze entry at 28.60"
     },
     {
       "symbol": "SHALPAINTS",
@@ -1178,7 +1178,7 @@
       "first_seen": "2026-08-03",
       "blast_triggered_date": "2026-08-03",
       "confidence": "HIGH",
-      "reason": "Up 69.3% over 28 trading days since squeeze entry at 52.87"
+      "reason": "Up 69.30% over 28 trading days since squeeze entry at 52.87"
     },
     {
       "symbol": "VIPULLTD",
@@ -1217,7 +1217,7 @@
       "status": "BLAST",
       "first_seen": "2026-07-08",
       "blast_triggered_date": "2026-07-08",
-      "confidence": "HIGH",
+      "confidence": "MEDIUM",
       "reason": "Up 67.43% over 20 trading days since squeeze entry at 9.21"
     },
     {
