@@ -118,6 +118,23 @@ HEADERS = {
 }
 
 MIN_PREDICTED_RETURN = 0.0  # No hard ATR floor — BB width + Stoch is the entry signal.
+
+# Backtest-validated GTT levels (839 trades since 2020, STRONG conviction +
+# weekly-EMA-aligned, 730-day max hold). A 3%/7% pairing needs a ~73% win
+# rate just to break even after costs, which only 2020-2023 delivered; a
+# 25%/7% pairing needs ~24%, giving real margin. Backtested target-hit was
+# ~44%. Median CAGR ranged ~11-18% depending on how many positions are held
+# concurrently (more positions = steadier but lower).
+GTT_TARGET_PCT = float(os.environ.get("SCAN_GTT_TARGET_PCT", "0.25"))
+GTT_STOP_PCT   = float(os.environ.get("SCAN_GTT_STOP_PCT", "0.07"))
+# Trailing guidance: once +25% is reached, a 10% trailing stop below the
+# running high produced a HIGHER average return per trade (+5.47% vs
+# +4.90%) and captured outliers up to +275%, at essentially the same CAGR
+# (17.4% vs 18.3% — within noise). So letting a winner run past target
+# costs nothing on average and preserves the upside tail. Trailing from
+# +15% instead was clearly WORSE (CAGR 6.3%) — don't start trailing early.
+GTT_TRAIL_AFTER_PCT = 0.25
+GTT_TRAIL_GAP_PCT   = 0.10
 # ATR target is shown on each card as information but does not gate the signal.
 # Historical blast returns (15-46%) come from the squeeze setup itself, not from
 # pre-filtering by ATR projection (which compresses in low-volatility environments
@@ -714,6 +731,16 @@ class Candidate:
     # the "how much could this make me" answer at the moment of entry.
     target_price: float = None
     target_return_pct: float = None
+    # Backtest-validated GTT levels. The existing target_price is ATR-based
+    # and the frontend's old stop used pivot S1, which can sit within a
+    # fraction of a percent of entry (real case: KKCL entry 496.00 with an
+    # S1 stop of 495.77 — a 0.05% stop, unusable as a real GTT). These two
+    # fields are the fixed +25% / -7% levels that were actually backtested
+    # (839 trades since 2020, ~11-18% CAGR depending on position count),
+    # so what you place as a GTT matches what was validated.
+    gtt_target: float = None
+    gtt_stop: float = None
+    gtt_trail_note: str = None
 
     # --- BLAST (exit) fields ---
     # blast_entry_price/blast_entry_date: price+date the SQUEEZE ended and
@@ -1187,6 +1214,13 @@ def classify(symbol: str, df: pd.DataFrame, scan_date: str = None):
             target_price=round(atr_target_price, 2), target_return_pct=atr_predicted_return,
             trend_conflict=conv_trend_conflict, weak_crossover=conv_weak_cross,
             conviction_score=conv_score, conviction_note=conv_note,
+            gtt_target=round(price * (1 + GTT_TARGET_PCT), 2),
+            gtt_stop=round(price * (1 - GTT_STOP_PCT), 2),
+            gtt_trail_note=(f"If it reaches ₹{round(price * (1 + GTT_TRAIL_AFTER_PCT), 2)} "
+                            f"(+{GTT_TRAIL_AFTER_PCT*100:.0f}%) and still looks strong, consider "
+                            f"replacing the target with a {GTT_TRAIL_GAP_PCT*100:.0f}% trailing stop "
+                            f"below the running high instead of selling — backtested as roughly "
+                            f"CAGR-neutral but captures the big winners."),
         )
 
     if is_watchlist:
@@ -1201,6 +1235,8 @@ def classify(symbol: str, df: pd.DataFrame, scan_date: str = None):
             stoch_k_chart=stoch_k_chart, stoch_d_chart=stoch_d_chart,
             entry_price=round(price, 2), entry_date=scan_date,
             target_price=round(atr_target_price, 2), target_return_pct=atr_predicted_return,
+            gtt_target=round(price * (1 + GTT_TARGET_PCT), 2),
+            gtt_stop=round(price * (1 - GTT_STOP_PCT), 2),
         )
 
     if is_blast:
@@ -1459,7 +1495,15 @@ WATCHLIST_RETENTION_DAYS = 7  # drop a forming-but-unconfirmed watchlist entry a
 #                 (~the backtest's 20-trading-day timeout, in calendar days).
 #   DETERIORATE — gone countertrend AND momentum turning down, past a shorter
 #                 grace window; it's actively going wrong, exit early.
-SQUEEZE_MAX_HOLD_DAYS = int(os.environ.get("SQUEEZE_MAX_HOLD_DAYS", "30"))
+# 730 days (~2 years) = effectively "hold until target or stop actually
+# triggers". The old 30-day cap was actively harmful under a 25% target:
+# backtested average time-to-resolution is ~76 days, so a 30-day cap
+# force-closed roughly half of all trades before they could reach target,
+# capturing neither the win nor a clean stop. In backtesting, only ~21% of
+# trades needed more than 90 days and just ~4% needed more than 200, so
+# 730 is a generous ceiling rather than a real constraint — it exists only
+# so a forgotten position can't linger indefinitely.
+SQUEEZE_MAX_HOLD_DAYS = int(os.environ.get("SQUEEZE_MAX_HOLD_DAYS", "730"))
 SQUEEZE_DETERIORATION_DAYS = int(os.environ.get("SQUEEZE_DETERIORATION_DAYS", "7"))
 
 
@@ -1867,9 +1911,21 @@ def update_ledger(ledger: dict, all_candidates: list, scan_date: str, scan_indic
                                             f"(past {SQUEEZE_MAX_HOLD_DAYS}d horizon)")
                     to_drop.append(symbol)
                 elif tconf and momentum_down and held_days >= SQUEEZE_DETERIORATION_DAYS:
-                    entry["exit_reason"] = (f"deteriorating — countertrend with momentum "
-                                            f"turning down after {held_days}d")
-                    to_drop.append(symbol)
+                    # WARN, don't force-drop. Previously this deleted the
+                    # position from tracking after just 7 deteriorating days.
+                    # Under a 25% target that resolves in ~76 days on
+                    # average, that silently removed positions long before
+                    # they could reach target or stop — it exits on a
+                    # condition the backtest never modelled, so live results
+                    # could not match the validated numbers, and a position
+                    # you still hold would vanish from the dashboard.
+                    # The Exit Watch banner already surfaces exactly this
+                    # (trend flip + momentum down) as a visible warning, so
+                    # the information isn't lost — the decision just stays
+                    # yours instead of being made silently.
+                    entry["deterioration_warning"] = (
+                        f"countertrend with momentum turning down after {held_days}d — "
+                        f"still tracked; exit only on your GTT target/stop or your own call")
 
     for symbol in to_drop:
         e = ledger[symbol]
