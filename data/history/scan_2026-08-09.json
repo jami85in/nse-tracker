@@ -1,5 +1,5 @@
 {
-  "scan_time": "2026-08-09 15:40 IST",
+  "scan_time": "2026-08-09 15:48 IST",
   "market_mood": "CAUTIOUS \u2014 15 clean squeeze entries (In Play) and 477 blast exit signals across 492 tracked setups. 12 lower-conviction countertrend signals held separately.",
   "squeeze_stocks": [
     {
@@ -36,7 +36,7 @@
       "status": "SQUEEZE",
       "first_seen": "2026-08-05",
       "confidence": "HIGH",
-      "reason": "BB tightened to 4.11% with stoch_k crossing above stoch_d cleanly"
+      "reason": "BB tightened to 4.11% with stoch_k crossing above stoch_d at 38 vs 26"
     },
     {
       "symbol": "SANATHAN",
@@ -112,7 +112,7 @@
       "status": "SQUEEZE",
       "first_seen": "2026-08-06",
       "confidence": "HIGH",
-      "reason": "BB squeezed to 4.48% with stoch_k 33 turning above stoch_d 28"
+      "reason": "BB squeezed to 4.48% with stoch_k turning up at 33 vs 28"
     },
     {
       "symbol": "SHINDL",
@@ -152,7 +152,7 @@
       "promoted_from_watchlist": true,
       "promoted_date": "2026-08-06",
       "confidence": "HIGH",
-      "reason": "BB collapsed sharply from 11.46% to 3.24% signaling imminent breakout"
+      "reason": "BB collapsed sharply from 11.46% to 3.24% with stoch near oversold at 19"
     },
     {
       "symbol": "ARIHANTSUP",
@@ -188,7 +188,7 @@
       "status": "SQUEEZE",
       "first_seen": "2026-08-05",
       "confidence": "MEDIUM",
-      "reason": "BB tightened to 4.04% but stoch_k 79.9 already elevated near overbought"
+      "reason": "BB narrowed to 4.04% but stoch_k elevated at 79.9 risks near-term exhaustion"
     },
     {
       "symbol": "AVTNPL",
@@ -264,7 +264,7 @@
       "promoted_from_watchlist": true,
       "promoted_date": "2026-07-21",
       "confidence": "HIGH",
-      "reason": "BB squeezed to 2.40% from 2.99% with stoch_k 63 above stoch_d 50"
+      "reason": "BB compressed to 2.40% from 3.00% with stoch_k crossing above stoch_d at 63 vs 50"
     },
     {
       "symbol": "NIVABUPA",
@@ -300,7 +300,7 @@
       "status": "SQUEEZE",
       "first_seen": "2026-08-05",
       "confidence": "MEDIUM",
-      "reason": "BB flat at 4.35% with stoch_k 81.9 elevated and overbought risk present"
+      "reason": "BB flat at 4.35% with stoch_k overbought at 81.9 limiting fresh upside momentum"
     },
     {
       "symbol": "JYOTHYLAB",
@@ -336,7 +336,7 @@
       "status": "SQUEEZE",
       "first_seen": "2026-08-05",
       "confidence": "HIGH",
-      "reason": "BB compressed sharply from 9.49% to 5.23% with stoch_k above stoch_d"
+      "reason": "BB halved sharply from 9.49% to 5.23% with stoch_k turning at 34 vs 32"
     },
     {
       "symbol": "INDHOTEL",
@@ -448,7 +448,7 @@
       "status": "SQUEEZE",
       "first_seen": "2026-08-07",
       "confidence": "HIGH",
-      "reason": "BB compressed from 6.01% to 4.19% with stoch_k turning above stoch_d"
+      "reason": "BB compressed sharply from 6.01% to 4.19% with stoch_k turning at 9 vs 6 oversold"
     },
     {
       "symbol": "TEXINFRA",
@@ -638,7 +638,7 @@
       "status": "SQUEEZE",
       "first_seen": "2026-08-05",
       "confidence": "MEDIUM",
-      "reason": "BB width 5.31% expanded slightly with stoch_k at 0.0 deeply oversold"
+      "reason": "BB width expanded slightly to 5.31% with stoch_k at zero signaling extreme weakness"
     },
     {
       "symbol": "ARIES",
@@ -674,7 +674,7 @@
       "status": "SQUEEZE",
       "first_seen": "2026-08-05",
       "confidence": "MEDIUM",
-      "reason": "BB tight at 3.06% but stoch_k 33.8 barely above stoch_d 34.0"
+      "reason": "BB barely tightened to 3.06% with stoch_k and stoch_d flat at 33 vs 34"
     },
     {
       "symbol": "SHREECEM",
@@ -710,7 +710,7 @@
       "status": "SQUEEZE",
       "first_seen": "2026-08-05",
       "confidence": "MEDIUM",
-      "reason": "BB width 5.06% slightly expanded with stoch_k 8.4 below stoch_d 19.4"
+      "reason": "BB slightly widened to 5.06% with stoch_k deeply oversold at 8.4 vs 19.4"
     },
     {
       "symbol": "SCHAND",
@@ -782,7 +782,7 @@
       "status": "SQUEEZE",
       "first_seen": "2026-08-03",
       "confidence": "HIGH",
-      "reason": "BB squeezed to 3.93% with stoch_k 17.7 crossing above stoch_d 15.0"
+      "reason": "BB tightened to 3.93% with stoch_k crossing above stoch_d at 17 vs 15 oversold"
     },
     {
       "symbol": "GILLETTE",
@@ -818,7 +818,7 @@
       "status": "SQUEEZE",
       "first_seen": "2026-08-04",
       "confidence": "MEDIUM",
-      "reason": "BB width 4.70% slightly expanded with stoch_k 23.4 barely above stoch_d 22.7"
+      "reason": "BB marginally widened to 4.70% with stoch_k barely above stoch_d at 23 vs 22"
     },
     {
       "symbol": "NHPC",
@@ -890,7 +890,7 @@
       "status": "SQUEEZE",
       "first_seen": "2026-07-29",
       "confidence": "HIGH",
-      "reason": "BB tightened to 2.88% with stoch_k 55 cleanly above stoch_d 48"
+      "reason": "BB tightened to 2.88% from 3.30% with stoch_k crossing above stoch_d at 55 vs 48"
     },
     {
       "symbol": "AXITA",
@@ -926,7 +926,7 @@
       "status": "SQUEEZE",
       "first_seen": "2026-08-05",
       "confidence": "HIGH",
-      "reason": "BB squeezed to 3.37% from 4.22% with stoch_k 70.9 above stoch_d 55.6"
+      "reason": "BB squeezed to 3.37% from 4.22% with stoch_k crossing above stoch_d at 70 vs 55"
     },
     {
       "symbol": "GODREJAGRO",
@@ -19910,6 +19910,44 @@
       "confidence": "WATCHING"
     },
     {
+      "symbol": "AKASH",
+      "price": 26.45,
+      "bb_width": 6.0164376643598585,
+      "bb_width_5d_ago": 5.332330509204334,
+      "stoch_k": 11.181703460005062,
+      "stoch_d": 10.403201802291154,
+      "ema10": 26.621509128861565,
+      "ema30": 26.77491545336438,
+      "pivot_r1": 27.17666666666667,
+      "pivot_r2": 27.803333333333335,
+      "pivot_s1": 26.13666666666667,
+      "predicted_return": 10.27,
+      "setup": "WATCHLIST",
+      "entry_price": 26.45,
+      "entry_date": "2026-08-06",
+      "target_price": 29.17,
+      "target_return_pct": 10.27,
+      "blast_entry_price": null,
+      "blast_entry_date": null,
+      "exit_price": null,
+      "exit_date": null,
+      "holding_period_days": null,
+      "return_since_entry": null,
+      "trend_conflict": false,
+      "weak_crossover": false,
+      "conviction_score": null,
+      "conviction_note": null,
+      "stoch_k_chart": 9.18452151520282,
+      "stoch_d_chart": 8.590291349197537,
+      "last_seen": "2026-08-06",
+      "status": "WATCHLIST",
+      "first_seen": "2026-08-05",
+      "watchlist_first_seen": "2026-08-05",
+      "watchlist_first_price": 26.55,
+      "reason": "BB width 6.0164376643598585% tightening, stoch_k 11 turning up \u2014 not yet confirmed (needs <3.0% width)",
+      "confidence": "WATCHING"
+    },
+    {
       "symbol": "FORTIS",
       "price": 955.15,
       "bb_width": 6.029913164823995,
@@ -27222,13 +27260,13 @@
       "ema30": 404.53
     }
   ],
-  "scanned_count": 1859,
+  "scanned_count": 1860,
   "candidates_found": 414,
   "ledger_squeeze_total": 27,
   "clean_squeeze_total": 15,
   "countertrend_total": 12,
   "ledger_blast_total": 477,
-  "ledger_watchlist_total": 176,
+  "ledger_watchlist_total": 177,
   "promoted_from_watchlist_today": 0,
   "short_squeeze_total": 17,
   "short_breakdown_total": 89,
@@ -41896,6 +41934,14 @@
       "any": true,
       "bb_width": 15.57,
       "recent_min_bb_width": 10.05
+    },
+    "AKASH": {
+      "failed_squeeze": false,
+      "trend_flip": true,
+      "momentum_down": true,
+      "any": true,
+      "bb_width": 5.6,
+      "recent_min_bb_width": 5.2
     }
   },
   "weekly_alignment": {
@@ -43641,6 +43687,7 @@
     "ZUARI": false,
     "ZUARIIND": false,
     "ZYDUSLIFE": true,
-    "ZYDUSWELL": false
+    "ZYDUSWELL": false,
+    "AKASH": false
   }
 }
