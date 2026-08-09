@@ -524,7 +524,7 @@
     "promoted_from_watchlist": true,
     "promoted_date": "2026-07-21",
     "confidence": "HIGH",
-    "reason": "BB compressed to 2.40% from 3.00% with stoch_k crossing above stoch_d at 63 vs 50"
+    "reason": "BB compressed to 2.40% from 3.00%, stoch_k 63.3 clearly above stoch_d 50.1"
   },
   "SANATHAN": {
     "symbol": "SANATHAN",
@@ -5709,7 +5709,7 @@
     "status": "SQUEEZE",
     "first_seen": "2026-07-29",
     "confidence": "HIGH",
-    "reason": "BB tightened to 2.88% from 3.30% with stoch_k crossing above stoch_d at 55 vs 48"
+    "reason": "BB squeezed to 2.88% from 3.30%, stoch_k 55.2 crossing above stoch_d 48.3"
   },
   "TIJARIA": {
     "symbol": "TIJARIA",
@@ -9164,7 +9164,7 @@
     "status": "SQUEEZE",
     "first_seen": "2026-08-03",
     "confidence": "HIGH",
-    "reason": "BB tightened to 3.93% with stoch_k crossing above stoch_d at 17 vs 15 oversold"
+    "reason": "BB tightened to 3.93% from 4.47%, stoch_k 17.7 cleanly above stoch_d 15.0"
   },
   "IRISDOREME": {
     "symbol": "IRISDOREME",
@@ -11815,7 +11815,7 @@
     "status": "SQUEEZE",
     "first_seen": "2026-08-04",
     "confidence": "MEDIUM",
-    "reason": "BB marginally widened to 4.70% with stoch_k barely above stoch_d at 23 vs 22"
+    "reason": "BB at 4.70% slightly widening, stoch_k 23.4 barely above stoch_d 22.7"
   },
   "GOKUL": {
     "symbol": "GOKUL",
@@ -14173,8 +14173,8 @@
     "last_seen": "2026-08-07",
     "status": "SQUEEZE",
     "first_seen": "2026-08-05",
-    "confidence": "MEDIUM",
-    "reason": "BB narrowed to 4.04% but stoch_k elevated at 79.9 risks near-term exhaustion"
+    "confidence": "HIGH",
+    "reason": "BB squeezed to 4.04%, stoch_k 79.9 strongly above stoch_d 51.9"
   },
   "AUTOAXLES": {
     "symbol": "AUTOAXLES",
@@ -14247,7 +14247,7 @@
     "status": "SQUEEZE",
     "first_seen": "2026-08-05",
     "confidence": "HIGH",
-    "reason": "BB squeezed to 3.37% from 4.22% with stoch_k crossing above stoch_d at 70 vs 55"
+    "reason": "BB tightened to 3.37% from 4.22%, stoch_k 70.9 well above stoch_d 55.6"
   },
   "BALMLAWRIE": {
     "symbol": "BALMLAWRIE",
@@ -15408,7 +15408,7 @@
     "status": "SQUEEZE",
     "first_seen": "2026-08-05",
     "confidence": "HIGH",
-    "reason": "BB halved sharply from 9.49% to 5.23% with stoch_k turning at 34 vs 32"
+    "reason": "BB sharply compressed to 5.23% from 9.49%, stoch_k 34.7 crossing above stoch_d 32.3"
   },
   "JYOTICNC": {
     "symbol": "JYOTICNC",
@@ -15852,8 +15852,8 @@
     "last_seen": "2026-08-07",
     "status": "SQUEEZE",
     "first_seen": "2026-08-05",
-    "confidence": "HIGH",
-    "reason": "BB tightened to 4.11% with stoch_k crossing above stoch_d at 38 vs 26"
+    "confidence": "MEDIUM",
+    "reason": "BB tightened to 4.11%, stoch_k 38.2 crossing above stoch_d 26.0"
   },
   "MANINFRA": {
     "symbol": "MANINFRA",
@@ -16113,8 +16113,8 @@
     "last_seen": "2026-08-07",
     "status": "SQUEEZE",
     "first_seen": "2026-08-05",
-    "confidence": "MEDIUM",
-    "reason": "BB flat at 4.35% with stoch_k overbought at 81.9 limiting fresh upside momentum"
+    "confidence": "HIGH",
+    "reason": "BB at 4.35%, stoch_k 81.9 strongly extended above stoch_d 65.9"
   },
   "NRBBEARING": {
     "symbol": "NRBBEARING",
@@ -16637,7 +16637,7 @@
     "promoted_from_watchlist": true,
     "promoted_date": "2026-08-06",
     "confidence": "HIGH",
-    "reason": "BB collapsed sharply from 11.46% to 3.24% with stoch near oversold at 19"
+    "reason": "BB crushed to 3.24% from 11.46%, stoch_k 19.7 turning above stoch_d 15.1"
   },
   "STANLEY": {
     "symbol": "STANLEY",
@@ -16673,7 +16673,7 @@
     "status": "SQUEEZE",
     "first_seen": "2026-08-05",
     "confidence": "MEDIUM",
-    "reason": "BB width expanded slightly to 5.31% with stoch_k at zero signaling extreme weakness"
+    "reason": "BB at 5.31% slightly widening, stoch_k 0.0 extremely oversold near stoch_d 3.3"
   },
   "STEELCITY": {
     "symbol": "STEELCITY",
@@ -19610,8 +19610,8 @@
     "last_seen": "2026-08-07",
     "status": "SQUEEZE",
     "first_seen": "2026-08-06",
-    "confidence": "HIGH",
-    "reason": "BB squeezed to 4.48% with stoch_k turning up at 33 vs 28"
+    "confidence": "MEDIUM",
+    "reason": "BB narrowed to 4.48%, stoch_k 33.1 edging above stoch_d 28.2"
   },
   "PROSTARM": {
     "symbol": "PROSTARM",
@@ -22862,7 +22862,7 @@
     "status": "SQUEEZE",
     "first_seen": "2026-08-07",
     "confidence": "HIGH",
-    "reason": "BB compressed sharply from 6.01% to 4.19% with stoch_k turning at 9 vs 6 oversold"
+    "reason": "BB sharply compressed to 4.19% from 6.01%, stoch_k 9.4 turning above stoch_d 6.3"
   },
   "SUPREMEIND": {
     "symbol": "SUPREMEIND",
@@ -23607,7 +23607,7 @@
     "status": "SQUEEZE",
     "first_seen": "2026-08-05",
     "confidence": "MEDIUM",
-    "reason": "BB barely tightened to 3.06% with stoch_k and stoch_d flat at 33 vs 34"
+    "reason": "BB tight at 3.06% but stoch_k 33.8 flat near stoch_d 34.0 no turn"
   },
   "ARIS": {
     "symbol": "ARIS",
@@ -24884,7 +24884,7 @@
     "status": "SQUEEZE",
     "first_seen": "2026-08-05",
     "confidence": "MEDIUM",
-    "reason": "BB slightly widened to 5.06% with stoch_k deeply oversold at 8.4 vs 19.4"
+    "reason": "BB at 5.06% slightly widening, stoch_k 8.4 below stoch_d 19.4 weak turn"
   },
   "SIEMENS": {
     "symbol": "SIEMENS",
