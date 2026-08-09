@@ -2027,6 +2027,26 @@ def run(backfill_days: int = 0, allow_weekend: bool = False):
     # on a given day.
     universe = load_scan_universe(session)
 
+    # Guarantee every real Zerodha holding gets scanned (indicators,
+    # exit_watch, weekly_alignment) regardless of whether it would
+    # otherwise pass the standard EQ-series/volume/mcap universe filter —
+    # currently every held symbol happens to already be in the standard
+    # universe, but that's a coincidence of what's held right now, not a
+    # guarantee, and a real holding (e.g. a BE-series/T2T stock like
+    # SWANDEF) could silently fall outside it. Same fix already applied to
+    # prices_kite.py's symbol list, for the same reason.
+    try:
+        with open("data/zerodha_holdings.json") as f:
+            zh = json.load(f)
+        held = set(zh.get("holdings", {}).keys())
+        added = held - set(universe)
+        if added:
+            universe = universe + sorted(added)
+            print(f"  +{len(added)} real Zerodha holdings added to the scan universe "
+                  f"(not otherwise in the standard EQ list): {sorted(added)}")
+    except Exception as e:
+        print(f"  Warning: couldn't extend universe with Zerodha holdings: {e}")
+
     ledger = load_ledger()
 
     # Purge ETFs / micro-caps that entered the ledger before the universe
