@@ -359,7 +359,7 @@ const RAW_BASE    = `https://raw.githubusercontent.com/${GITHUB_USER}/${GITHUB_R
 // instead of requiring a manual file diff to find out. This exists because
 // PWA/service-worker caching has repeatedly made "is this actually deployed
 // yet" the hardest part of diagnosing issues in this app.
-const BUILD_VERSION = "2026-08-09.3";
+const BUILD_VERSION = "2026-08-09.4";
 const GITHUB_APP_ACTIONS_URL = `https://github.com/${GITHUB_USER}/${GITHUB_REPO}/actions/workflows/scan.yml`;
 
 // ── Fetch strategy ────────────────────────────────────────────────────────────
@@ -804,10 +804,28 @@ function PullToRefresh({ onRefresh, children, refreshing }) {
   );
 }
 
+function stillNearEntry(stock, price) {
+  // "You haven't missed this one yet" — an already-firing signal whose
+  // price hasn't run away from the level it fired at, so nearly the whole
+  // +25% target is still ahead of you rather than partly spent.
+  // Uses a band rather than just "<= +2%": a signal sitting BELOW its
+  // firing price is also still entryable (arguably better), but only down
+  // to the -7% stop — past that the trade is already invalidated, not a
+  // bargain. Returns null when there's no entry_price to compare against.
+  if (!stock?.entry_price || !price) return null;
+  const pctFromEntry = ((price - stock.entry_price) / stock.entry_price) * 100;
+  return {
+    pctFromEntry,
+    isNearEntry: pctFromEntry <= 2 && pctFromEntry > -7,
+    remainingUpsidePct: ((stock.entry_price * 1.25) - price) / price * 100,
+  };
+}
+
 function SqueezeCard({ stock, onInvest, rank, livePrice, zoneStats, relStrength, stale, scanDate, scanData }) {
   const [expanded, setExpanded] = useState(false);
   const price = livePrice || stock.price;
   const cushion = emaCushion(stock, price);
+  const nearEntry = stillNearEntry(stock, price);
   const daysTracked = stock.entry_date ? Math.max(0, Math.round((new Date() - new Date(stock.entry_date)) / 86400000)) : null;
   const liveReturn = (stock.entry_price && price) ? ((price - stock.entry_price) / stock.entry_price) * 100 : null;
   return (
@@ -850,6 +868,12 @@ function SqueezeCard({ stock, onInvest, rank, livePrice, zoneStats, relStrength,
         </div>
       </div>
 
+      {nearEntry?.isNearEntry && (
+        <div style={{ background: T.green + "1C", border: `1px solid ${T.green}66`, borderRadius: 8, padding: "7px 10px", marginTop: 8, fontSize: 11, fontWeight: 700, color: T.green }}>
+          🎯 STILL NEAR ENTRY — {nearEntry.pctFromEntry >= 0 ? "+" : ""}{fmt(nearEntry.pctFromEntry)}% from where it fired
+          <span style={{ fontWeight: 400, opacity: 0.9 }}> · ~{fmt(nearEntry.remainingUpsidePct)}% still to target</span>
+        </div>
+      )}
       {stock.target_price && stock.target_price < stock.entry_price && (
         <div style={{ background: "#92400e22", border: "1px solid #fbbf2444", borderRadius: 7, padding: "6px 10px", marginTop: 8, fontSize: 11, color: "#fbbf24" }}>
           ⚠️ Target ₹{fmt(stock.target_price)} is below entry price — this signal was recorded before the upside check was added. Monitor manually.
@@ -2766,8 +2790,33 @@ function App() {
               )}
                 <div style={{ marginBottom: 14 }}>
                 <div style={{ fontWeight: 800, fontSize: 16, color: T.accent }}>🟢 In Play — Post-Squeeze</div>
-                <div style={{ color: T.muted, fontSize: 11 }}>BB &lt;4.5% + Stoch turning up · ATR target shown per card</div>
+                <div style={{ color: T.muted, fontSize: 11 }}>BB &lt;4.5% + Stoch turning up · GTT target/stop shown per card</div>
               </div>
+              {(() => {
+                // Surface the "not too late" ones up front — an already-firing
+                // signal still sitting near the price it fired at has almost
+                // the entire +25% still ahead, versus one that has already
+                // run 15% where most of the move is spent.
+                const stillOpen = (scanData.squeeze_stocks || [])
+                  .map(s => ({ s, ne: stillNearEntry(s, livePrices[s.symbol] || s.price) }))
+                  .filter(x => x.ne?.isNearEntry)
+                  .sort((a, b) => b.ne.remainingUpsidePct - a.ne.remainingUpsidePct);
+                if (stillOpen.length === 0) return null;
+                return (
+                  <div style={{ background: T.green + "12", border: `1px solid ${T.green}44`, borderRadius: 10, padding: 12, marginBottom: 16 }}>
+                    <div style={{ color: T.green, fontWeight: 800, fontSize: 12, marginBottom: 6 }}>
+                      🎯 {stillOpen.length} still near entry — most of the move still ahead
+                    </div>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                      {stillOpen.map(({ s, ne }) => (
+                        <span key={s.symbol} style={{ background: T.card, border: `1px solid ${T.green}44`, borderRadius: 6, padding: "3px 8px", fontSize: 11, color: T.text, fontFamily: "monospace" }}>
+                          {s.symbol} <span style={{ color: T.green }}>~{fmt(ne.remainingUpsidePct)}%↑</span>
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
               {(scanData.squeeze_stocks || []).length === 0 && (
                 <div style={{ color: T.muted, textAlign: "center", padding: 28, background: T.card, borderRadius: 10, fontSize: 13, lineHeight: 1.6, marginBottom: 26 }}>
                   No open squeeze positions right now.<br/>
