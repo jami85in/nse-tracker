@@ -7,7 +7,16 @@ name: NSE Live Price Update (Kite Connect)
 
 on:
   schedule:
-    - cron: "*/5 3-10 * * 1-5"   # every 5 min, 8:30am-4:29pm IST, weekdays
+    # Every 15 min, 08:30-16:29 IST, weekdays (UTC 03:00-10:59).
+    #
+    # Deliberately 15 min rather than 5. GitHub explicitly documents that
+    # scheduled workflows "may be delayed during periods of high loads",
+    # and high-frequency crons are the first to be dropped -- a */5
+    # schedule is routinely skipped outright rather than merely delayed,
+    # which is the most likely reason runs appeared not to happen at all.
+    # A 15-minute cadence is far more likely to actually fire every slot,
+    # so in practice it can deliver MORE real updates per day than */5.
+    - cron: "*/15 3-10 * * 1-5"
   workflow_dispatch:
 
 permissions:
@@ -30,7 +39,40 @@ jobs:
       - name: Install dependencies
         run: pip install kiteconnect
 
+      # Explicit gate BEFORE doing any real work. prices_kite.py already
+      # refuses to run on a stale token, but that check happened silently
+      # inside the script, so a skipped day looked identical to a broken
+      # one in the Actions list. This surfaces the reason as its own step
+      # status: fresh token -> prices fetched; stale/missing -> the later
+      # steps are skipped and a warning explains exactly why.
+      - name: Check today's Kite token is refreshed
+        id: token_check
+        env:
+          SECRETS_REPO_PAT: ${{ secrets.SECRETS_REPO_PAT }}
+          SECRETS_REPO: ${{ secrets.SECRETS_REPO }}
+        run: |
+          set -e
+          python - <<'PY'
+          import os, sys
+          sys.path.insert(0, "scripts")
+          from kite_token_reader import get_kite_token
+          token, stale = get_kite_token()
+          out = os.environ["GITHUB_OUTPUT"]
+          if token is None:
+              print("::warning::No Kite token found - check SECRETS_REPO / SECRETS_REPO_PAT secrets.")
+              open(out, "a").write("fresh=false\n")
+          elif stale:
+              print("::warning::Kite token is from a previous day - run the "
+                    "'Kite Daily Token Refresh' workflow. Skipping price fetch; "
+                    "existing prices_live.json is preserved.")
+              open(out, "a").write("fresh=false\n")
+          else:
+              print("Kite token is fresh for today - proceeding with price fetch.")
+              open(out, "a").write("fresh=true\n")
+          PY
+
       - name: Fetch live prices via Kite Connect
+        if: steps.token_check.outputs.fresh == 'true'
         env:
           KITE_API_KEY: ${{ secrets.KITE_API_KEY }}
           SECRETS_REPO_PAT: ${{ secrets.SECRETS_REPO_PAT }}
@@ -38,6 +80,7 @@ jobs:
         run: python scripts/prices_kite.py
 
       - name: Commit price data
+        if: steps.token_check.outputs.fresh == 'true'
         run: |
           git config user.name "nse-tracker-bot"
           git config user.email "actions@github.com"
