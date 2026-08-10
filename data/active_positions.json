@@ -204,7 +204,7 @@
     "first_seen": "2026-07-08",
     "blast_triggered_date": "2026-07-08",
     "confidence": "HIGH",
-    "reason": "Up 67.43% over 20 trading days since squeeze entry at 9.21"
+    "reason": "Up 67.43% over 20 trading days since squeeze entry at 9.21."
   },
   "BTTL": {
     "symbol": "BTTL",
@@ -448,7 +448,7 @@
     "first_seen": "2026-07-13",
     "blast_triggered_date": "2026-07-13",
     "confidence": "HIGH",
-    "reason": "Up 70.91% over 10 trading days since squeeze entry at 28.60"
+    "reason": "Up 70.91% over 10 trading days since squeeze entry at 28.60."
   },
   "EMAMIPAP": {
     "symbol": "EMAMIPAP",
@@ -774,7 +774,7 @@
     "first_seen": "2026-07-21",
     "blast_triggered_date": "2026-07-23",
     "confidence": "HIGH",
-    "reason": "Up 48.92% over 25 trading days since squeeze entry at 31.38"
+    "reason": "Up 48.92% over 25 trading days since squeeze entry at 31.38."
   },
   "DIACABS": {
     "symbol": "DIACABS",
@@ -815,7 +815,7 @@
     "first_seen": "2026-07-21",
     "blast_triggered_date": "2026-07-21",
     "confidence": "HIGH",
-    "reason": "Up 47.58% over 28 trading days since squeeze entry at 210.29"
+    "reason": "Up 47.58% over 28 trading days since squeeze entry at 210.29."
   },
   "TNPL": {
     "symbol": "TNPL",
@@ -943,7 +943,7 @@
     "promoted_from_watchlist": true,
     "promoted_date": "2026-07-28",
     "confidence": "MEDIUM",
-    "reason": "BB at 3.00% but slightly wider than 5d ago with stoch_k at 40"
+    "reason": "BB width 3.0% but slightly wider than 5 days ago at 2.75%."
   },
   "ASAHISONG": {
     "symbol": "ASAHISONG",
@@ -1723,7 +1723,7 @@
     "promoted_from_watchlist": true,
     "promoted_date": "2026-07-28",
     "confidence": "HIGH",
-    "reason": "BB extremely tight at 2.03% from 2.78% with stoch near crossover"
+    "reason": "Tightest squeeze at 2.03% BB width with stoch_k and stoch_d nearly flat at 47."
   },
   "ASIANPAINT": {
     "symbol": "ASIANPAINT",
@@ -3104,7 +3104,7 @@
     "status": "SQUEEZE",
     "first_seen": "2026-07-28",
     "confidence": "MEDIUM",
-    "reason": "BB narrowed modestly to 3.40% with stoch_k jumping to 39 from 28"
+    "reason": "BB modestly squeezed to 3.40% with stoch_k crossing above stoch_d at 39."
   },
   "GOLDBETA": {
     "symbol": "GOLDBETA",
@@ -3669,7 +3669,7 @@
     "first_seen": "2026-07-28",
     "blast_triggered_date": "2026-07-28",
     "confidence": "HIGH",
-    "reason": "Up 56.33% over 28 trading days since squeeze entry at 77.07"
+    "reason": "Up 56.33% over 28 trading days since squeeze entry at 77.07."
   },
   "TRAVELFOOD": {
     "symbol": "TRAVELFOOD",
@@ -4528,7 +4528,7 @@
     "first_seen": "2026-07-29",
     "blast_triggered_date": "2026-07-29",
     "confidence": "HIGH",
-    "reason": "Up 50.75% over 25 trading days since squeeze entry at 126.97"
+    "reason": "Up 50.75% over 25 trading days since squeeze entry at 126.97."
   },
   "NEPHROPLUS": {
     "symbol": "NEPHROPLUS",
@@ -7021,7 +7021,7 @@
     "status": "SQUEEZE",
     "first_seen": "2026-08-03",
     "confidence": "HIGH",
-    "reason": "BB tight at 3.93% with stoch_k 17.72 curling above stoch_d 15.04"
+    "reason": "BB tight at 3.93% with stoch_k turning from oversold low of 17."
   },
   "IRISDOREME": {
     "symbol": "IRISDOREME",
@@ -7929,7 +7929,7 @@
     "first_seen": "2026-08-03",
     "blast_triggered_date": "2026-08-03",
     "confidence": "HIGH",
-    "reason": "Up 69.3% over 28 trading days since squeeze entry at 52.87"
+    "reason": "Up 69.3% over 28 trading days since squeeze entry at 52.87."
   },
   "SHRINGARMS": {
     "symbol": "SHRINGARMS",
@@ -13545,7 +13545,7 @@
     "status": "SQUEEZE",
     "first_seen": "2026-08-05",
     "confidence": "MEDIUM",
-    "reason": "BB narrowed to 4.11% with stoch_k crossing above stoch_d at 38"
+    "reason": "BB narrowed to 4.11% with stoch_k crossing above stoch_d at 38."
   },
   "MANINFRA": {
     "symbol": "MANINFRA",
@@ -14389,7 +14389,7 @@
     "promoted_from_watchlist": true,
     "promoted_date": "2026-08-06",
     "confidence": "HIGH",
-    "reason": "BB collapsed sharply to 3.24% from 11.46% with stoch_k at 19"
+    "reason": "BB collapsed sharply to 3.24% from 11.46% with stoch deeply oversold at 19."
   },
   "STANLEY": {
     "symbol": "STANLEY",
@@ -17631,7 +17631,7 @@
     "status": "SQUEEZE",
     "first_seen": "2026-08-06",
     "confidence": "MEDIUM",
-    "reason": "BB compressed to 4.48% with stoch_k turning up at 33"
+    "reason": "BB squeezed to 4.48% with stoch_k turning up at 33."
   },
   "PROSTARM": {
     "symbol": "PROSTARM",
@@ -21218,7 +21218,7 @@
     "status": "SQUEEZE",
     "first_seen": "2026-08-07",
     "confidence": "HIGH",
-    "reason": "BB squeezed to 4.19% from 6.01% with stoch_k deeply oversold at 9"
+    "reason": "BB tightened to 4.19% from 6.01% with stoch_k extremely oversold at 9."
   },
   "SUPREMEIND": {
     "symbol": "SUPREMEIND",
