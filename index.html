@@ -359,7 +359,7 @@ const RAW_BASE    = `https://raw.githubusercontent.com/${GITHUB_USER}/${GITHUB_R
 // instead of requiring a manual file diff to find out. This exists because
 // PWA/service-worker caching has repeatedly made "is this actually deployed
 // yet" the hardest part of diagnosing issues in this app.
-const BUILD_VERSION = "2026-08-09.4";
+const BUILD_VERSION = "2026-08-10.1";
 const GITHUB_APP_ACTIONS_URL = `https://github.com/${GITHUB_USER}/${GITHUB_REPO}/actions/workflows/scan.yml`;
 
 // ── Fetch strategy ────────────────────────────────────────────────────────────
@@ -817,7 +817,7 @@ function stillNearEntry(stock, price) {
   return {
     pctFromEntry,
     isNearEntry: pctFromEntry <= 2 && pctFromEntry > -7,
-    remainingUpsidePct: ((stock.entry_price * 1.25) - price) / price * 100,
+    remainingUpsidePct: ((stock.gtt_target || stock.entry_price * 1.25) - price) / price * 100,
   };
 }
 
@@ -908,10 +908,10 @@ function SqueezeCard({ stock, onInvest, rank, livePrice, zoneStats, relStrength,
       <div style={{ display: "grid", gridTemplateColumns: "repeat(2,1fr)", gap: 10, marginTop: 12 }}>
         <Stat label="BB Width" value={fmt(stock.bb_width) + "%"} color={stock.bb_width < 1.8 ? T.accent : T.warn} />
         <Stat label="Stoch K (signal)" value={fmt(stock.stoch_k)} color={(stock.stoch_k != null && stock.stoch_k < 45) ? T.accent : T.warn} />
-        {/* The validated +25%/-7% GTT pair, not pivot R1/S1. Pivot S1 in
+        {/* Volatility-scaled target + fixed -7% stop, not pivot R1/S1. Pivot S1 in
             particular could sit a fraction of a percent below entry, which
             was never a placeable stop. */}
-        <Stat label="GTT Target +25%" value={stock.gtt_target ? curr(stock.gtt_target) : curr(price * 1.25)} color={T.green} />
+        <Stat label={`GTT Target +${stock.gtt_target_pct ?? 25}%`} value={stock.gtt_target ? curr(stock.gtt_target) : curr(price * 1.25)} color={T.green} />
         <Stat label="GTT Stop −7%" value={stock.gtt_stop ? curr(stock.gtt_stop) : curr(price * 0.93)} color={T.red} />
       </div>
       {stock.stoch_k_chart != null && (
@@ -933,13 +933,13 @@ function SqueezeCard({ stock, onInvest, rank, livePrice, zoneStats, relStrength,
             </div>
           )}
           <div style={{ background: T.green + "10", border: `1px solid ${T.green}33`, borderRadius: 8, padding: "8px 10px", marginBottom: 10, fontSize: 11, lineHeight: 1.5, color: T.muted }}>
-            <b style={{ color: T.green }}>GTT plan:</b> target <b style={{ color: T.green }}>{stock.gtt_target ? curr(stock.gtt_target) : curr(price * 1.25)}</b> (+25%),
+            <b style={{ color: T.green }}>GTT plan:</b> target <b style={{ color: T.green }}>{stock.gtt_target ? curr(stock.gtt_target) : curr(price * 1.25)}</b> (+{stock.gtt_target_pct ?? 25}%, sized to this stock's own volatility),
             stop <b style={{ color: T.red }}>{stock.gtt_stop ? curr(stock.gtt_stop) : curr(price * 0.93)}</b> (−7%).
             <br/>
             <b style={{ color: T.text }}>Don't want to cap at 25%?</b> If it reaches target and momentum still looks strong,
             replacing the sell with a <b>10% trailing stop below the running high</b> tested slightly BETTER per trade
             (+5.5% vs +4.9% avg) and captured outliers up to +275%, at essentially the same CAGR. Trailing earlier
-            (from +15%) tested clearly worse — so wait for +25% before switching.
+            (from +15%) tested clearly worse — so wait for the target before switching.
           </div>
           {(() => {
             const tq = trendQuality(stock.symbol, scanData);
@@ -1172,13 +1172,15 @@ function InvestModal({ stock, onClose, onConfirm }) {
             <div style={{ marginTop: 12, paddingTop: 12, borderTop: `1px solid ${T.border}` }}>
               <div style={{ color: T.muted, fontSize: 10, letterSpacing: 0.6, marginBottom: 8 }}>GTT LEVELS (PER SHARE)</div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-                <Stat label="Target +25%" value={entryPrice ? curr(Number(entryPrice) * 1.25) : "—"} color={T.green} />
+                <Stat label={`Target +${stock.gtt_target_pct ?? 25}%`} value={entryPrice ? curr(Number(entryPrice) * (1 + (stock.gtt_target_pct ?? 25)/100)) : "—"} color={T.green} />
                 <Stat label="Stop −7%" value={entryPrice ? curr(Number(entryPrice) * 0.93) : "—"} color={T.red} />
               </div>
               <div style={{ color: T.muted, fontSize: 10, marginTop: 8, lineHeight: 1.5 }}>
-                Backtested pair (839 trades since 2020). If it reaches target and still looks strong,
-                consider switching to a 10% trailing stop below the running high rather than selling —
-                tested as roughly CAGR-neutral but keeps the big winners.
+                Target is sized to this stock's own volatility (ATR-based), not a flat percentage —
+                a quiet stock gets a reachable target instead of one that never triggers. Stop is a
+                fixed −7%. If it reaches target and still looks strong, consider switching to a 10%
+                trailing stop below the running high rather than selling — tested as roughly
+                CAGR-neutral but keeps the big winners.
               </div>
             </div>
           </div>
@@ -1187,7 +1189,7 @@ function InvestModal({ stock, onClose, onConfirm }) {
             <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={2}
               style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, padding: "10px 12px", color: T.text, fontSize: 14, width: "100%", resize: "none", outline: "none" }} />
           </div>
-          <button onClick={() => onConfirm({ ...stock, qty, entryPrice, notes, invested, targetPrice: Number((Number(entryPrice) * 1.25).toFixed(2)), stopLoss: Number((Number(entryPrice) * 0.93).toFixed(2)), id: uid(), date: nowStr(), status: "OPEN", currentPrice: entryPrice, actualReturn: 0 })}
+          <button onClick={() => onConfirm({ ...stock, qty, entryPrice, notes, invested, targetPrice: Number((Number(entryPrice) * (1 + (stock.gtt_target_pct ?? 25)/100)).toFixed(2)), stopLoss: Number((Number(entryPrice) * 0.93).toFixed(2)), id: uid(), date: nowStr(), status: "OPEN", currentPrice: entryPrice, actualReturn: 0 })}
             style={{ background: T.accent, color: "#000", border: "none", borderRadius: 10, padding: "14px", fontWeight: 800, fontSize: 15, cursor: "pointer" }}>
             ✅ Confirm Investment
           </button>
