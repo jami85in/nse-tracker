@@ -798,6 +798,51 @@ class Candidate:
     stoch_d_chart: float = None
 
 
+def compute_market_regime() -> dict:
+    """Is the broad market itself in an uptrend? Backtested: skipping new
+    entries while the Nifty sits BELOW its own EMA50 lifted median CAGR
+    from 14.36% to 15.21%, and shifted the whole distribution up (10th
+    percentile 13.05% -> 14.06%) rather than just the median.
+
+    Deliberately a LOOSE filter. It removes only ~14% of signals (117 of
+    832). That matters: stricter market filters tested BETTER per-trade
+    but WORSE overall — requiring Nifty 20-day momentum above +3% gave the
+    best average return per trade (+8.77% vs +6.46%) yet the worst
+    portfolio outcome (10.95% vs 14.36% CAGR), because it removed 64% of
+    signals and left capital sitting idle. This strategy is trade-count
+    hungry; filters that starve it of setups lose more than they save.
+
+    Uses NIFTYBEES (Nifty 50 ETF) as the market proxy — it's already in
+    the daily-refreshed OHLC set, so no new data dependency.
+    Returns None if the data isn't available, so a missing proxy degrades
+    to "no opinion" rather than silently blocking every signal.
+    """
+    try:
+        path = os.path.join("data", "backtest", "raw_ohlc", "NIFTYBEES.json")
+        with open(path) as f:
+            raw = json.load(f)
+        if not raw or len(raw) < 60:
+            return None
+        mdf = pd.DataFrame(raw)
+        mdf["close"] = pd.to_numeric(mdf["close"], errors="coerce")
+        mdf = mdf.dropna(subset=["close"]).reset_index(drop=True)
+        if len(mdf) < 60:
+            return None
+        ema50 = mdf["close"].ewm(span=50, adjust=False).mean()
+        last_close = float(mdf["close"].iloc[-1])
+        last_ema50 = float(ema50.iloc[-1])
+        return {
+            "as_of": str(mdf["date"].iloc[-1]),
+            "nifty_close": round(last_close, 2),
+            "nifty_ema50": round(last_ema50, 2),
+            "above_ema50": bool(last_close > last_ema50),
+            "pct_vs_ema50": round((last_close - last_ema50) / last_ema50 * 100, 2),
+        }
+    except Exception as e:
+        print(f"  Warning computing market regime: {e}")
+        return None
+
+
 def compute_trend_quality(df: pd.DataFrame) -> dict:
     """Backtested finding: layering ADX(14)>=25 (genuine trend strength,
     not just direction) and being within 15% of the 52-week high (still in
@@ -2461,6 +2506,7 @@ def run(backfill_days: int = 0, allow_weekend: bool = False):
         "exit_watch": getattr(scan_all_symbols, "last_exit_watch", {}),
         "weekly_alignment": getattr(scan_all_symbols, "last_weekly_alignment", {}),
         "trend_quality": getattr(scan_all_symbols, "last_trend_quality", {}),
+        "market_regime": compute_market_regime(),
     }
 
     os.makedirs("data", exist_ok=True)
