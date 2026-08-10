@@ -359,7 +359,7 @@ const RAW_BASE    = `https://raw.githubusercontent.com/${GITHUB_USER}/${GITHUB_R
 // instead of requiring a manual file diff to find out. This exists because
 // PWA/service-worker caching has repeatedly made "is this actually deployed
 // yet" the hardest part of diagnosing issues in this app.
-const BUILD_VERSION = "2026-08-10.1";
+const BUILD_VERSION = "2026-08-10.2";
 const GITHUB_APP_ACTIONS_URL = `https://github.com/${GITHUB_USER}/${GITHUB_REPO}/actions/workflows/scan.yml`;
 
 // ── Fetch strategy ────────────────────────────────────────────────────────────
@@ -872,6 +872,11 @@ function SqueezeCard({ stock, onInvest, rank, livePrice, zoneStats, relStrength,
         <div style={{ background: T.green + "1C", border: `1px solid ${T.green}66`, borderRadius: 8, padding: "7px 10px", marginTop: 8, fontSize: 11, fontWeight: 700, color: T.green }}>
           🎯 STILL NEAR ENTRY — {nearEntry.pctFromEntry >= 0 ? "+" : ""}{fmt(nearEntry.pctFromEntry)}% from where it fired
           <span style={{ fontWeight: 400, opacity: 0.9 }}> · ~{fmt(nearEntry.remainingUpsidePct)}% still to target</span>
+        </div>
+      )}
+      {scanData?.market_regime && scanData.market_regime.above_ema50 === false && (
+        <div style={{ background: T.red + "14", border: `1px solid ${T.red}44`, borderRadius: 8, padding: "6px 10px", marginTop: 8, fontSize: 11, color: T.red }}>
+          🚫 Market headwind — Nifty below its EMA50. Backtest says skip new entries in this environment.
         </div>
       )}
       {stock.target_price && stock.target_price < stock.entry_price && (
@@ -2593,6 +2598,25 @@ function App() {
       {kiteDelayed && (
         <div style={{ background: T.warn + "18", borderBottom: `1px solid ${T.warn}44`, padding: "8px 16px", fontSize: 12, color: T.warn, fontWeight: 600 }}>
           ⚠ Kite prices haven't updated in over 15 minutes during market hours — showing the last available price until it catches up.
+        </div>
+      )}
+
+      {/* Market regime. Shown as guidance rather than as a hard filter that
+          blanks the dashboard: when the Nifty is below its EMA50 the
+          backtest says skip NEW entries, but existing positions and the
+          rest of the app stay fully usable, and the call remains yours. */}
+      {scanData?.market_regime && (
+        <div style={{
+          background: (scanData.market_regime.above_ema50 ? T.green : T.red) + "18",
+          borderBottom: `1px solid ${(scanData.market_regime.above_ema50 ? T.green : T.red)}44`,
+          padding: "8px 16px", fontSize: 12,
+          color: scanData.market_regime.above_ema50 ? T.green : T.red, fontWeight: 600,
+        }}>
+          {scanData.market_regime.above_ema50 ? (
+            <>✅ Market tailwind — Nifty is {Math.abs(scanData.market_regime.pct_vs_ema50)}% above its EMA50. Backtested as the better environment for new entries.</>
+          ) : (
+            <>🚫 Market headwind — Nifty is {Math.abs(scanData.market_regime.pct_vs_ema50)}% BELOW its EMA50. Backtest says skip new entries until it recovers (this filter lifted CAGR 14.4% → 15.2%). Existing positions unaffected.</>
+          )}
         </div>
       )}
 
