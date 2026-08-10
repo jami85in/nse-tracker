@@ -119,21 +119,44 @@ HEADERS = {
 
 MIN_PREDICTED_RETURN = 0.0  # No hard ATR floor — BB width + Stoch is the entry signal.
 
-# Backtest-validated GTT levels (839 trades since 2020, STRONG conviction +
-# weekly-EMA-aligned, 730-day max hold). A 3%/7% pairing needs a ~73% win
-# rate just to break even after costs, which only 2020-2023 delivered; a
-# 25%/7% pairing needs ~24%, giving real margin. Backtested target-hit was
-# ~44%. Median CAGR ranged ~11-18% depending on how many positions are held
-# concurrently (more positions = steadier but lower).
-GTT_TARGET_PCT = float(os.environ.get("SCAN_GTT_TARGET_PCT", "0.25"))
-GTT_STOP_PCT   = float(os.environ.get("SCAN_GTT_STOP_PCT", "0.07"))
-# Trailing guidance: once +25% is reached, a 10% trailing stop below the
+# Backtest-validated GTT levels (STRONG conviction + weekly-EMA-aligned,
+# 730-bar max hold, real ETF-excluded universe since 2020).
+#
+# TARGET is scaled to each stock's OWN volatility rather than a flat
+# percentage. A flat 25% is a very different ask for a stable large-cap
+# than for a volatile small-cap — on the former it may never realistically
+# trigger, which is a lost exit rather than a held winner. Across 200
+# randomised selections, ATR-scaled targets returned a median 16.4% CAGR
+# vs 14.8% for flat 25% (distributions do overlap; this is modestly, not
+# decisively, better).
+#
+# Formula: target% = clamp(ATR14_as_%_of_price * 15, 8%, 60%)
+# The clamp matters: without a floor, an unusually quiet stock gets a
+# target so tight that costs eat the trade; without a ceiling, a spiking
+# stock gets a target it will realistically never reach.
+GTT_ATR_MULTIPLIER = float(os.environ.get("SCAN_GTT_ATR_MULT", "15"))
+GTT_TARGET_MIN_PCT = float(os.environ.get("SCAN_GTT_TARGET_MIN", "0.08"))
+GTT_TARGET_MAX_PCT = float(os.environ.get("SCAN_GTT_TARGET_MAX", "0.60"))
+GTT_STOP_PCT       = float(os.environ.get("SCAN_GTT_STOP_PCT", "0.07"))
+
+
+def gtt_target_pct(price, atr14):
+    """Per-stock target as a fraction (e.g. 0.22 = +22%). Falls back to a
+    flat 25% only when ATR is unavailable, so a missing indicator degrades
+    to the previously-validated behaviour rather than to nothing."""
+    if not price or not atr14 or atr14 <= 0:
+        return 0.25
+    atr_pct_of_price = atr14 / price
+    raw = atr_pct_of_price * GTT_ATR_MULTIPLIER
+    return min(max(raw, GTT_TARGET_MIN_PCT), GTT_TARGET_MAX_PCT)
+
+
+# Trailing guidance: once target is reached, a 10% trailing stop below the
 # running high produced a HIGHER average return per trade (+5.47% vs
 # +4.90%) and captured outliers up to +275%, at essentially the same CAGR
 # (17.4% vs 18.3% — within noise). So letting a winner run past target
 # costs nothing on average and preserves the upside tail. Trailing from
 # +15% instead was clearly WORSE (CAGR 6.3%) — don't start trailing early.
-GTT_TRAIL_AFTER_PCT = 0.25
 GTT_TRAIL_GAP_PCT   = 0.10
 # ATR target is shown on each card as information but does not gate the signal.
 # Historical blast returns (15-46%) come from the squeeze setup itself, not from
@@ -740,6 +763,7 @@ class Candidate:
     # so what you place as a GTT matches what was validated.
     gtt_target: float = None
     gtt_stop: float = None
+    gtt_target_pct: float = None
     gtt_trail_note: str = None
 
     # --- BLAST (exit) fields ---
@@ -1214,13 +1238,14 @@ def classify(symbol: str, df: pd.DataFrame, scan_date: str = None):
             target_price=round(atr_target_price, 2), target_return_pct=atr_predicted_return,
             trend_conflict=conv_trend_conflict, weak_crossover=conv_weak_cross,
             conviction_score=conv_score, conviction_note=conv_note,
-            gtt_target=round(price * (1 + GTT_TARGET_PCT), 2),
+            gtt_target=round(price * (1 + gtt_target_pct(price, atr14)), 2),
             gtt_stop=round(price * (1 - GTT_STOP_PCT), 2),
-            gtt_trail_note=(f"If it reaches ₹{round(price * (1 + GTT_TRAIL_AFTER_PCT), 2)} "
-                            f"(+{GTT_TRAIL_AFTER_PCT*100:.0f}%) and still looks strong, consider "
-                            f"replacing the target with a {GTT_TRAIL_GAP_PCT*100:.0f}% trailing stop "
-                            f"below the running high instead of selling — backtested as roughly "
-                            f"CAGR-neutral but captures the big winners."),
+            gtt_target_pct=round(gtt_target_pct(price, atr14) * 100, 1),
+            gtt_trail_note=(f"If it reaches ₹{round(price * (1 + gtt_target_pct(price, atr14)), 2)} "
+                            f"(+{gtt_target_pct(price, atr14)*100:.0f}%, sized to this stock's own "
+                            f"volatility) and still looks strong, consider replacing the target with a "
+                            f"{GTT_TRAIL_GAP_PCT*100:.0f}% trailing stop below the running high instead "
+                            f"of selling — backtested as roughly CAGR-neutral but captures big winners."),
         )
 
     if is_watchlist:
@@ -1235,8 +1260,9 @@ def classify(symbol: str, df: pd.DataFrame, scan_date: str = None):
             stoch_k_chart=stoch_k_chart, stoch_d_chart=stoch_d_chart,
             entry_price=round(price, 2), entry_date=scan_date,
             target_price=round(atr_target_price, 2), target_return_pct=atr_predicted_return,
-            gtt_target=round(price * (1 + GTT_TARGET_PCT), 2),
+            gtt_target=round(price * (1 + gtt_target_pct(price, atr14)), 2),
             gtt_stop=round(price * (1 - GTT_STOP_PCT), 2),
+            gtt_target_pct=round(gtt_target_pct(price, atr14) * 100, 1),
         )
 
     if is_blast:
