@@ -1733,7 +1733,16 @@ def reconcile_open_positions(ledger: dict, scan_date: str) -> int:
     succeeding. Returns the number of positions reconciled."""
     fixed = 0
     for sym, e in ledger.items():
-        if e.get("status") != "SQUEEZE":
+        # Covers SQUEEZE, BLAST and WATCHLIST. This was previously
+        # SQUEEZE-only, which left BLAST and WATCHLIST entries frozen at
+        # whatever price they last refreshed at — confirmed real impact:
+        # 224 of 1,853 symbols (12.1%) in prices_scan_baseline.json were
+        # stale by days, some by 20-58% (GENESYS showed ₹328.70 from
+        # Aug 5 while the real close was ₹208.00; ALKEM showed ₹5,620
+        # from Aug 7 vs a real ₹5,480). Every stale symbol was an active
+        # candidate, and none came from the indicators fallback, which
+        # pinpointed the ledger carry-forward path as the cause.
+        if e.get("status") not in ("SQUEEZE", "BLAST", "WATCHLIST"):
             continue
         if e.get("last_seen") == scan_date:
             continue  # already refreshed by update_ledger this scan
@@ -1808,7 +1817,18 @@ def update_ledger(ledger: dict, all_candidates: list, scan_date: str, scan_indic
             if existing and existing.get("status") == "BLAST":
                 # Already exited and currently in its retention window —
                 # don't let a fresh SQUEEZE read resurrect/overwrite that;
-                # leave the BLAST record alone, it'll age out on its own.
+                # leave the BLAST record's STATUS alone, it'll age out on
+                # its own. But still refresh the live display fields: a
+                # blanket `continue` here froze price/indicators at
+                # whatever the entry last saw, which is exactly how BLAST
+                # entries ended up showing prices days out of date while
+                # sitting in retention.
+                refreshed = dict(existing)
+                for live_field in ("price", "bb_width", "stoch_k", "stoch_d", "ema10", "ema30"):
+                    if live_field in cand_dict and cand_dict[live_field] is not None:
+                        refreshed[live_field] = cand_dict[live_field]
+                refreshed["last_seen"] = scan_date
+                ledger[symbol] = refreshed
                 continue
             # Promotion tracking: if this stock was previously sitting on
             # the WATCHLIST tier and has now genuinely earned a SQUEEZE
