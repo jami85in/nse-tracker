@@ -359,7 +359,7 @@ const RAW_BASE    = `https://raw.githubusercontent.com/${GITHUB_USER}/${GITHUB_R
 // instead of requiring a manual file diff to find out. This exists because
 // PWA/service-worker caching has repeatedly made "is this actually deployed
 // yet" the hardest part of diagnosing issues in this app.
-const BUILD_VERSION = "2026-08-13.2";
+const BUILD_VERSION = "2026-08-13.3";
 const GITHUB_APP_ACTIONS_URL = `https://github.com/${GITHUB_USER}/${GITHUB_REPO}/actions/workflows/scan.yml`;
 
 // ── Fetch strategy ────────────────────────────────────────────────────────────
@@ -1908,7 +1908,7 @@ function MonitorPage({ scanData, positions, holdings, livePrices, priceUpdated, 
           <Stat label="Blast Exits" value={blast.length} color={T.blast} />
           <Stat label="Watchlist" value={watchlist.length} color={T.warn} />
           <Stat label="Graduated" value={scanData.promoted_from_watchlist_today || 0} color={T.accent} />
-          <Stat label="Open Pos" value={openPos.length} />
+          <Stat label="Open Pos" value={new Set(openPos.map(p => p.symbol)).size} />
         </div>
         <div style={{ color: T.muted, fontSize: 10, marginTop: 10, textAlign: "center" }}>
           Scan {scanData.scan_time} · {priceUpdated ? `prices ${priceUpdated}` : "prices pending"}
@@ -1953,23 +1953,32 @@ function MonitorPage({ scanData, positions, holdings, livePrices, priceUpdated, 
             </div>
           )}
         </div>
-        {openPos.length > 0 && (
-          <div style={{ marginTop: 10 }}>
-            {openPos.map(p => {
-              const price = px(p.symbol);
-              const hasPrice = price != null;
-              const ret = hasPrice ? ((price - p.entryPrice) / p.entryPrice) * 100 : null;
-              return (
-                <MiniRow key={p.id} sym={p.symbol} borderColor={hasPrice ? (ret >= 0 ? T.green : T.red) : T.muted}
-                  cols={[
-                    { text: `${p.qty}sh @ ₹${fmt(p.entryPrice)}` },
-                    { text: hasPrice ? `₹${fmt(price)}` : "no price", color: T.text },
-                    { text: hasPrice ? pct(ret) : "—", color: hasPrice ? (ret >= 0 ? T.green : T.red) : T.muted, bold: true },
-                  ]} />
-              );
-            })}
-          </div>
-        )}
+        {openPos.length > 0 && (() => {
+          // Consolidate per symbol, exactly as the Portfolio tab does via
+          // computeNetPositions. This list previously iterated raw lots, so a
+          // symbol bought in tranches appeared once per lot — ALKEM 3x,
+          // DAVANGERE 3x, SUNTV 5x — each showing its own lot's entry price
+          // and return, which read as separate positions and disagreed with
+          // the Portfolio tab's consolidated view of the same holdings.
+          const nets = computeNetPositions(openPos);
+          return (
+            <div style={{ marginTop: 10 }}>
+              {nets.map(net => {
+                const price = px(net.symbol);
+                const hasPrice = price != null;
+                const ret = hasPrice ? ((price - net.avgEntry) / net.avgEntry) * 100 : null;
+                return (
+                  <MiniRow key={net.symbol} sym={net.symbol} borderColor={hasPrice ? (ret >= 0 ? T.green : T.red) : T.muted}
+                    cols={[
+                      { text: `${net.qty}sh @ ₹${fmt(net.avgEntry)}${net.lotCount > 1 ? ` · ${net.lotCount} lots` : ""}` },
+                      { text: hasPrice ? `₹${fmt(price)}` : "no price", color: T.text },
+                      { text: hasPrice ? pct(ret) : "—", color: hasPrice ? (ret >= 0 ? T.green : T.red) : T.muted, bold: true },
+                    ]} />
+                );
+              })}
+            </div>
+          );
+        })()}
       </Section>
 
       {/* In Play */}
