@@ -2571,9 +2571,28 @@ def run(backfill_days: int = 0, allow_weekend: bool = False):
     for sym, ind in all_indicators.items():
         if sym not in baseline_prices and ind.get("price"):
             baseline_prices[sym] = ind["price"]
+
+    # data_date = the trading date these prices actually represent, which is
+    # NOT the same as when this file was written. Confirmed real failure:
+    # NSE's bhavcopy for a given day can still be unpublished when the
+    # evening scan runs, so the scan legitimately builds its baseline from
+    # the PREVIOUS day's closes — yet writes the file "now". The frontend
+    # was choosing between this file and the Kite feed by comparing write
+    # times, so a baseline written at 20:09 with yesterday's closes beat a
+    # Kite file written at 15:04 with TODAY's prices. Newer file, older
+    # data — exactly inverted. Publishing the data's own date lets the
+    # frontend compare what actually matters.
+    ohlc_data_date = None
+    try:
+        prog = json.load(open("data/backtest/progress_ohlc.json"))
+        ohlc_data_date = prog.get("last_daily_newest_date")
+    except Exception:
+        pass
+
     with open("data/prices_scan_baseline.json", "w") as f:
         dump_json_safe({
             "updated_at": now_ist_str(),
+            "data_date": ohlc_data_date,   # trading day these closes belong to
             "in_market_hours": False,
             "market_open": False,
             "source": "scan baseline (EOD closes) — fallback only",
