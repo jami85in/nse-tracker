@@ -448,7 +448,7 @@
     "first_seen": "2026-07-13",
     "blast_triggered_date": "2026-07-13",
     "confidence": "HIGH",
-    "reason": "Up 70.91% over 10 trading days since squeeze entry at 28.60"
+    "reason": "Up 70.91% over 10 trading days since squeeze entry at 28.6"
   },
   "EMAMIPAP": {
     "symbol": "EMAMIPAP",
@@ -2096,7 +2096,7 @@
     "status": "SQUEEZE",
     "first_seen": "2026-07-28",
     "confidence": "MEDIUM",
-    "reason": "BB narrowed to 2.99% from 3.47%, stoch_k 29.48 barely above stoch_d 29.16"
+    "reason": "BB mildly tightened to 2.99% from 3.47%, stoch flat at 29 with EMAs bearish"
   },
   "GOLDBETA": {
     "symbol": "GOLDBETA",
@@ -4499,7 +4499,7 @@
     "first_seen": "2026-08-03",
     "blast_triggered_date": "2026-08-03",
     "confidence": "HIGH",
-    "reason": "Up 69.30% over 28 trading days since squeeze entry at 52.87"
+    "reason": "Up 69.3% over 28 trading days since squeeze entry at 52.87"
   },
   "SHRINGARMS": {
     "symbol": "SHRINGARMS",
@@ -9081,7 +9081,7 @@
     "promoted_from_watchlist": true,
     "promoted_date": "2026-08-06",
     "confidence": "HIGH",
-    "reason": "BB squeezed to 4.02% from 5.94%, stoch_k 45 crossing above stoch_d 39"
+    "reason": "BB squeezed to 4.02% from 5.94%, stoch_k 45 crossing above stoch_d 38"
   },
   "STANLEY": {
     "symbol": "STANLEY",
@@ -13946,7 +13946,7 @@
     "promoted_from_watchlist": true,
     "promoted_date": "2026-08-10",
     "confidence": "HIGH",
-    "reason": "BB compressed to 3.76% from 6.06%, stoch_k 12.15 turning above stoch_d 7.81"
+    "reason": "BB squeezed to 3.76% from 6.06%, stoch_k 12.1 turning above stoch_d 7.8"
   },
   "JSLL": {
     "symbol": "JSLL",
@@ -15228,7 +15228,7 @@
     "status": "SQUEEZE",
     "first_seen": "2026-08-07",
     "confidence": "MEDIUM",
-    "reason": "BB narrowed modestly to 3.93% from 4.35%, stoch_k 8.30 barely above stoch_d 7.93"
+    "reason": "BB modestly tightened to 3.93% from 4.35%, stoch_k 8.3 barely above stoch_d 7.9"
   },
   "SUPREMEIND": {
     "symbol": "SUPREMEIND",
@@ -17755,7 +17755,7 @@
     "status": "SQUEEZE",
     "first_seen": "2026-08-10",
     "confidence": "MEDIUM",
-    "reason": "BB tightened to 3.37% from 4.02%, stoch_k 27.44 above stoch_d 24.69 but below EMAs"
+    "reason": "BB narrowed to 3.37% from 4.02%, stoch_k 27.4 above stoch_d but EMAs bearish"
   },
   "COMSYN": {
     "symbol": "COMSYN",
@@ -19977,7 +19977,7 @@
     "status": "SQUEEZE",
     "first_seen": "2026-08-11",
     "confidence": "HIGH",
-    "reason": "BB sharply squeezed to 4.26% from 7.46%, stoch_k 40.65 well above stoch_d 15.99"
+    "reason": "BB compressed to 4.26% from 7.46%, stoch_k 40.6 well above stoch_d 16.0"
   },
   "DCMSHRIRAM": {
     "symbol": "DCMSHRIRAM",
@@ -22744,7 +22744,7 @@
     "status": "SQUEEZE",
     "first_seen": "2026-08-12",
     "confidence": "HIGH",
-    "reason": "BB compressed to 4.19% from 7.59%, stoch_k 5.18 turning above stoch_d 2.00"
+    "reason": "BB tightened sharply to 4.19% from 7.59%, stoch_k 5.2 turning above stoch_d 2.0"
   },
   "DONEAR": {
     "symbol": "DONEAR",
@@ -22784,7 +22784,7 @@
     "status": "SQUEEZE",
     "first_seen": "2026-08-12",
     "confidence": "MEDIUM",
-    "reason": "BB mildly tightened to 3.48% from 3.81%, stoch_k 43.39 flat near stoch_d 43.21"
+    "reason": "BB width 3.48% only modestly down from 3.81%, stoch flat at 43"
   },
   "ELLEN": {
     "symbol": "ELLEN",
@@ -23030,7 +23030,7 @@
     "status": "SQUEEZE",
     "first_seen": "2026-08-12",
     "confidence": "HIGH",
-    "reason": "BB squeezed to 3.67% from 6.06%, stoch_k 25.00 clearly above stoch_d 15.26"
+    "reason": "BB nearly halved to 3.67% from 6.06%, stoch_k 25.0 clearing above stoch_d 15.3"
   },
   "IIFLCAPS": {
     "symbol": "IIFLCAPS",
@@ -23070,7 +23070,7 @@
     "status": "SQUEEZE",
     "first_seen": "2026-08-12",
     "confidence": "MEDIUM",
-    "reason": "BB width 2.76% expanded from 2.26% five days ago, stoch_k 8.62 weakly above stoch_d 4.75"
+    "reason": "BB width 2.76% wider than 5d ago 2.26%, stoch_k 8.6 weakly above stoch_d 4.8"
   },
   "INDIANB": {
     "symbol": "INDIANB",
