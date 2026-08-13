@@ -1,6 +1,6 @@
 {
-  "generated": "2026-08-13 20:09 IST",
-  "repaired_count": 335,
+  "generated": "2026-08-13 21:30 IST",
+  "repaired_count": 336,
   "flagged_count": 0,
   "repaired": [
     "PIDILITIND [BLAST]: entry_price <- blast_entry (1580.7)",
@@ -337,7 +337,8 @@
     "VIJAYA [BLAST]: entry_price <- blast_entry (1351.1)",
     "VIVIDHA [BLAST]: entry_price <- blast_entry (0.51)",
     "YATRA [BLAST]: entry_price <- blast_entry (104.53)",
-    "AHLADA [BLAST]: entry_price <- blast_entry (38.01)"
+    "AHLADA [BLAST]: entry_price <- blast_entry (38.01)",
+    "ESABINDIA [BLAST]: entry_price <- blast_entry (5653.0)"
   ],
   "flagged": []
 }
