@@ -1,6 +1,6 @@
 {
-  "scan_time": "2026-08-13 20:09 IST",
-  "market_mood": "CAUTIOUS \u2014 11 clean squeeze entries (In Play) and 477 blast exit signals across 488 tracked setups. 21 lower-conviction countertrend signals held separately.",
+  "scan_time": "2026-08-13 21:31 IST",
+  "market_mood": "CAUTIOUS \u2014 11 clean squeeze entries (In Play) and 478 blast exit signals across 489 tracked setups. 21 lower-conviction countertrend signals held separately.",
   "squeeze_stocks": [
     {
       "symbol": "MANGALAM",
@@ -124,7 +124,7 @@
       "promoted_from_watchlist": true,
       "promoted_date": "2026-08-06",
       "confidence": "HIGH",
-      "reason": "BB squeezed to 4.02% from 5.94%, stoch_k 45 crossing above stoch_d 38."
+      "reason": "BB squeezed to 4.02% from 5.94%, stoch_k 45 crossing above stoch_d 39"
     },
     {
       "symbol": "DALBHARAT",
@@ -164,7 +164,7 @@
       "status": "SQUEEZE",
       "first_seen": "2026-08-12",
       "confidence": "HIGH",
-      "reason": "BB nearly halved to 4.19% from 7.59%, stoch turning up from oversold at 5.17."
+      "reason": "BB compressed to 4.19% from 7.59%, stoch_k 5.18 turning above stoch_d 2.00"
     },
     {
       "symbol": "DONEAR",
@@ -204,7 +204,7 @@
       "status": "SQUEEZE",
       "first_seen": "2026-08-12",
       "confidence": "MEDIUM",
-      "reason": "BB modestly tighter at 3.48% from 3.81%, stoch_k flat near stoch_d 43."
+      "reason": "BB mildly tightened to 3.48% from 3.81%, stoch_k 43.39 flat near stoch_d 43.21"
     },
     {
       "symbol": "INNOVISION",
@@ -284,7 +284,7 @@
       "status": "SQUEEZE",
       "first_seen": "2026-08-11",
       "confidence": "HIGH",
-      "reason": "BB compressed to 4.26% from 7.46%, stoch_k 40 surging above stoch_d 15."
+      "reason": "BB sharply squeezed to 4.26% from 7.46%, stoch_k 40.65 well above stoch_d 15.99"
     },
     {
       "symbol": "JSL",
@@ -328,7 +328,7 @@
       "promoted_from_watchlist": true,
       "promoted_date": "2026-08-10",
       "confidence": "HIGH",
-      "reason": "BB tightened to 3.76% from 6.06%, stoch_k 12 rising sharply above stoch_d 7."
+      "reason": "BB compressed to 3.76% from 6.06%, stoch_k 12.15 turning above stoch_d 7.81"
     },
     {
       "symbol": "ICRA",
@@ -404,7 +404,7 @@
       "status": "SQUEEZE",
       "first_seen": "2026-08-07",
       "confidence": "MEDIUM",
-      "reason": "BB mildly squeezed to 3.93% from 4.35%, stoch_k 8 just above stoch_d 7."
+      "reason": "BB narrowed modestly to 3.93% from 4.35%, stoch_k 8.30 barely above stoch_d 7.93"
     },
     {
       "symbol": "ICICIBANK",
@@ -444,7 +444,7 @@
       "status": "SQUEEZE",
       "first_seen": "2026-08-12",
       "confidence": "HIGH",
-      "reason": "BB nearly halved to 3.67% from 6.06%, stoch_k 25 lifting above stoch_d 15."
+      "reason": "BB squeezed to 3.67% from 6.06%, stoch_k 25.00 clearly above stoch_d 15.26"
     }
   ],
   "countertrend_stocks": [
@@ -1089,7 +1089,7 @@
       "status": "SQUEEZE",
       "first_seen": "2026-08-10",
       "confidence": "MEDIUM",
-      "reason": "BB narrowed to 3.37% from 4.02%, stoch_k 27 slightly above stoch_d 24."
+      "reason": "BB tightened to 3.37% from 4.02%, stoch_k 27.44 above stoch_d 24.69 but below EMAs"
     },
     {
       "symbol": "TEXINFRA",
@@ -1219,7 +1219,7 @@
       "status": "SQUEEZE",
       "first_seen": "2026-07-28",
       "confidence": "MEDIUM",
-      "reason": "BB modestly tighter at 2.99% from 3.47%, stoch_k 29 barely above stoch_d 29."
+      "reason": "BB narrowed to 2.99% from 3.47%, stoch_k 29.48 barely above stoch_d 29.16"
     },
     {
       "symbol": "IIFLCAPS",
@@ -1259,7 +1259,7 @@
       "status": "SQUEEZE",
       "first_seen": "2026-08-12",
       "confidence": "MEDIUM",
-      "reason": "BB width actually wider at 2.76% vs 2.26% five days ago, stoch low at 8."
+      "reason": "BB width 2.76% expanded from 2.26% five days ago, stoch_k 8.62 weakly above stoch_d 4.75"
     }
   ],
   "blast_stocks": [
@@ -1302,7 +1302,7 @@
       "first_seen": "2026-07-13",
       "blast_triggered_date": "2026-07-13",
       "confidence": "HIGH",
-      "reason": "Up 70.91% over 10 trading days since squeeze entry at 28.60."
+      "reason": "Up 70.91% over 10 trading days since squeeze entry at 28.60"
     },
     {
       "symbol": "SHALPAINTS",
@@ -1343,7 +1343,7 @@
       "first_seen": "2026-08-03",
       "blast_triggered_date": "2026-08-03",
       "confidence": "HIGH",
-      "reason": "Up 69.30% over 28 trading days since squeeze entry at 52.87."
+      "reason": "Up 69.30% over 28 trading days since squeeze entry at 52.87"
     },
     {
       "symbol": "VIPULLTD",
@@ -1384,7 +1384,7 @@
       "first_seen": "2026-07-08",
       "blast_triggered_date": "2026-07-08",
       "confidence": "HIGH",
-      "reason": "Up 67.43% over 20 trading days since squeeze entry at 9.21."
+      "reason": "Up 67.43% over 20 trading days since squeeze entry at 9.21"
     },
     {
       "symbol": "AARTISURF",
@@ -1425,7 +1425,7 @@
       "first_seen": "2026-08-04",
       "blast_triggered_date": "2026-08-04",
       "confidence": "HIGH",
-      "reason": "Up 58.32% over 27 trading days since squeeze entry at 386.85."
+      "reason": "Up 58.32% over 27 trading days since squeeze entry at 386.85"
     },
     {
       "symbol": "SIGIND",
@@ -1466,7 +1466,7 @@
       "first_seen": "2026-07-30",
       "blast_triggered_date": "2026-07-30",
       "confidence": "HIGH",
-      "reason": "Up 54.36% over 21 trading days since squeeze entry at 47.47."
+      "reason": "Up 54.36% over 21 trading days since squeeze entry at 47.47"
     },
     {
       "symbol": "3IINFOLTD",
@@ -13558,6 +13558,47 @@
       "reason": "Up 6.6% over 7d since entry at 4940.4, stoch_k 90 overbought"
     },
     {
+      "symbol": "ESABINDIA",
+      "price": 6023.0,
+      "bb_width": 8.612978649266271,
+      "bb_width_5d_ago": 6.33311243584839,
+      "stoch_k": 85.89615256767142,
+      "stoch_d": 56.86189584141378,
+      "ema10": 5748.655767848521,
+      "ema30": 5738.141291522294,
+      "pivot_r1": 5939.0,
+      "pivot_r2": 6057.5,
+      "pivot_s1": 5681.0,
+      "predicted_return": 6.55,
+      "setup": "BLAST",
+      "entry_price": 5653.0,
+      "entry_date": "2026-07-17",
+      "target_price": null,
+      "target_return_pct": null,
+      "gtt_target": null,
+      "gtt_stop": null,
+      "gtt_target_pct": null,
+      "gtt_trail_note": null,
+      "blast_entry_price": 5653.0,
+      "blast_entry_date": "2026-07-17",
+      "exit_price": 6023.0,
+      "exit_date": "2026-08-13",
+      "holding_period_days": 26,
+      "return_since_entry": 6.55,
+      "trend_conflict": false,
+      "weak_crossover": false,
+      "conviction_score": null,
+      "conviction_note": null,
+      "stoch_k_chart": 31.816092628676746,
+      "stoch_d_chart": 20.877318008664158,
+      "last_seen": "2026-08-13",
+      "status": "BLAST",
+      "first_seen": "2026-08-13",
+      "blast_triggered_date": "2026-08-13",
+      "confidence": "HIGH",
+      "reason": "Up 6.5% over 26d since entry at 5653.0, stoch_k 86 overbought"
+    },
+    {
       "symbol": "TRUALT",
       "price": 465.1,
       "bb_width": 19.994296580387484,
@@ -21041,6 +21082,48 @@
       "confidence": "WATCHING"
     },
     {
+      "symbol": "ABBOTINDIA",
+      "price": 28140.0,
+      "bb_width": 5.424075487458382,
+      "bb_width_5d_ago": 7.416370948445815,
+      "stoch_k": 16.935437356140547,
+      "stoch_d": 7.615921379660166,
+      "ema10": 27886.23510155376,
+      "ema30": 27567.445869673786,
+      "pivot_r1": 28326.666666666664,
+      "pivot_r2": 28633.333333333332,
+      "pivot_s1": 27521.666666666664,
+      "predicted_return": 4.71,
+      "setup": "WATCHLIST",
+      "entry_price": 28140.0,
+      "entry_date": "2026-08-13",
+      "target_price": 29465.36,
+      "target_return_pct": 4.71,
+      "gtt_target": 34766.79,
+      "gtt_stop": 26170.2,
+      "gtt_target_pct": 23.5,
+      "gtt_trail_note": null,
+      "blast_entry_price": null,
+      "blast_entry_date": null,
+      "exit_price": null,
+      "exit_date": null,
+      "holding_period_days": null,
+      "return_since_entry": null,
+      "trend_conflict": false,
+      "weak_crossover": false,
+      "conviction_score": null,
+      "conviction_note": null,
+      "stoch_k_chart": 63.0146455362833,
+      "stoch_d_chart": 61.109050607782244,
+      "last_seen": "2026-08-13",
+      "status": "WATCHLIST",
+      "first_seen": "2026-08-13",
+      "watchlist_first_seen": "2026-08-13",
+      "watchlist_first_price": 28140.0,
+      "reason": "BB width 5.424075487458382% tightening, stoch_k 17 turning up \u2014 not yet confirmed (needs <3.0% width)",
+      "confidence": "WATCHING"
+    },
+    {
       "symbol": "ALKEM",
       "price": 5480.0,
       "bb_width": 5.48,
@@ -26257,6 +26340,23 @@
       "ema30": 85.58
     },
     {
+      "symbol": "PRECOT",
+      "setup": "SHORT_BREAKDOWN",
+      "price": 799.15,
+      "entry_price": 799.15,
+      "entry_date": "2026-08-13",
+      "cover_target": 767.88,
+      "cover_drop_pct": 3.91,
+      "stop_price": 804.14,
+      "handoff_note": "Cover zone \u2248 potential next long-squeeze formation",
+      "bb_width": 11.79,
+      "bb_lower": 767.88,
+      "stoch_k": 14.9,
+      "stoch_d": 14.6,
+      "ema10": 804.14,
+      "ema30": 792.69
+    },
+    {
       "symbol": "PROTEAN",
       "setup": "SHORT_BREAKDOWN",
       "price": 558.6,
@@ -26852,16 +26952,16 @@
       "ema30": 1350.42
     }
   ],
-  "scanned_count": 1878,
-  "candidates_found": 405,
+  "scanned_count": 1890,
+  "candidates_found": 407,
   "ledger_squeeze_total": 32,
   "clean_squeeze_total": 11,
   "countertrend_total": 21,
-  "ledger_blast_total": 477,
-  "ledger_watchlist_total": 91,
+  "ledger_blast_total": 478,
+  "ledger_watchlist_total": 92,
   "promoted_from_watchlist_today": 0,
   "short_squeeze_total": 17,
-  "short_breakdown_total": 120,
+  "short_breakdown_total": 121,
   "exit_watch": {
     "20MICRONS": {
       "failed_squeeze": false,
@@ -27014,6 +27114,14 @@
       "any": false,
       "bb_width": 8.54,
       "recent_min_bb_width": 9.0
+    },
+    "ABBOTINDIA": {
+      "failed_squeeze": false,
+      "trend_flip": false,
+      "momentum_down": false,
+      "any": false,
+      "bb_width": 5.42,
+      "recent_min_bb_width": 5.54
     },
     "ABCAPITAL": {
       "failed_squeeze": true,
@@ -28190,6 +28298,14 @@
       "any": true,
       "bb_width": 22.9,
       "recent_min_bb_width": 17.95
+    },
+    "ATAM": {
+      "failed_squeeze": false,
+      "trend_flip": true,
+      "momentum_down": false,
+      "any": true,
+      "bb_width": 7.88,
+      "recent_min_bb_width": 7.72
     },
     "ATGL": {
       "failed_squeeze": false,
@@ -29735,6 +29851,14 @@
       "bb_width": 12.92,
       "recent_min_bb_width": 4.59
     },
+    "COCKERILL": {
+      "failed_squeeze": false,
+      "trend_flip": false,
+      "momentum_down": false,
+      "any": false,
+      "bb_width": 15.51,
+      "recent_min_bb_width": 13.97
+    },
     "COFORGE": {
       "failed_squeeze": false,
       "trend_flip": false,
@@ -30327,6 +30451,14 @@
       "bb_width": 13.75,
       "recent_min_bb_width": 12.13
     },
+    "DICIND": {
+      "failed_squeeze": false,
+      "trend_flip": true,
+      "momentum_down": true,
+      "any": true,
+      "bb_width": 5.43,
+      "recent_min_bb_width": 5.28
+    },
     "DIFFNKG": {
       "failed_squeeze": true,
       "trend_flip": true,
@@ -30910,6 +31042,14 @@
       "any": true,
       "bb_width": 11.16,
       "recent_min_bb_width": 7.27
+    },
+    "ESABINDIA": {
+      "failed_squeeze": false,
+      "trend_flip": false,
+      "momentum_down": false,
+      "any": false,
+      "bb_width": 8.61,
+      "recent_min_bb_width": 6.21
     },
     "ESAFSFB": {
       "failed_squeeze": false,
@@ -37103,6 +37243,14 @@
       "bb_width": 7.02,
       "recent_min_bb_width": 5.68
     },
+    "PRECOT": {
+      "failed_squeeze": false,
+      "trend_flip": false,
+      "momentum_down": false,
+      "any": false,
+      "bb_width": 11.79,
+      "recent_min_bb_width": 9.72
+    },
     "PRECWIRE": {
       "failed_squeeze": false,
       "trend_flip": false,
@@ -37654,6 +37802,14 @@
       "any": true,
       "bb_width": 14.0,
       "recent_min_bb_width": 13.87
+    },
+    "REGENCERAM": {
+      "failed_squeeze": false,
+      "trend_flip": false,
+      "momentum_down": false,
+      "any": false,
+      "bb_width": 23.07,
+      "recent_min_bb_width": 25.04
     },
     "RELAXO": {
       "failed_squeeze": false,
@@ -38607,6 +38763,14 @@
       "bb_width": 12.45,
       "recent_min_bb_width": 13.81
     },
+    "SGIL": {
+      "failed_squeeze": false,
+      "trend_flip": false,
+      "momentum_down": false,
+      "any": false,
+      "bb_width": 4.9,
+      "recent_min_bb_width": 3.72
+    },
     "SGL": {
       "failed_squeeze": false,
       "trend_flip": false,
@@ -38638,6 +38802,14 @@
       "any": false,
       "bb_width": 28.65,
       "recent_min_bb_width": 25.76
+    },
+    "SHAHALLOYS": {
+      "failed_squeeze": false,
+      "trend_flip": false,
+      "momentum_down": true,
+      "any": true,
+      "bb_width": 12.21,
+      "recent_min_bb_width": 12.82
     },
     "SHAILY": {
       "failed_squeeze": false,
@@ -40615,6 +40787,14 @@
       "bb_width": 9.44,
       "recent_min_bb_width": 5.98
     },
+    "TVSSRICHAK": {
+      "failed_squeeze": false,
+      "trend_flip": true,
+      "momentum_down": false,
+      "any": true,
+      "bb_width": 7.48,
+      "recent_min_bb_width": 8.52
+    },
     "TVTODAY": {
       "failed_squeeze": false,
       "trend_flip": true,
@@ -40638,6 +40818,14 @@
       "any": true,
       "bb_width": 8.74,
       "recent_min_bb_width": 9.21
+    },
+    "UCAL": {
+      "failed_squeeze": false,
+      "trend_flip": false,
+      "momentum_down": false,
+      "any": false,
+      "bb_width": 7.65,
+      "recent_min_bb_width": 7.36
     },
     "UCOBANK": {
       "failed_squeeze": false,
@@ -41279,6 +41467,14 @@
       "bb_width": 7.07,
       "recent_min_bb_width": 4.02
     },
+    "VSTTILLERS": {
+      "failed_squeeze": false,
+      "trend_flip": true,
+      "momentum_down": false,
+      "any": true,
+      "bb_width": 4.63,
+      "recent_min_bb_width": 5.37
+    },
     "VTL": {
       "failed_squeeze": false,
       "trend_flip": true,
@@ -41699,6 +41895,7 @@
     "AARVI": true,
     "AAVAS": true,
     "ABB": true,
+    "ABBOTINDIA": true,
     "ABCAPITAL": true,
     "ABCOTS": false,
     "ABDL": true,
@@ -41838,6 +42035,7 @@
     "ASTRAMICRO": false,
     "ASTRAZEN": false,
     "ATALREAL": true,
+    "ATAM": false,
     "ATGL": false,
     "ATHERENERG": true,
     "ATL": false,
@@ -42091,6 +42289,7 @@
     "DIACABS": true,
     "DIAMINESQ": false,
     "DIAMONDYD": true,
+    "DICIND": false,
     "DIFFNKG": false,
     "DIGIDRIVE": false,
     "DIGITIDE": false,
@@ -42162,6 +42361,7 @@
     "EPL": true,
     "EQUITASBNK": false,
     "ERIS": false,
+    "ESABINDIA": true,
     "ESAFSFB": true,
     "ESCORTS": true,
     "ESSARSHPNG": false,
@@ -42898,6 +43098,7 @@
     "PRAKASH": false,
     "PRAKASHSTL": false,
     "PRECAM": false,
+    "PRECOT": true,
     "PRECWIRE": true,
     "PREMEXPLN": false,
     "PREMIERENE": false,
@@ -42965,6 +43166,7 @@
     "REDINGTON": true,
     "REDTAPE": false,
     "REFEX": false,
+    "REGENCERAM": false,
     "RELAXO": true,
     "RELIABLE": false,
     "RELIANCE": false,
@@ -43075,9 +43277,11 @@
     "SETL": true,
     "SFL": false,
     "SGFIN": true,
+    "SGIL": true,
     "SGL": false,
     "SGMART": true,
     "SHAH": false,
+    "SHAHALLOYS": true,
     "SHAILY": true,
     "SHAKTIPUMP": false,
     "SHALBY": false,
@@ -43317,9 +43521,11 @@
     "TVSELECT": false,
     "TVSMOTOR": true,
     "TVSSCS": false,
+    "TVSSRICHAK": false,
     "TVTODAY": false,
     "TVVISION": false,
     "UBL": false,
+    "UCAL": true,
     "UCOBANK": false,
     "UDS": true,
     "UFBL": true,
@@ -43399,6 +43605,7 @@
     "VSSL": true,
     "VSTIND": false,
     "VSTL": false,
+    "VSTTILLERS": false,
     "VTL": false,
     "WAAREEENER": false,
     "WAAREERTL": false,
@@ -43541,6 +43748,11 @@
     "ABB": {
       "adx14": 42.3,
       "pct_below_52wh": 0.3,
+      "trend_quality_ok": true
+    },
+    "ABBOTINDIA": {
+      "adx14": 28.9,
+      "pct_below_52wh": 13.8,
       "trend_quality_ok": true
     },
     "ABCAPITAL": {
@@ -44277,6 +44489,11 @@
       "adx14": 65.2,
       "pct_below_52wh": 0.0,
       "trend_quality_ok": true
+    },
+    "ATAM": {
+      "adx14": 27.8,
+      "pct_below_52wh": 40.8,
+      "trend_quality_ok": false
     },
     "ATGL": {
       "adx14": 44.5,
@@ -45233,6 +45450,11 @@
       "pct_below_52wh": 21.8,
       "trend_quality_ok": false
     },
+    "COCKERILL": {
+      "adx14": 29.4,
+      "pct_below_52wh": 5.8,
+      "trend_quality_ok": true
+    },
     "COFORGE": {
       "adx14": 48.1,
       "pct_below_52wh": 8.9,
@@ -45603,6 +45825,11 @@
       "pct_below_52wh": 2.8,
       "trend_quality_ok": true
     },
+    "DICIND": {
+      "adx14": 12.7,
+      "pct_below_52wh": 15.0,
+      "trend_quality_ok": false
+    },
     "DIFFNKG": {
       "adx14": 22.8,
       "pct_below_52wh": 18.3,
@@ -45966,6 +46193,11 @@
     "ERIS": {
       "adx14": 26.2,
       "pct_below_52wh": 25.0,
+      "trend_quality_ok": false
+    },
+    "ESABINDIA": {
+      "adx14": 17.9,
+      "pct_below_52wh": 15.8,
       "trend_quality_ok": false
     },
     "ESAFSFB": {
@@ -49833,6 +50065,11 @@
       "pct_below_52wh": 47.1,
       "trend_quality_ok": false
     },
+    "PRECOT": {
+      "adx14": 19.3,
+      "pct_below_52wh": 6.6,
+      "trend_quality_ok": false
+    },
     "PRECWIRE": {
       "adx14": 30.2,
       "pct_below_52wh": 7.6,
@@ -50166,6 +50403,11 @@
     "REFEX": {
       "adx14": 26.7,
       "pct_below_52wh": 26.7,
+      "trend_quality_ok": false
+    },
+    "REGENCERAM": {
+      "adx14": 16.9,
+      "pct_below_52wh": 22.2,
       "trend_quality_ok": false
     },
     "RELAXO": {
@@ -50758,6 +51000,11 @@
       "pct_below_52wh": 8.2,
       "trend_quality_ok": true
     },
+    "SGIL": {
+      "adx14": 25.7,
+      "pct_below_52wh": 2.9,
+      "trend_quality_ok": true
+    },
     "SGL": {
       "adx14": 37.1,
       "pct_below_52wh": 45.4,
@@ -50777,6 +51024,11 @@
       "adx14": 13.4,
       "pct_below_52wh": 29.2,
       "trend_quality_ok": false
+    },
+    "SHAHALLOYS": {
+      "adx14": 38.5,
+      "pct_below_52wh": 10.9,
+      "trend_quality_ok": true
     },
     "SHAILY": {
       "adx14": 69.7,
@@ -52013,6 +52265,11 @@
       "pct_below_52wh": 10.0,
       "trend_quality_ok": false
     },
+    "TVSSRICHAK": {
+      "adx14": 15.2,
+      "pct_below_52wh": 18.4,
+      "trend_quality_ok": false
+    },
     "TVTODAY": {
       "adx14": 33.1,
       "pct_below_52wh": 26.7,
@@ -52026,6 +52283,11 @@
     "UBL": {
       "adx14": 41.8,
       "pct_below_52wh": 26.7,
+      "trend_quality_ok": false
+    },
+    "UCAL": {
+      "adx14": 17.2,
+      "pct_below_52wh": 19.0,
       "trend_quality_ok": false
     },
     "UCOBANK": {
@@ -52426,6 +52688,11 @@
     "VSTL": {
       "adx14": 23.4,
       "pct_below_52wh": 35.3,
+      "trend_quality_ok": false
+    },
+    "VSTTILLERS": {
+      "adx14": 37.9,
+      "pct_below_52wh": 29.1,
       "trend_quality_ok": false
     },
     "VTL": {

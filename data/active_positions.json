@@ -204,7 +204,7 @@
     "first_seen": "2026-07-08",
     "blast_triggered_date": "2026-07-08",
     "confidence": "HIGH",
-    "reason": "Up 67.43% over 20 trading days since squeeze entry at 9.21."
+    "reason": "Up 67.43% over 20 trading days since squeeze entry at 9.21"
   },
   "BTTL": {
     "symbol": "BTTL",
@@ -448,7 +448,7 @@
     "first_seen": "2026-07-13",
     "blast_triggered_date": "2026-07-13",
     "confidence": "HIGH",
-    "reason": "Up 70.91% over 10 trading days since squeeze entry at 28.60."
+    "reason": "Up 70.91% over 10 trading days since squeeze entry at 28.60"
   },
   "EMAMIPAP": {
     "symbol": "EMAMIPAP",
@@ -2096,7 +2096,7 @@
     "status": "SQUEEZE",
     "first_seen": "2026-07-28",
     "confidence": "MEDIUM",
-    "reason": "BB modestly tighter at 2.99% from 3.47%, stoch_k 29 barely above stoch_d 29."
+    "reason": "BB narrowed to 2.99% from 3.47%, stoch_k 29.48 barely above stoch_d 29.16"
   },
   "GOLDBETA": {
     "symbol": "GOLDBETA",
@@ -3200,7 +3200,7 @@
     "first_seen": "2026-07-30",
     "blast_triggered_date": "2026-07-30",
     "confidence": "HIGH",
-    "reason": "Up 54.36% over 21 trading days since squeeze entry at 47.47."
+    "reason": "Up 54.36% over 21 trading days since squeeze entry at 47.47"
   },
   "TALBROAUTO": {
     "symbol": "TALBROAUTO",
@@ -4499,7 +4499,7 @@
     "first_seen": "2026-08-03",
     "blast_triggered_date": "2026-08-03",
     "confidence": "HIGH",
-    "reason": "Up 69.30% over 28 trading days since squeeze entry at 52.87."
+    "reason": "Up 69.30% over 28 trading days since squeeze entry at 52.87"
   },
   "SHRINGARMS": {
     "symbol": "SHRINGARMS",
@@ -4745,7 +4745,7 @@
     "first_seen": "2026-08-04",
     "blast_triggered_date": "2026-08-04",
     "confidence": "HIGH",
-    "reason": "Up 58.32% over 27 trading days since squeeze entry at 386.85."
+    "reason": "Up 58.32% over 27 trading days since squeeze entry at 386.85"
   },
   "ALPHAGEO": {
     "symbol": "ALPHAGEO",
@@ -9081,7 +9081,7 @@
     "promoted_from_watchlist": true,
     "promoted_date": "2026-08-06",
     "confidence": "HIGH",
-    "reason": "BB squeezed to 4.02% from 5.94%, stoch_k 45 crossing above stoch_d 38."
+    "reason": "BB squeezed to 4.02% from 5.94%, stoch_k 45 crossing above stoch_d 39"
   },
   "STANLEY": {
     "symbol": "STANLEY",
@@ -13946,7 +13946,7 @@
     "promoted_from_watchlist": true,
     "promoted_date": "2026-08-10",
     "confidence": "HIGH",
-    "reason": "BB tightened to 3.76% from 6.06%, stoch_k 12 rising sharply above stoch_d 7."
+    "reason": "BB compressed to 3.76% from 6.06%, stoch_k 12.15 turning above stoch_d 7.81"
   },
   "JSLL": {
     "symbol": "JSLL",
@@ -15228,7 +15228,7 @@
     "status": "SQUEEZE",
     "first_seen": "2026-08-07",
     "confidence": "MEDIUM",
-    "reason": "BB mildly squeezed to 3.93% from 4.35%, stoch_k 8 just above stoch_d 7."
+    "reason": "BB narrowed modestly to 3.93% from 4.35%, stoch_k 8.30 barely above stoch_d 7.93"
   },
   "SUPREMEIND": {
     "symbol": "SUPREMEIND",
@@ -17755,7 +17755,7 @@
     "status": "SQUEEZE",
     "first_seen": "2026-08-10",
     "confidence": "MEDIUM",
-    "reason": "BB narrowed to 3.37% from 4.02%, stoch_k 27 slightly above stoch_d 24."
+    "reason": "BB tightened to 3.37% from 4.02%, stoch_k 27.44 above stoch_d 24.69 but below EMAs"
   },
   "COMSYN": {
     "symbol": "COMSYN",
@@ -19977,7 +19977,7 @@
     "status": "SQUEEZE",
     "first_seen": "2026-08-11",
     "confidence": "HIGH",
-    "reason": "BB compressed to 4.26% from 7.46%, stoch_k 40 surging above stoch_d 15."
+    "reason": "BB sharply squeezed to 4.26% from 7.46%, stoch_k 40.65 well above stoch_d 15.99"
   },
   "DCMSHRIRAM": {
     "symbol": "DCMSHRIRAM",
@@ -22744,7 +22744,7 @@
     "status": "SQUEEZE",
     "first_seen": "2026-08-12",
     "confidence": "HIGH",
-    "reason": "BB nearly halved to 4.19% from 7.59%, stoch turning up from oversold at 5.17."
+    "reason": "BB compressed to 4.19% from 7.59%, stoch_k 5.18 turning above stoch_d 2.00"
   },
   "DONEAR": {
     "symbol": "DONEAR",
@@ -22784,7 +22784,7 @@
     "status": "SQUEEZE",
     "first_seen": "2026-08-12",
     "confidence": "MEDIUM",
-    "reason": "BB modestly tighter at 3.48% from 3.81%, stoch_k flat near stoch_d 43."
+    "reason": "BB mildly tightened to 3.48% from 3.81%, stoch_k 43.39 flat near stoch_d 43.21"
   },
   "ELLEN": {
     "symbol": "ELLEN",
@@ -23030,7 +23030,7 @@
     "status": "SQUEEZE",
     "first_seen": "2026-08-12",
     "confidence": "HIGH",
-    "reason": "BB nearly halved to 3.67% from 6.06%, stoch_k 25 lifting above stoch_d 15."
+    "reason": "BB squeezed to 3.67% from 6.06%, stoch_k 25.00 clearly above stoch_d 15.26"
   },
   "IIFLCAPS": {
     "symbol": "IIFLCAPS",
@@ -23070,7 +23070,7 @@
     "status": "SQUEEZE",
     "first_seen": "2026-08-12",
     "confidence": "MEDIUM",
-    "reason": "BB width actually wider at 2.76% vs 2.26% five days ago, stoch low at 8."
+    "reason": "BB width 2.76% expanded from 2.26% five days ago, stoch_k 8.62 weakly above stoch_d 4.75"
   },
   "INDIANB": {
     "symbol": "INDIANB",
@@ -24474,5 +24474,88 @@
     "blast_triggered_date": "2026-08-12",
     "confidence": "HIGH",
     "reason": "Up 9.1% over 19d since entry at 38.01, stoch_k 100 overbought"
+  },
+  "ABBOTINDIA": {
+    "symbol": "ABBOTINDIA",
+    "price": 28140.0,
+    "bb_width": 5.424075487458382,
+    "bb_width_5d_ago": 7.416370948445815,
+    "stoch_k": 16.935437356140547,
+    "stoch_d": 7.615921379660166,
+    "ema10": 27886.23510155376,
+    "ema30": 27567.445869673786,
+    "pivot_r1": 28326.666666666664,
+    "pivot_r2": 28633.333333333332,
+    "pivot_s1": 27521.666666666664,
+    "predicted_return": 4.71,
+    "setup": "WATCHLIST",
+    "entry_price": 28140.0,
+    "entry_date": "2026-08-13",
+    "target_price": 29465.36,
+    "target_return_pct": 4.71,
+    "gtt_target": 34766.79,
+    "gtt_stop": 26170.2,
+    "gtt_target_pct": 23.5,
+    "gtt_trail_note": null,
+    "blast_entry_price": null,
+    "blast_entry_date": null,
+    "exit_price": null,
+    "exit_date": null,
+    "holding_period_days": null,
+    "return_since_entry": null,
+    "trend_conflict": false,
+    "weak_crossover": false,
+    "conviction_score": null,
+    "conviction_note": null,
+    "stoch_k_chart": 63.0146455362833,
+    "stoch_d_chart": 61.109050607782244,
+    "last_seen": "2026-08-13",
+    "status": "WATCHLIST",
+    "first_seen": "2026-08-13",
+    "watchlist_first_seen": "2026-08-13",
+    "watchlist_first_price": 28140.0,
+    "reason": "BB width 5.424075487458382% tightening, stoch_k 17 turning up \u2014 not yet confirmed (needs <3.0% width)",
+    "confidence": "WATCHING"
+  },
+  "ESABINDIA": {
+    "symbol": "ESABINDIA",
+    "price": 6023.0,
+    "bb_width": 8.612978649266271,
+    "bb_width_5d_ago": 6.33311243584839,
+    "stoch_k": 85.89615256767142,
+    "stoch_d": 56.86189584141378,
+    "ema10": 5748.655767848521,
+    "ema30": 5738.141291522294,
+    "pivot_r1": 5939.0,
+    "pivot_r2": 6057.5,
+    "pivot_s1": 5681.0,
+    "predicted_return": 6.55,
+    "setup": "BLAST",
+    "entry_price": 5653.0,
+    "entry_date": "2026-07-17",
+    "target_price": null,
+    "target_return_pct": null,
+    "gtt_target": null,
+    "gtt_stop": null,
+    "gtt_target_pct": null,
+    "gtt_trail_note": null,
+    "blast_entry_price": 5653.0,
+    "blast_entry_date": "2026-07-17",
+    "exit_price": 6023.0,
+    "exit_date": "2026-08-13",
+    "holding_period_days": 26,
+    "return_since_entry": 6.55,
+    "trend_conflict": false,
+    "weak_crossover": false,
+    "conviction_score": null,
+    "conviction_note": null,
+    "stoch_k_chart": 31.816092628676746,
+    "stoch_d_chart": 20.877318008664158,
+    "last_seen": "2026-08-13",
+    "status": "BLAST",
+    "first_seen": "2026-08-13",
+    "blast_triggered_date": "2026-08-13",
+    "confidence": "HIGH",
+    "reason": "Up 6.5% over 26d since entry at 5653.0, stoch_k 86 overbought"
   }
 }
