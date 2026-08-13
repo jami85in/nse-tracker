@@ -359,7 +359,7 @@ const RAW_BASE    = `https://raw.githubusercontent.com/${GITHUB_USER}/${GITHUB_R
 // instead of requiring a manual file diff to find out. This exists because
 // PWA/service-worker caching has repeatedly made "is this actually deployed
 // yet" the hardest part of diagnosing issues in this app.
-const BUILD_VERSION = "2026-08-13.1";
+const BUILD_VERSION = "2026-08-13.2";
 const GITHUB_APP_ACTIONS_URL = `https://github.com/${GITHUB_USER}/${GITHUB_REPO}/actions/workflows/scan.yml`;
 
 // ── Fetch strategy ────────────────────────────────────────────────────────────
@@ -532,11 +532,33 @@ async function fetchLivePrices() {
       return (Date.now() - asUTCMillis) / 60000;
     };
 
-    // Primary = the fresher file by timestamp, unconditionally. Secondary
-    // backfills any symbols the primary is missing.
+    // Primary = the file whose PRICES ARE ACTUALLY NEWER. That is not the
+    // same as the file written most recently. Confirmed real failure: NSE's
+    // bhavcopy for a trading day can still be unpublished when the evening
+    // scan runs, so the scan legitimately builds its baseline from the
+    // PREVIOUS day's closes — but writes the file "now". Comparing write
+    // times then picked a baseline written 20:09 carrying yesterday's
+    // closes over a Kite file written 15:04 carrying today's prices, and
+    // the whole dashboard showed yesterday's numbers.
+    //
+    // So: compare data_date first (the trading day the prices belong to),
+    // and only fall back to write time when data_date is missing on either
+    // side — e.g. files written before this field existed.
+    const dataDate = (f) => (f && f.data_date) ? String(f.data_date) : null;
     let primary = live, secondary = baseline;
-    if (baseline && (!live || ts(baseline) > ts(live))) {
-      primary = baseline; secondary = live;
+    if (baseline) {
+      const bD = dataDate(baseline), lD = dataDate(live);
+      if (bD && lD) {
+        // Both declare their data date. A genuinely newer trading day wins
+        // outright. When they cover the SAME day, fall back to write time —
+        // the scan baseline written after the close carries the official
+        // closing price, which is better than a mid-session Kite snapshot.
+        if (bD > lD) { primary = baseline; secondary = live; }
+        else if (bD === lD && ts(baseline) > ts(live)) { primary = baseline; secondary = live; }
+      } else if (!live || ts(baseline) > ts(live)) {
+        // Legacy path: no data_date available, use write time as before.
+        primary = baseline; secondary = live;
+      }
     }
     if (!primary) return { prices: {}, updatedAt: null, marketOpen: false, liveFeed: false, kiteDelayed: false };
 
