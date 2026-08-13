@@ -142,6 +142,14 @@ def main():
 
     output = {
         "updated_at": now_ist.strftime("%Y-%m-%d %H:%M IST"),
+        # Kite only writes during live market hours (see the is_market_hours
+        # guard above), so the prices always belong to today's session.
+        # Declaring it explicitly lets the frontend compare DATA recency
+        # against the scan baseline rather than file write times — the
+        # baseline can legitimately be written later in the evening while
+        # still containing the PREVIOUS day's closes, if NSE's bhavcopy
+        # for today hadn't published yet when the scan ran.
+        "data_date": now_ist.strftime("%Y-%m-%d"),
         "market_open": True,
         "in_market_hours": True,
         "source": "Kite Connect (licensed, live)",
