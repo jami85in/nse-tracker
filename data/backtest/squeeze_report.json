@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-08 05:14 UTC",
+  "generated": "2026-08-15 04:54 UTC",
   "params": {
     "bb_threshold": 4.5,
     "target_pct": 3.0,
@@ -7,14 +7,14 @@
     "max_hold_days": 20
   },
   "overall": {
-    "trades": 6882,
-    "target_pct": 53.8,
+    "trades": 6908,
+    "target_pct": 53.9,
     "stop_pct": 26.3,
-    "timeout_pct": 20.0,
-    "expectancy_pct": -0.137,
+    "timeout_pct": 19.7,
+    "expectancy_pct": -0.136,
     "gross_pct": 0.303,
-    "buyhold_net_pct": -0.125,
-    "edge_vs_buyhold": -0.012
+    "buyhold_net_pct": -0.137,
+    "edge_vs_buyhold": 0.0
   },
   "by_year": {
     "2020": {
@@ -78,34 +78,34 @@
       "edge_vs_buyhold": 0.518
     },
     "2026": {
-      "trades": 1121,
-      "target_pct": 44.4,
-      "stop_pct": 28.2,
-      "timeout_pct": 27.4,
-      "expectancy_pct": -0.697,
-      "gross_pct": -0.245,
-      "buyhold_net_pct": -1.249,
-      "edge_vs_buyhold": 0.552
+      "trades": 1147,
+      "target_pct": 45.6,
+      "stop_pct": 28.5,
+      "timeout_pct": 25.9,
+      "expectancy_pct": -0.684,
+      "gross_pct": -0.233,
+      "buyhold_net_pct": -1.295,
+      "edge_vs_buyhold": 0.611
     }
   },
   "trend_aligned": {
-    "trades": 5446,
-    "target_pct": 52.5,
-    "stop_pct": 27.0,
-    "timeout_pct": 20.5,
-    "expectancy_pct": -0.219,
-    "gross_pct": 0.222,
-    "buyhold_net_pct": -0.128,
-    "edge_vs_buyhold": -0.091
+    "trades": 5466,
+    "target_pct": 52.7,
+    "stop_pct": 27.1,
+    "timeout_pct": 20.2,
+    "expectancy_pct": -0.221,
+    "gross_pct": 0.22,
+    "buyhold_net_pct": -0.145,
+    "edge_vs_buyhold": -0.076
   },
   "trend_conflict": {
-    "trades": 1436,
-    "target_pct": 58.6,
-    "stop_pct": 23.3,
-    "timeout_pct": 18.1,
-    "expectancy_pct": 0.175,
-    "gross_pct": 0.608,
-    "buyhold_net_pct": -0.115,
+    "trades": 1442,
+    "target_pct": 58.7,
+    "stop_pct": 23.2,
+    "timeout_pct": 18.0,
+    "expectancy_pct": 0.182,
+    "gross_pct": 0.615,
+    "buyhold_net_pct": -0.108,
     "edge_vs_buyhold": 0.291
   }
 }
