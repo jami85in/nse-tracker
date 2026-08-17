@@ -359,7 +359,7 @@ const RAW_BASE    = `https://raw.githubusercontent.com/${GITHUB_USER}/${GITHUB_R
 // instead of requiring a manual file diff to find out. This exists because
 // PWA/service-worker caching has repeatedly made "is this actually deployed
 // yet" the hardest part of diagnosing issues in this app.
-const BUILD_VERSION = "2026-08-17.2";
+const BUILD_VERSION = "2026-08-17.3";
 const GITHUB_APP_ACTIONS_URL = `https://github.com/${GITHUB_USER}/${GITHUB_REPO}/actions/workflows/scan.yml`;
 
 // ── Fetch strategy ────────────────────────────────────────────────────────────
@@ -1904,7 +1904,7 @@ function NetPositionCard({ net, livePrice, onSell, onAdd, scanData, pricesStale 
   );
 }
 
-function PortfolioSummary({ positions, livePrices = {}, totalDividends = 0 }) {
+function PortfolioSummary({ positions, livePrices = {}, tradingDividends = 0, holdingDividends = 0 }) {
   const closed = positions.filter(p => p.status === "CLOSED");
   const open = positions.filter(p => p.status === "OPEN");
   const totalInvested = open.reduce((s, p) => s + p.invested, 0);
@@ -1918,11 +1918,14 @@ function PortfolioSummary({ positions, livePrices = {}, totalDividends = 0 }) {
   const missingCount = open.length - pricedOpen.length;
   const unrealizedPL = pricedOpen.reduce((s, p) => s + (livePrices[p.symbol] - p.entryPrice) * p.qty, 0);
   const winRate = closed.length ? ((closed.filter(p => p.exitPrice > p.entryPrice).length / closed.length) * 100).toFixed(0) : 0;
-  // Total return = price moves + dividends. Dividends are real cash already
-  // received and are NOT reflected in any price-based P&L figure — a stock
-  // trades ex-dividend by roughly the payout, so ignoring them systematically
-  // understates what the investment actually returned.
-  const totalReturn = realizedPL + unrealizedPL + totalDividends;
+  // Two DIFFERENT questions, deliberately not merged into one number:
+  //   strategyReturn = did the scanner's trades make money?
+  //   allInReturn    = did the whole account make money?
+  // Long-term holding dividends belong only to the second. Folding them into
+  // the first would credit the strategy with income from positions it never
+  // traded, which can flip a losing strategy into an apparent winner.
+  const strategyReturn = realizedPL + unrealizedPL + tradingDividends;
+  const allInReturn = strategyReturn + holdingDividends;
 
   return (
     <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, padding: 16, marginBottom: 16 }}>
@@ -1932,16 +1935,37 @@ function PortfolioSummary({ positions, livePrices = {}, totalDividends = 0 }) {
         <Stat label="Win Rate" value={winRate + "%"} color={Number(winRate) > 60 ? T.green : T.warn} />
         <Stat label="Realized P&L" value={(realizedPL >= 0 ? "+" : "-") + curr(Math.abs(realizedPL))} color={realizedPL >= 0 ? T.green : T.red} />
         <Stat label="Unrealized P&L" value={(unrealizedPL >= 0 ? "+" : "-") + curr(Math.abs(unrealizedPL))} color={unrealizedPL >= 0 ? T.green : T.red} />
-        <Stat label="Dividends" value={totalDividends > 0 ? "+" + curr(totalDividends) : "—"} color={totalDividends > 0 ? T.green : T.muted} />
-        <Stat label="TOTAL RETURN" value={(totalReturn >= 0 ? "+" : "-") + curr(Math.abs(totalReturn))} color={totalReturn >= 0 ? T.green : T.red} />
-        <Stat label="Open" value={open.length} />
-        <Stat label="Closed" value={closed.length} />
+        <Stat label="Divs (traded)" value={tradingDividends > 0 ? "+" + curr(tradingDividends) : "—"} color={tradingDividends > 0 ? T.green : T.muted} />
+        <Stat label="Open / Closed" value={`${open.length} / ${closed.length}`} />
       </div>
-      <div style={{ marginTop: 10, color: T.muted, fontSize: 10 }}>
-        Total return = realized + unrealized + dividends received.
+
+      <div style={{ marginTop: 14, paddingTop: 12, borderTop: `1px solid ${T.border}` }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 4 }}>
+          <span style={{ color: T.text, fontSize: 12, fontWeight: 700 }}>STRATEGY RETURN</span>
+          <span style={{ color: strategyReturn >= 0 ? T.green : T.red, fontSize: 16, fontWeight: 800 }}>
+            {(strategyReturn >= 0 ? "+" : "-") + curr(Math.abs(strategyReturn))}
+          </span>
+        </div>
+        <div style={{ color: T.muted, fontSize: 10, marginBottom: 10 }}>
+          Trades the scanner produced: realized + unrealized + dividends on those symbols only.
+        </div>
+        {holdingDividends > 0 && (
+          <>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 4 }}>
+              <span style={{ color: T.muted, fontSize: 12, fontWeight: 700 }}>ALL-IN RETURN</span>
+              <span style={{ color: allInReturn >= 0 ? T.green : T.red, fontSize: 14, fontWeight: 800 }}>
+                {(allInReturn >= 0 ? "+" : "-") + curr(Math.abs(allInReturn))}
+              </span>
+            </div>
+            <div style={{ color: T.muted, fontSize: 10 }}>
+              Adds {curr(holdingDividends)} of dividends from long-term holdings the scanner never traded.
+            </div>
+          </>
+        )}
       </div>
+
       {missingCount > 0 && (
-        <div style={{ marginTop: 6, color: T.warn, fontSize: 10 }}>
+        <div style={{ marginTop: 10, color: T.warn, fontSize: 10 }}>
           ⚠ Unrealized P&L excludes {missingCount} position{missingCount === 1 ? "" : "s"} with no live price yet — total is partial, not wrong-but-complete.
         </div>
       )}
@@ -2475,6 +2499,19 @@ function App() {
     .filter(d => d.symbol === sym)
     .reduce((s, d) => s + (Number(d.total) || 0), 0);
   const totalDividends = dividends.reduce((s, d) => s + (Number(d.total) || 0), 0);
+  // Attribution matters. A dividend from a stock held for years independently
+  // of the scanner is NOT a return the strategy produced — folding it into
+  // the strategy's P&L flatters it with income it had nothing to do with.
+  // Confirmed real case: IDFCFIRSTB paid Rs 11,000 (57% of all dividends)
+  // from a multi-year holding the scanner never triggered a trade on.
+  // A dividend counts as strategy-attributable only if that symbol appears
+  // in the trading ledger; everything else is long-term holding income.
+  const tradedSymbols = new Set(positions.map(p => p.symbol));
+  const isTradingDividend = d => d.source === "trading"
+    || (d.source !== "holding" && tradedSymbols.has(d.symbol));
+  const tradingDividends = dividends.filter(isTradingDividend)
+    .reduce((s, d) => s + (Number(d.total) || 0), 0);
+  const holdingDividends = totalDividends - tradingDividends;
   const intervalRef = useRef(null);
 
   const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(null), 2500); };
@@ -3175,7 +3212,7 @@ function App() {
               {/* ── Portfolio (net positions) sub-tab ── */}
               {portfolioTab === "swing" && (
                 <>
-                  <PortfolioSummary positions={positions} livePrices={livePrices} totalDividends={totalDividends} />
+                  <PortfolioSummary positions={positions} livePrices={livePrices} tradingDividends={tradingDividends} holdingDividends={holdingDividends} />
 
                   {/* Dividend ledger. Sits above positions because it changes
                       the headline total return figure directly above it. */}
@@ -3186,7 +3223,7 @@ function App() {
                         <div style={{ color: T.muted, fontSize: 10, marginTop: 1 }}>
                           {dividends.length === 0
                             ? "None recorded — add from your Zerodha Console dividend statement"
-                            : `${dividends.length} entr${dividends.length === 1 ? "y" : "ies"} · ${curr(totalDividends)} total`}
+                            : `${dividends.length} entries · ${curr(tradingDividends)} traded + ${curr(holdingDividends)} long-term`}
                         </div>
                       </div>
                       <button onClick={() => setShowAddDividend(true)}
@@ -3196,21 +3233,37 @@ function App() {
                     </div>
                     {dividends.length > 0 && (
                       <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                        {[...dividends].sort((a, b) => (b.exDate || "").localeCompare(a.exDate || "")).map(d => (
-                          <div key={d.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: T.surface, borderRadius: 7, padding: "7px 10px" }}>
-                            <div style={{ minWidth: 0 }}>
-                              <span style={{ color: T.text, fontFamily: "monospace", fontWeight: 700, fontSize: 12 }}>{d.symbol}</span>
-                              <span style={{ color: T.muted, fontSize: 10, marginLeft: 6 }}>
-                                ₹{fmt(d.perShare)}/sh × {d.qty} · ex {d.exDate}
-                              </span>
+                        {[...dividends].sort((a, b) => (b.exDate || "").localeCompare(a.exDate || "")).map(d => {
+                          const isTrading = isTradingDividend(d);
+                          return (
+                            <div key={d.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: T.surface, borderRadius: 7, padding: "7px 10px" }}>
+                              <div style={{ minWidth: 0 }}>
+                                <span style={{ color: T.text, fontFamily: "monospace", fontWeight: 700, fontSize: 12 }}>{d.symbol}</span>
+                                {/* Tap to reclassify. Auto-detection assumes any symbol in the
+                                    trading ledger is strategy income, which is wrong when a
+                                    long-held stock also happens to have been scanned. */}
+                                <span
+                                  onClick={() => saveDividends(dividends.map(x => x.id === d.id
+                                    ? { ...x, source: isTrading ? "holding" : "trading" } : x))}
+                                  style={{ marginLeft: 6, fontSize: 9, fontWeight: 700, cursor: "pointer",
+                                           color: isTrading ? T.accent : T.muted,
+                                           background: (isTrading ? T.accent : T.muted) + "22",
+                                           border: `1px solid ${(isTrading ? T.accent : T.muted)}55`,
+                                           borderRadius: 4, padding: "1px 5px" }}>
+                                  {isTrading ? "TRADED" : "LONG-TERM"}
+                                </span>
+                                <div style={{ color: T.muted, fontSize: 10, marginTop: 1 }}>
+                                  ₹{fmt(d.perShare)}/sh × {d.qty} · ex {d.exDate}
+                                </div>
+                              </div>
+                              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                <span style={{ color: T.green, fontWeight: 700, fontSize: 12 }}>+{curr(d.total)}</span>
+                                <span onClick={() => saveDividends(dividends.filter(x => x.id !== d.id))}
+                                  style={{ color: T.muted, fontSize: 12, cursor: "pointer" }}>🗑</span>
+                              </div>
                             </div>
-                            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                              <span style={{ color: T.green, fontWeight: 700, fontSize: 12 }}>+{curr(d.total)}</span>
-                              <span onClick={() => saveDividends(dividends.filter(x => x.id !== d.id))}
-                                style={{ color: T.muted, fontSize: 12, cursor: "pointer" }}>🗑</span>
-                            </div>
-                          </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     )}
                   </div>
