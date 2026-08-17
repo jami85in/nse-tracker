@@ -169,6 +169,19 @@ def main():
 
     output = {
         "updated_at": now_ist.strftime("%Y-%m-%d %H:%M IST"),
+        # These two fields must be present for the frontend to reason about
+        # this file correctly. Their absence used to cause real breakage
+        # when this script overwrote the Kite output:
+        #   - no "source" -> the frontend's isKite() check failed, so the
+        #     live badge never appeared and liveFeed stayed false.
+        #   - no "data_date" -> the data-recency comparison fell back to
+        #     file write times, reintroducing the stale-price bug where a
+        #     newer-written file containing OLDER prices won.
+        # "source" deliberately does NOT say Kite: these are scraped NSE
+        # prices, and mislabelling them would wrongly light up the live
+        # badge for a fallback source.
+        "source": "NSE direct scrape (legacy fallback)",
+        "data_date": now_ist.strftime("%Y-%m-%d"),
         "market_open": True,
         "in_market_hours": True,
         "count": len(prices),
