@@ -1,20 +1,39 @@
-name: NSE Live Price Update
+name: NSE Live Price Update (LEGACY — manual fallback only)
+
+# ⚠ SCHEDULE DISABLED. Superseded by "NSE Live Price Update (Kite Connect)".
+#
+# Why: this workflow and prices_kite.yml BOTH write data/prices_live.json,
+# but sat in DIFFERENT concurrency groups (nse-prices vs nse-prices-kite),
+# so they never blocked each other. This one ran 9x/hour against Kite's
+# 4x/hour, so it overwrote the licensed Kite data roughly two writes out of
+# every three.
+#
+# That silently broke two things downstream:
+#   1. scripts/prices.py emitted no "source" field, so the frontend's
+#      isKite() check failed -> the live badge never showed and liveFeed
+#      stayed false even during market hours.
+#   2. It emitted no "data_date" field, so the frontend's data-recency
+#      comparison fell back to file write times — reintroducing exactly the
+#      stale-price bug that field was added to fix.
+#
+# It also scrapes NSE directly, which is the unreliable source Kite Connect
+# was adopted to replace.
+#
+# Kept as a manual fallback (workflow_dispatch) in case Kite is ever
+# unavailable for an extended period. scripts/prices.py now also emits
+# source/data_date, so a manual run degrades gracefully instead of
+# corrupting the data contract.
 
 on:
-  schedule:
-    # Run frequently during market hours. GitHub often delays or drops
-    # scheduled jobs under load, so we schedule every ~7 min and let
-    # prices.py's own is_market_hours() guard no-op outside 9:15-15:30 IST.
-    # Window 3:00-10:59 UTC = 8:30am-4:29pm IST covers pre-open through close.
-    - cron: "2,9,16,23,30,37,44,51,58 3-10 * * 1-5"
   workflow_dispatch:
 
 permissions:
   contents: write
 
-# Prevent overlapping runs from racing on the git push
 concurrency:
-  group: nse-prices
+  # Same group as the Kite workflow, so if this is ever run manually it
+  # queues behind the scheduled job instead of racing it on the git push.
+  group: nse-prices-kite
   cancel-in-progress: false
 
 jobs:
@@ -30,7 +49,7 @@ jobs:
       - name: Install dependencies
         run: pip install requests
 
-      - name: Fetch live prices from NSE
+      - name: Fetch live prices from NSE (fallback source)
         run: python scripts/prices.py
 
       - name: Commit price data
@@ -39,5 +58,5 @@ jobs:
           git config user.email "actions@github.com"
           git pull --rebase --autostash origin main || true
           git add data/prices_live.json
-          git diff --staged --quiet || git commit -m "prices: $(TZ='Asia/Kolkata' date +'%H:%M IST')"
+          git diff --staged --quiet || git commit -m "prices(legacy fallback): $(TZ='Asia/Kolkata' date +'%H:%M IST')"
           git push
