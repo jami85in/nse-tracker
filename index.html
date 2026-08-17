@@ -359,7 +359,7 @@ const RAW_BASE    = `https://raw.githubusercontent.com/${GITHUB_USER}/${GITHUB_R
 // instead of requiring a manual file diff to find out. This exists because
 // PWA/service-worker caching has repeatedly made "is this actually deployed
 // yet" the hardest part of diagnosing issues in this app.
-const BUILD_VERSION = "2026-08-17.1";
+const BUILD_VERSION = "2026-08-17.2";
 const GITHUB_APP_ACTIONS_URL = `https://github.com/${GITHUB_USER}/${GITHUB_REPO}/actions/workflows/scan.yml`;
 
 // ── Fetch strategy ────────────────────────────────────────────────────────────
@@ -1227,11 +1227,55 @@ function InvestModal({ stock, onClose, onConfirm }) {
 }
 
 // ── Long-Term Holdings ────────────────────────────────────────────────────────
-function AddDividendModal({ onClose, onAdd, positions, holdings }) {
+function parseConsoleDividends(text) {
+  // Parses Zerodha Console's dividend report as pasted from the browser.
+  // Console renders each entry across four lines:
+  //     SYMBOL YYYY-MM-DD
+  //     ₹200.00
+  //     Qty: 20
+  //     DPS: ₹10.00
+  // Symbols can carry Console-specific markers — a trailing '*' (footnote,
+  // e.g. renamed/merged scrip like KALPATPOWR*) or a trailing digit denoting
+  // the payout instance (e.g. ALKEM6 = Alkem's 6th). Neither is part of the
+  // NSE ticker, so both are stripped — otherwise the symbol would never
+  // match a position and the dividend would sit unattributed.
+  const out = [];
+  const lines = text.split("\n").map(l => l.trim()).filter(Boolean);
+  for (let i = 0; i < lines.length; i++) {
+    const head = lines[i].match(/^([A-Za-z0-9&\-*]+)\s+(\d{4}-\d{2}-\d{2})$/);
+    if (!head) continue;
+    let symbol = head[1].replace(/\*+$/, "").replace(/\d+$/, "");
+    const exDate = head[2];
+    let total = null, qty = null, perShare = null;
+    for (let j = i + 1; j < Math.min(i + 5, lines.length); j++) {
+      const amt = lines[j].match(/^₹\s*([\d,]+\.?\d*)$/);
+      if (amt && total === null) { total = Number(amt[1].replace(/,/g, "")); continue; }
+      const q = lines[j].match(/^Qty:\s*([\d,]+)/i);
+      if (q) { qty = Number(q[1].replace(/,/g, "")); continue; }
+      const d = lines[j].match(/^DPS:\s*₹?\s*([\d,]+\.?\d*)/i);
+      if (d) { perShare = Number(d[1].replace(/,/g, "")); continue; }
+    }
+    if (symbol && total != null && qty != null) {
+      out.push({
+        id: uid(), symbol, exDate, qty,
+        perShare: perShare != null ? perShare : (qty ? total / qty : 0),
+        total,
+      });
+    }
+  }
+  return out;
+}
+
+function AddDividendModal({ onClose, onAdd, onBulkAdd, positions, holdings }) {
+  const [mode, setMode] = useState("paste");
+  const [pasteText, setPasteText] = useState("");
   const [sym, setSym] = useState("");
   const [exDate, setExDate] = useState(new Date().toISOString().slice(0, 10));
   const [perShare, setPerShare] = useState("");
   const [qty, setQty] = useState("");
+
+  const parsed = mode === "paste" ? parseConsoleDividends(pasteText) : [];
+  const parsedTotal = parsed.reduce((s, d) => s + d.total, 0);
 
   // Suggest symbols you actually hold or have held, so this is a pick rather
   // than free typing — reduces the chance of a typo silently creating a
@@ -1259,57 +1303,95 @@ function AddDividendModal({ onClose, onAdd, positions, holdings }) {
   return (
     <div style={{ position: "fixed", inset: 0, background: "#000000cc", display: "flex", alignItems: "flex-end", justifyContent: "center", zIndex: 100 }} onClick={onClose}>
       <div onClick={e => e.stopPropagation()} style={{ background: T.bg, borderRadius: "16px 16px 0 0", padding: 20, width: "100%", maxWidth: 520, maxHeight: "88vh", overflowY: "auto" }}>
-        <div style={{ fontWeight: 800, fontSize: 17, color: T.text, marginBottom: 4 }}>💰 Record a Dividend</div>
-        <div style={{ color: T.muted, fontSize: 11, marginBottom: 16 }}>
-          From your Zerodha Console dividend statement. Kite's API doesn't expose dividends, so these are entered rather than synced.
+        <div style={{ fontWeight: 800, fontSize: 17, color: T.text, marginBottom: 4 }}>💰 Record Dividends</div>
+        <div style={{ color: T.muted, fontSize: 11, marginBottom: 14 }}>
+          Kite's API doesn't expose dividends, so these come from Console → Reports → Dividends.
         </div>
 
-        <div style={{ color: T.muted, fontSize: 10, marginBottom: 4 }}>SYMBOL</div>
-        <input value={sym} onChange={e => pickSymbol(e.target.value.toUpperCase())} placeholder="e.g. SUNTV"
-          style={{ width: "100%", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, padding: "10px 12px", color: T.text, fontSize: 14, fontFamily: "monospace" }} />
-        {known.length > 0 && (
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginTop: 6, marginBottom: 12 }}>
-            {known.slice(0, 24).map(s => (
-              <span key={s} onClick={() => pickSymbol(s)}
-                style={{ background: sym === s ? T.accent : T.surface, color: sym === s ? "#000" : T.muted, border: `1px solid ${T.border}`, borderRadius: 5, padding: "3px 7px", fontSize: 10, fontFamily: "monospace", cursor: "pointer" }}>
-                {s}
-              </span>
-            ))}
-          </div>
+        <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
+          {[["paste", "📋 Paste from Console"], ["manual", "✏️ Enter one"]].map(([m, label]) => (
+            <button key={m} onClick={() => setMode(m)}
+              style={{ flex: 1, background: mode === m ? T.accent : T.surface, color: mode === m ? "#000" : T.muted, border: `1px solid ${T.border}`, borderRadius: 8, padding: "8px 0", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {mode === "paste" ? (
+          <>
+            <textarea value={pasteText} onChange={e => setPasteText(e.target.value)}
+              placeholder={"Paste the dividend list straight from Console, e.g.\n\nALKEM6 2026-08-07\n₹200.00\nQty: 20\nDPS: ₹10.00\n..."}
+              style={{ width: "100%", height: 150, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, padding: "10px 12px", color: T.text, fontSize: 12, fontFamily: "monospace", resize: "vertical" }} />
+            {pasteText.trim() && (
+              <div style={{ background: T.surface, borderRadius: 10, padding: 12, marginTop: 12, marginBottom: 14 }}>
+                <div style={{ color: parsed.length ? T.green : T.warn, fontSize: 12, fontWeight: 700, marginBottom: parsed.length ? 8 : 0 }}>
+                  {parsed.length ? `Found ${parsed.length} dividend${parsed.length === 1 ? "" : "s"} · ${curr(parsedTotal)}` : "Couldn't parse anything — check the format"}
+                </div>
+                {parsed.map(d => (
+                  <div key={d.id} style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: T.muted, padding: "2px 0" }}>
+                    <span><b style={{ color: T.text, fontFamily: "monospace" }}>{d.symbol}</b> ₹{fmt(d.perShare)}/sh × {d.qty} · {d.exDate}</span>
+                    <span style={{ color: T.green }}>+{curr(d.total)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div style={{ display: "flex", gap: 10 }}>
+              <button onClick={() => { onBulkAdd(parsed); onClose(); }} disabled={parsed.length === 0}
+                style={{ flex: 1, background: parsed.length ? T.green : T.muted, color: "#000", border: "none", borderRadius: 10, padding: "13px 0", fontWeight: 800, fontSize: 15, cursor: parsed.length ? "pointer" : "not-allowed" }}>
+                Import {parsed.length || ""}
+              </button>
+              <button onClick={onClose}
+                style={{ background: T.surface, border: `1px solid ${T.border}`, color: T.muted, borderRadius: 10, padding: "13px 16px", fontSize: 14, cursor: "pointer" }}>
+                Cancel
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
+            <div style={{ color: T.muted, fontSize: 10, marginBottom: 4 }}>SYMBOL</div>
+            <input value={sym} onChange={e => pickSymbol(e.target.value.toUpperCase())} placeholder="e.g. SUNTV"
+              style={{ width: "100%", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, padding: "10px 12px", color: T.text, fontSize: 14, fontFamily: "monospace" }} />
+            {known.length > 0 && (
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginTop: 6, marginBottom: 12 }}>
+                {known.slice(0, 24).map(s => (
+                  <span key={s} onClick={() => pickSymbol(s)}
+                    style={{ background: sym === s ? T.accent : T.surface, color: sym === s ? "#000" : T.muted, border: `1px solid ${T.border}`, borderRadius: 5, padding: "3px 7px", fontSize: 10, fontFamily: "monospace", cursor: "pointer" }}>
+                    {s}
+                  </span>
+                ))}
+              </div>
+            )}
+            <div style={{ display: "flex", gap: 10, marginBottom: 12 }}>
+              <div style={{ flex: 1 }}>
+                <div style={{ color: T.muted, fontSize: 10, marginBottom: 4 }}>₹ PER SHARE</div>
+                <input type="number" value={perShare} onChange={e => setPerShare(e.target.value)} placeholder="5.00"
+                  style={{ width: "100%", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, padding: "10px 12px", color: T.text, fontSize: 14 }} />
+              </div>
+              <div style={{ flex: 1 }}>
+                <div style={{ color: T.muted, fontSize: 10, marginBottom: 4 }}>QTY HELD</div>
+                <input type="number" value={qty} onChange={e => setQty(e.target.value)} placeholder="1300"
+                  style={{ width: "100%", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, padding: "10px 12px", color: T.text, fontSize: 14 }} />
+              </div>
+            </div>
+            <div style={{ color: T.muted, fontSize: 10, marginBottom: 4 }}>EX-DATE</div>
+            <input type="date" value={exDate} max={new Date().toISOString().slice(0, 10)} onChange={e => setExDate(e.target.value)}
+              style={{ width: "100%", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, padding: "10px 12px", color: T.text, fontSize: 14, marginBottom: 14 }} />
+            <div style={{ background: T.surface, borderRadius: 10, padding: 12, marginBottom: 16 }}>
+              <Stat label="Dividend Received" value={total > 0 ? curr(total) : "—"} color={T.green} />
+            </div>
+            <div style={{ display: "flex", gap: 10 }}>
+              <button onClick={() => { onAdd({ id: uid(), symbol: sym, exDate, perShare: Number(perShare), qty: Number(qty), total }); onClose(); }}
+                disabled={!valid}
+                style={{ flex: 1, background: valid ? T.green : T.muted, color: "#000", border: "none", borderRadius: 10, padding: "13px 0", fontWeight: 800, fontSize: 15, cursor: valid ? "pointer" : "not-allowed" }}>
+                Add Dividend
+              </button>
+              <button onClick={onClose}
+                style={{ background: T.surface, border: `1px solid ${T.border}`, color: T.muted, borderRadius: 10, padding: "13px 16px", fontSize: 14, cursor: "pointer" }}>
+                Cancel
+              </button>
+            </div>
+          </>
         )}
-
-        <div style={{ display: "flex", gap: 10, marginBottom: 12 }}>
-          <div style={{ flex: 1 }}>
-            <div style={{ color: T.muted, fontSize: 10, marginBottom: 4 }}>₹ PER SHARE</div>
-            <input type="number" value={perShare} onChange={e => setPerShare(e.target.value)} placeholder="5.00"
-              style={{ width: "100%", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, padding: "10px 12px", color: T.text, fontSize: 14 }} />
-          </div>
-          <div style={{ flex: 1 }}>
-            <div style={{ color: T.muted, fontSize: 10, marginBottom: 4 }}>QTY HELD</div>
-            <input type="number" value={qty} onChange={e => setQty(e.target.value)} placeholder="1300"
-              style={{ width: "100%", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, padding: "10px 12px", color: T.text, fontSize: 14 }} />
-          </div>
-        </div>
-
-        <div style={{ color: T.muted, fontSize: 10, marginBottom: 4 }}>EX-DATE</div>
-        <input type="date" value={exDate} max={new Date().toISOString().slice(0, 10)} onChange={e => setExDate(e.target.value)}
-          style={{ width: "100%", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, padding: "10px 12px", color: T.text, fontSize: 14, marginBottom: 14 }} />
-
-        <div style={{ background: T.surface, borderRadius: 10, padding: 12, marginBottom: 16 }}>
-          <Stat label="Dividend Received" value={total > 0 ? curr(total) : "—"} color={T.green} />
-        </div>
-
-        <div style={{ display: "flex", gap: 10 }}>
-          <button onClick={() => { onAdd({ id: uid(), symbol: sym, exDate, perShare: Number(perShare), qty: Number(qty), total }); onClose(); }}
-            disabled={!valid}
-            style={{ flex: 1, background: valid ? T.green : T.muted, color: "#000", border: "none", borderRadius: 10, padding: "13px 0", fontWeight: 800, fontSize: 15, cursor: valid ? "pointer" : "not-allowed" }}>
-            Add Dividend
-          </button>
-          <button onClick={onClose}
-            style={{ background: T.surface, border: `1px solid ${T.border}`, color: T.muted, borderRadius: 10, padding: "13px 16px", fontSize: 14, cursor: "pointer" }}>
-            Cancel
-          </button>
-        </div>
       </div>
     </div>
   );
@@ -3364,7 +3446,7 @@ function App() {
 
       {investTarget && <InvestModal stock={investTarget} onClose={() => setInvestTarget(null)} onConfirm={handleConfirmInvest} />}
       {showAddHolding && <AddHoldingModal onClose={() => setShowAddHolding(false)} onAdd={h => saveHoldings([...holdings, h])} scanData={scanData} />}
-      {showAddDividend && <AddDividendModal onClose={() => setShowAddDividend(false)} onAdd={d => saveDividends([...dividends, d])} positions={positions} holdings={holdings} />}
+      {showAddDividend && <AddDividendModal onClose={() => setShowAddDividend(false)} onAdd={d => saveDividends([...dividends, d])} onBulkAdd={ds => saveDividends([...dividends, ...ds])} positions={positions} holdings={holdings} />}
     </div>
   );
 }
