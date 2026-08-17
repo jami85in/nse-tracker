@@ -359,7 +359,7 @@ const RAW_BASE    = `https://raw.githubusercontent.com/${GITHUB_USER}/${GITHUB_R
 // instead of requiring a manual file diff to find out. This exists because
 // PWA/service-worker caching has repeatedly made "is this actually deployed
 // yet" the hardest part of diagnosing issues in this app.
-const BUILD_VERSION = "2026-08-17.3";
+const BUILD_VERSION = "2026-08-17.4";
 const GITHUB_APP_ACTIONS_URL = `https://github.com/${GITHUB_USER}/${GITHUB_REPO}/actions/workflows/scan.yml`;
 
 // ── Fetch strategy ────────────────────────────────────────────────────────────
@@ -2499,18 +2499,50 @@ function App() {
     .filter(d => d.symbol === sym)
     .reduce((s, d) => s + (Number(d.total) || 0), 0);
   const totalDividends = dividends.reduce((s, d) => s + (Number(d.total) || 0), 0);
-  // Attribution matters. A dividend from a stock held for years independently
-  // of the scanner is NOT a return the strategy produced — folding it into
-  // the strategy's P&L flatters it with income it had nothing to do with.
-  // Confirmed real case: IDFCFIRSTB paid Rs 11,000 (57% of all dividends)
-  // from a multi-year holding the scanner never triggered a trade on.
-  // A dividend counts as strategy-attributable only if that symbol appears
-  // in the trading ledger; everything else is long-term holding income.
-  const tradedSymbols = new Set(positions.map(p => p.symbol));
-  const isTradingDividend = d => d.source === "trading"
-    || (d.source !== "holding" && tradedSymbols.has(d.symbol));
-  const tradingDividends = dividends.filter(isTradingDividend)
-    .reduce((s, d) => s + (Number(d.total) || 0), 0);
+  // Attribution by DATE, not just symbol. A dividend belongs to the strategy
+  // only to the extent the strategy actually held that stock on the ex-date —
+  // which the trade ledger already records, so it can be derived rather than
+  // guessed. Symbol-matching alone was wrong in both directions: it credited
+  // the strategy for a stock merely present in the ledger, and had no way to
+  // handle a symbol held both long-term AND traded.
+  //
+  // Verified against real data: ALKEM's dividend was 20 shares on ex-date
+  // 7 Aug; the strategy's ALKEM lots were 20sh (5 Aug), 30sh (10 Aug),
+  // 20sh (12 Aug) — so exactly 20 were held on the 7th. The quantities
+  // reconcile, which symbol-matching could never have shown.
+  //
+  // Where the strategy held FEWER shares than the dividend covers, the
+  // remainder came from long-term holdings, so the payout is split
+  // proportionally rather than assigned wholesale to either side.
+  const tradingQtyOnDate = (symbol, exDateStr) => {
+    if (!exDateStr) return 0;
+    const ex = new Date(exDateStr + "T00:00:00");
+    if (isNaN(ex)) return 0;
+    return positions
+      .filter(p => p.symbol === symbol)
+      .filter(p => {
+        const entry = parseIndianDate(p.date);
+        if (isNaN(entry) || entry > ex) return false;      // not yet bought
+        if (p.status === "OPEN") return true;               // still held
+        const exit = parseIndianDate(p.exitDate);
+        return isNaN(exit) ? false : exit >= ex;            // sold on/after ex-date
+      })
+      .reduce((s, p) => s + (p.qty || 0), 0);
+  };
+  // Returns the rupee amount of a dividend attributable to the strategy.
+  // A manual source override always wins over the derived answer.
+  const tradingPortionOf = d => {
+    const total = Number(d.total) || 0;
+    if (d.source === "trading") return total;
+    if (d.source === "holding") return 0;
+    const divQty = Number(d.qty) || 0;
+    if (!divQty) return 0;
+    const heldQty = tradingQtyOnDate(d.symbol, d.exDate);
+    if (heldQty <= 0) return 0;
+    return total * (Math.min(heldQty, divQty) / divQty);
+  };
+  const isTradingDividend = d => tradingPortionOf(d) > 0;
+  const tradingDividends = dividends.reduce((s, d) => s + tradingPortionOf(d), 0);
   const holdingDividends = totalDividends - tradingDividends;
   const intervalRef = useRef(null);
 
@@ -3234,14 +3266,17 @@ function App() {
                     {dividends.length > 0 && (
                       <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                         {[...dividends].sort((a, b) => (b.exDate || "").localeCompare(a.exDate || "")).map(d => {
-                          const isTrading = isTradingDividend(d);
+                          const portion = tradingPortionOf(d);
+                          const isTrading = portion > 0;
+                          const isPartial = portion > 0 && portion < (Number(d.total) || 0) - 0.01;
+                          const heldQty = tradingQtyOnDate(d.symbol, d.exDate);
                           return (
                             <div key={d.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: T.surface, borderRadius: 7, padding: "7px 10px" }}>
                               <div style={{ minWidth: 0 }}>
                                 <span style={{ color: T.text, fontFamily: "monospace", fontWeight: 700, fontSize: 12 }}>{d.symbol}</span>
-                                {/* Tap to reclassify. Auto-detection assumes any symbol in the
-                                    trading ledger is strategy income, which is wrong when a
-                                    long-held stock also happens to have been scanned. */}
+                                {/* Derived from the trade ledger: did the strategy hold this
+                                    stock on the ex-date, and how many shares? Tap to override
+                                    if the ledger doesn't reflect reality. */}
                                 <span
                                   onClick={() => saveDividends(dividends.map(x => x.id === d.id
                                     ? { ...x, source: isTrading ? "holding" : "trading" } : x))}
@@ -3250,16 +3285,27 @@ function App() {
                                            background: (isTrading ? T.accent : T.muted) + "22",
                                            border: `1px solid ${(isTrading ? T.accent : T.muted)}55`,
                                            borderRadius: 4, padding: "1px 5px" }}>
-                                  {isTrading ? "TRADED" : "LONG-TERM"}
+                                  {d.source ? (d.source === "trading" ? "TRADED (manual)" : "LONG-TERM (manual)")
+                                            : isPartial ? "PART-TRADED" : isTrading ? "TRADED" : "LONG-TERM"}
                                 </span>
                                 <div style={{ color: T.muted, fontSize: 10, marginTop: 1 }}>
                                   ₹{fmt(d.perShare)}/sh × {d.qty} · ex {d.exDate}
+                                  {!d.source && (
+                                    <span style={{ marginLeft: 4 }}>
+                                      · strategy held {heldQty} on that date
+                                    </span>
+                                  )}
                                 </div>
                               </div>
-                              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                                <span style={{ color: T.green, fontWeight: 700, fontSize: 12 }}>+{curr(d.total)}</span>
-                                <span onClick={() => saveDividends(dividends.filter(x => x.id !== d.id))}
-                                  style={{ color: T.muted, fontSize: 12, cursor: "pointer" }}>🗑</span>
+                              <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 2 }}>
+                                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                  <span style={{ color: T.green, fontWeight: 700, fontSize: 12 }}>+{curr(d.total)}</span>
+                                  <span onClick={() => saveDividends(dividends.filter(x => x.id !== d.id))}
+                                    style={{ color: T.muted, fontSize: 12, cursor: "pointer" }}>🗑</span>
+                                </div>
+                                {isPartial && (
+                                  <span style={{ color: T.accent, fontSize: 9 }}>{curr(portion)} to strategy</span>
+                                )}
                               </div>
                             </div>
                           );
