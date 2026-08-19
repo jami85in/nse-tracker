@@ -48,24 +48,42 @@ async function fetchSecBhav(date) {
   } catch { return null; }
 }
 
-function parseSecCSV(text, wanted) {
+function parseSecCSV(text, wanted, seriesSet) {
+  // seriesSet: a Set of SERIES codes to accept. Defaults to EQ only, which
+  // preserves every existing caller's behaviour exactly.
+  //
+  // NSE SME (EMERGE) securities live in THIS SAME sec_bhavdata_full file —
+  // they are not a separate feed — under series "SM" (SME) and "ST" (SME
+  // trade-to-trade). They were simply being discarded by the hardcoded EQ
+  // check. So SME data needs no new URL and no new fetch path: it is
+  // already being downloaded daily and thrown away.
+  const accept = seriesSet || new Set(["EQ"]);
   const lines = text.split("\n");
   const header = lines[0].split(",").map(h => h.trim());
   const idx = (name) => header.indexOf(name);
   const symI = idx("SYMBOL"), serI = idx("SERIES");
   const openI = idx("OPEN_PRICE"), highI = idx("HIGH_PRICE"), lowI = idx("LOW_PRICE");
   const closeI = idx("CLOSE_PRICE"), lastI = idx("LAST_PRICE");
+  // Volume/turnover matter far more for SME than for main board: an SME
+  // squeeze signal is meaningless if the name barely trades, so expose
+  // these so downstream can apply a liquidity floor.
+  const qtyI = idx("TTL_TRD_QNTY"), turnI = idx("TURNOVER_LACS");
   const out = {};
   for (let i = 1; i < lines.length; i++) {
     const row = lines[i].split(",");
     if (row.length <= closeI) continue;
-    if ((row[serI] || "").trim() !== "EQ") continue;
+    const series = (row[serI] || "").trim();
+    if (!accept.has(series)) continue;
     const sym = (row[symI] || "").trim();
     if (wanted && !wanted.has(sym)) continue;
     const num = (v) => { const n = parseFloat((v||"").replace(/,/g,"")); return isFinite(n) ? n : null; };
     const o = num(row[openI]), h = num(row[highI]), l = num(row[lowI]);
     const c = num(row[closeI]) || num(row[lastI]);
-    if (sym && c > 0) out[sym] = { open: o, high: h, low: l, close: c };
+    if (sym && c > 0) {
+      out[sym] = { open: o, high: h, low: l, close: c, series };
+      if (qtyI >= 0) out[sym].volume = num(row[qtyI]);
+      if (turnI >= 0) out[sym].turnover_lacs = num(row[turnI]);
+    }
   }
   return out;
 }
@@ -119,6 +137,15 @@ async function fetchLatestBhav(fetchFn) {
   return null;
 }
 
+// Reads an optional ?series= param, e.g. ?series=SM,ST for SME, or
+// ?series=EQ,SM,ST for both. Defaults to EQ so existing callers are
+// completely unaffected.
+function seriesFromQuery(url) {
+  const raw = (url.searchParams.get("series") || "").trim();
+  if (!raw) return new Set(["EQ"]);
+  return new Set(raw.split(",").map(x => x.trim().toUpperCase()).filter(Boolean));
+}
+
 export default {
   async fetch(request) {
     if (request.method === "OPTIONS") return new Response(null, { headers: CORS });
@@ -157,7 +184,7 @@ export default {
           return new Response(JSON.stringify(body),
             { headers: { ...CORS, "Content-Type": "application/json" } });
         }
-        const all = parseSecCSV(bhav.text, null);
+        const all = parseSecCSV(bhav.text, null, seriesFromQuery(url));
         const symbols = Object.keys(all).sort();
         const body = { count: symbols.length, as_of: bhav.date, symbols };
         if (isDebug) body.debug = debugLog;
@@ -290,7 +317,7 @@ export default {
         const text = await fetchSecBhav(date);
         if (!text) { daysFailed++; continue; }
         daysFetched++;
-        const dayData = parseSecCSV(text, wanted);
+        const dayData = parseSecCSV(text, wanted, seriesFromQuery(url));
         const dateStr = date.toISOString().slice(0, 10);
         for (const [sym, bar] of Object.entries(dayData)) {
           if (!ohlc[sym]) ohlc[sym] = [];
