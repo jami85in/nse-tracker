@@ -1,0 +1,55 @@
+name: SME OHLC Collection (EMERGE)
+
+# Collects NSE SME (EMERGE) price history into data/sme/, kept entirely
+# separate from the validated main-board dataset.
+#
+# Nothing in the live scan reads this yet — deliberately. The main strategy's
+# numbers were earned on ~1,800 main-board stocks over ~6 years; SME has zero
+# validation behind it. This exists to accumulate enough history to backtest
+# SME on its own terms first.
+#
+# Runs daily after the main OHLC refresh so the two never contend for a push.
+
+on:
+  schedule:
+    - cron: "0 15 * * 1-5"    # 20:30 IST weekdays, after the 19:00 IST main refresh
+  workflow_dispatch:
+    inputs:
+      chunk_days:
+        description: "Calendar days to fetch in this run"
+        required: false
+        default: "30"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: nse-sme-collect
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Ensure latest commit
+        run: git pull --ff-only origin main || true
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Collect SME OHLC
+        env:
+          SME_CHUNK_DAYS: ${{ github.event.inputs.chunk_days || '30' }}
+        run: python scripts/sme_fetch_ohlc.py
+
+      - name: Commit SME data
+        run: |
+          git config user.name "nse-tracker-bot"
+          git config user.email "actions@github.com"
+          git add data/sme
+          git diff --staged --quiet || git commit -m "sme: collect OHLC $(TZ='Asia/Kolkata' date +'%Y-%m-%d %H:%M IST')"
+          git pull --rebase --autostash origin main || true
+          git push
