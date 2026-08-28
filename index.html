@@ -359,7 +359,7 @@ const RAW_BASE    = `https://raw.githubusercontent.com/${GITHUB_USER}/${GITHUB_R
 // instead of requiring a manual file diff to find out. This exists because
 // PWA/service-worker caching has repeatedly made "is this actually deployed
 // yet" the hardest part of diagnosing issues in this app.
-const BUILD_VERSION = "2026-08-17.4";
+const BUILD_VERSION = "2026-08-27.1";
 const GITHUB_APP_ACTIONS_URL = `https://github.com/${GITHUB_USER}/${GITHUB_REPO}/actions/workflows/scan.yml`;
 
 // ── Fetch strategy ────────────────────────────────────────────────────────────
@@ -858,6 +858,13 @@ function SqueezeCard({ stock, onInvest, rank, livePrice, zoneStats, relStrength,
           <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
             {rank && <span style={{ color: T.muted, fontSize: 11, fontWeight: 700, fontFamily: "monospace", minWidth: 18 }}>#{rank}</span>}
             <span style={{ color: T.accent, fontWeight: 800, fontSize: 16, fontFamily: "monospace" }}>{stock.symbol}</span>
+            {/* Leading badge: whether this signal matches the population the
+                backtest was actually run on. Placed first because it frames
+                how much weight the other badges deserve. */}
+            {(() => {
+              const q = signalQuality(stock, scanData);
+              return <Pill label={q.qualifies ? "✅ VALIDATED" : "⚠️ UNVALIDATED"} color={q.qualifies ? T.green : T.warn} />;
+            })()}
             <Pill label={stock.confidence} />
             {stock.conviction_score && (
               <Pill label={stock.conviction_score} color={
@@ -1048,6 +1055,10 @@ function WatchlistCard({ stock, rank }) {
         <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
           {rank && <span style={{ color: T.muted, fontSize: 11, fontWeight: 700, fontFamily: "monospace", minWidth: 18 }}>#{rank}</span>}
           <span style={{ color: T.warn, fontWeight: 700, fontSize: 14, fontFamily: "monospace" }}>{stock.symbol}</span>
+          {/* Explicit, because this is the exact card type that produced a
+              large real position in a stock that never generated a single
+              qualifying signal in ~6 years of backtesting. */}
+          <Pill label="NOT A SIGNAL" color={T.muted} />
         </div>
         <div style={{ textAlign: "right", flexShrink: 0 }}>
           <span style={{ color: T.text, fontWeight: 600, fontSize: 13 }}>{curr(stock.price)}</span>
@@ -1157,7 +1168,40 @@ function BlastCard({ stock, rank, livePrice, stale }) {
   );
 }
 
-function InvestModal({ stock, onClose, onConfirm }) {
+function signalQuality(stock, scanData) {
+  // ONE definition of "validated", used by the cards, the invest modal and
+  // the position tagging, so they can never disagree.
+  //
+  // A signal is validated only if it matches the exact population the
+  // backtest was run on: an In-Play SQUEEZE (not a forming watchlist entry),
+  // STRONG conviction, and weekly-timeframe trend alignment. Those three
+  // together produced the ~14.4% CAGR figure. Anything else is outside the
+  // tested set and its numbers say nothing about it.
+  //
+  // This exists because of a real case: DAVANGERE produced ZERO qualifying
+  // signals across the entire ~6-year backtest, yet ended up as a large
+  // position taken off a "FORMING — BB tightening" watchlist card. The
+  // watchlist looked like a signal without ever having been one.
+  if (!stock) return { qualifies: false, reasons: ["No signal data"], checks: [] };
+  const setup = stock.setup || stock.status;
+  const isSqueeze = setup === "SQUEEZE";
+  const isStrong = stock.conviction_score === "STRONG";
+  const weekly = scanData?.weekly_alignment?.[stock.symbol];
+  const weeklyOk = weekly === true;
+
+  const checks = [
+    { label: "In Play (confirmed squeeze)", ok: isSqueeze,
+      detail: isSqueeze ? "Signal has fired" : `Currently ${setup || "not a squeeze"} — bands may be tightening but the entry hasn't triggered` },
+    { label: "STRONG conviction", ok: isStrong,
+      detail: isStrong ? "Price above both EMAs, clear momentum gap" : `Conviction is ${stock.conviction_score || "unscored"}` },
+    { label: "Weekly trend aligned", ok: weeklyOk,
+      detail: weekly === undefined ? "No weekly data for this symbol" : (weeklyOk ? "Weekly timeframe confirms" : "Weekly timeframe does NOT confirm") },
+  ];
+  const failed = checks.filter(c => !c.ok);
+  return { qualifies: failed.length === 0, reasons: failed.map(c => c.label), checks };
+}
+
+function InvestModal({ stock, onClose, onConfirm, scanData }) {
   const [qty, setQty] = useState(10);
   const [entryPrice, setEntryPrice] = useState(stock?.price || 0);
   const [notes, setNotes] = useState("");
@@ -1182,6 +1226,35 @@ function InvestModal({ stock, onClose, onConfirm }) {
           <span style={{ color: T.accent, fontWeight: 800, fontSize: 18 }}>Add Position: {stock.symbol}</span>
           <button onClick={onClose} style={{ background: T.surface, border: "none", color: T.muted, cursor: "pointer", fontSize: 16, width: 30, height: 30, borderRadius: 15 }}>✕</button>
         </div>
+
+        {/* Validation check, shown BEFORE the inputs — the point is to inform
+            the decision, not to caption it afterwards. */}
+        {(() => {
+          const q = signalQuality(stock, scanData);
+          const col = q.qualifies ? T.green : T.warn;
+          return (
+            <div style={{ background: col + "14", border: `1px solid ${col}55`, borderRadius: 10, padding: "10px 12px", marginBottom: 16 }}>
+              <div style={{ color: col, fontWeight: 800, fontSize: 12, marginBottom: 6 }}>
+                {q.qualifies
+                  ? "✅ Backtest-validated signal"
+                  : "⚠️ NOT a backtest-validated signal"}
+              </div>
+              {q.checks.map((c, i) => (
+                <div key={i} style={{ display: "flex", gap: 6, fontSize: 11, color: c.ok ? T.muted : T.warn, marginBottom: 2 }}>
+                  <span>{c.ok ? "✓" : "✗"}</span>
+                  <span><b>{c.label}</b> — {c.detail}</span>
+                </div>
+              ))}
+              {!q.qualifies && (
+                <div style={{ color: T.warn, fontSize: 10, marginTop: 7, lineHeight: 1.5 }}>
+                  The ~14.4% CAGR from backtesting was measured on signals meeting <b>all three</b> criteria.
+                  This one doesn't, so those numbers don't describe it. You can still take the trade —
+                  it will be tagged as unvalidated so it doesn't distort your strategy stats.
+                </div>
+              )}
+            </div>
+          );
+        })()}
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           <div><div style={{ color: T.muted, fontSize: 11, marginBottom: 5 }}>QUANTITY (shares)</div>{inp(qty, setQty)}</div>
           <div><div style={{ color: T.muted, fontSize: 11, marginBottom: 5 }}>ENTRY PRICE</div>{inp(entryPrice, setEntryPrice, "₹", "0.05")}</div>
@@ -1216,7 +1289,11 @@ function InvestModal({ stock, onClose, onConfirm }) {
             <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={2}
               style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, padding: "10px 12px", color: T.text, fontSize: 14, width: "100%", resize: "none", outline: "none" }} />
           </div>
-          <button onClick={() => onConfirm({ ...stock, qty, entryPrice, notes, invested, targetPrice: Number((Number(entryPrice) * (1 + (stock.gtt_target_pct ?? 25)/100)).toFixed(2)), stopLoss: Number((Number(entryPrice) * 0.93).toFixed(2)), id: uid(), date: nowStr(), status: "OPEN", currentPrice: entryPrice, actualReturn: 0 })}
+          <button onClick={() => onConfirm({ ...stock, qty, entryPrice, notes, invested, targetPrice: Number((Number(entryPrice) * (1 + (stock.gtt_target_pct ?? 25)/100)).toFixed(2)), stopLoss: Number((Number(entryPrice) * 0.93).toFixed(2)), id: uid(), date: nowStr(), status: "OPEN", currentPrice: entryPrice, actualReturn: 0, // Recorded at entry, not derived later: by the time a position closes the
+          // scan state has moved on, so whether it WAS a validated signal can no
+          // longer be reconstructed. Without this, discretionary and watchlist
+          // trades silently blend into the strategy's performance stats.
+          signalOrigin: signalQuality(stock, scanData).qualifies ? "validated" : "unvalidated", signalFailures: signalQuality(stock, scanData).reasons })}
             style={{ background: T.accent, color: "#000", border: "none", borderRadius: 10, padding: "14px", fontWeight: 800, fontSize: 15, cursor: "pointer" }}>
             ✅ Confirm Investment
           </button>
@@ -1613,6 +1690,10 @@ function PortfolioRow({ pos, onClose, onEdit, livePrice, scanData, pricesStale }
           <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
             <span style={{ color: T.text, fontWeight: 700, fontFamily: "monospace" }}>{pos.symbol}</span>
             <Pill label={pos.status} color={isOpen ? T.accent : T.muted} />
+            {/* Origin recorded at entry. Older positions predate this field and
+                show nothing rather than a guessed value. */}
+            {pos.signalOrigin === "validated" && <Pill label="✅ VALIDATED" color={T.green} />}
+            {pos.signalOrigin === "unvalidated" && <Pill label="⚠️ UNVALIDATED" color={T.warn} />}
             <WeeklyTrendBadge symbol={pos.symbol} scanData={scanData} />
           </div>
           <div style={{ color: T.muted, fontSize: 11, marginTop: 3 }}>{pos.qty} sh @ {curr(pos.entryPrice)} · {pos.date}</div>
@@ -3332,6 +3413,46 @@ function App() {
                   })()}
                   {positions.filter(p => p.status === "CLOSED").length > 0 && (
                     <div style={{ marginTop: 22, background: T.card, borderRadius: 12, padding: 16, border: `1px solid ${T.border}` }}>
+                      {(() => {
+                        // Split performance by origin. Blending discretionary and
+                        // watchlist trades into the strategy's numbers is exactly
+                        // how a strategy gets credited or blamed for decisions it
+                        // never made. Only positions carrying an explicit tag are
+                        // counted; untagged ones predate the field.
+                        const closed = positions.filter(p => p.status === "CLOSED");
+                        const tagged = closed.filter(p => p.signalOrigin);
+                        if (tagged.length === 0) return null;
+                        const grp = o => {
+                          const set = tagged.filter(p => p.signalOrigin === o);
+                          if (!set.length) return null;
+                          const inv = set.reduce((s, p) => s + (p.invested || 0), 0);
+                          const pnl = set.reduce((s, p) => s + ((p.exitPrice - p.entryPrice) * p.qty), 0);
+                          const wins = set.filter(p => p.exitPrice > p.entryPrice).length;
+                          return { n: set.length, inv, pnl, wins, ret: inv ? pnl / inv * 100 : 0 };
+                        };
+                        const v = grp("validated"), u = grp("unvalidated");
+                        return (
+                          <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: 12, marginBottom: 16 }}>
+                            <div style={{ color: T.muted, fontSize: 11, letterSpacing: 1, marginBottom: 10 }}>PERFORMANCE BY SIGNAL ORIGIN</div>
+                            {[["✅ Validated signals", v, T.green], ["⚠️ Unvalidated / discretionary", u, T.warn]].map(([label, g, col]) => (
+                              <div key={label} style={{ marginBottom: 8 }}>
+                                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
+                                  <span style={{ color: col, fontWeight: 700 }}>{label}</span>
+                                  <span style={{ color: g ? (g.pnl >= 0 ? T.green : T.red) : T.muted, fontWeight: 700 }}>
+                                    {g ? `${g.pnl >= 0 ? "+" : "-"}${curr(Math.abs(g.pnl))}` : "—"}
+                                  </span>
+                                </div>
+                                <div style={{ color: T.muted, fontSize: 10 }}>
+                                  {g ? `${g.n} trade${g.n === 1 ? "" : "s"} · ${g.wins}/${g.n} won · ${curr(g.inv)} deployed · ${pct(g.ret)} return` : "none recorded yet"}
+                                </div>
+                              </div>
+                            ))}
+                            <div style={{ color: T.muted, fontSize: 10, marginTop: 6, lineHeight: 1.5 }}>
+                              Only trades taken after origin-tagging was added appear here. The chart below still covers every closed trade.
+                            </div>
+                          </div>
+                        );
+                      })()}
                       <div style={{ color: T.muted, fontSize: 11, marginBottom: 14 }}>PREDICTION vs ACTUAL (per scrip)</div>
                       {(() => {
                         // Aggregate every closed lot for a symbol into one row.
@@ -3543,7 +3664,7 @@ function App() {
         newCount={newTodayList ? newTodayList.length : 0}
         cushionCount={scanData ? [...(scanData.squeeze_stocks||[]), ...(scanData.countertrend_stocks||[])].filter(s => { const c = emaCushion(s, livePrices[s.symbol] || s.price); return c != null && c >= 3 && scanData.weekly_alignment?.[s.symbol] === true; }).length : 0} />
 
-      {investTarget && <InvestModal stock={investTarget} onClose={() => setInvestTarget(null)} onConfirm={handleConfirmInvest} />}
+      {investTarget && <InvestModal stock={investTarget} onClose={() => setInvestTarget(null)} onConfirm={handleConfirmInvest} scanData={scanData} />}
       {showAddHolding && <AddHoldingModal onClose={() => setShowAddHolding(false)} onAdd={h => saveHoldings([...holdings, h])} scanData={scanData} />}
       {showAddDividend && <AddDividendModal onClose={() => setShowAddDividend(false)} onAdd={d => saveDividends([...dividends, d])} onBulkAdd={ds => saveDividends([...dividends, ...ds])} positions={positions} holdings={holdings} />}
     </div>
