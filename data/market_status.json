@@ -1,6 +1,6 @@
 {
-  "date": "2026-09-11",
-  "market_open": true,
-  "reason": "Regular trading day (live NSE calendar)",
-  "checked_at": "2026-09-11 22:36 IST"
+  "date": "2026-09-14",
+  "market_open": false,
+  "reason": "NSE holiday (live NSE calendar): Ganesh Chaturthi",
+  "checked_at": "2026-09-15 00:20 IST"
 }
