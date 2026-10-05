@@ -1,6 +1,6 @@
 {
-  "date": "2026-10-02",
-  "market_open": false,
-  "reason": "NSE holiday (live NSE calendar): Mahatma Gandhi Jayanti",
-  "checked_at": "2026-10-03 00:07 IST"
+  "date": "2026-10-05",
+  "market_open": true,
+  "reason": "Market open \u2014 scan deferred until candle settles at 15:30 IST",
+  "checked_at": "2026-10-06 02:43 IST"
 }
