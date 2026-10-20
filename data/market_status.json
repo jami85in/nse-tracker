@@ -1,6 +1,6 @@
 {
-  "date": "2026-10-19",
-  "market_open": true,
-  "reason": "Market open \u2014 scan deferred until candle settles at 15:30 IST",
-  "checked_at": "2026-10-20 00:56 IST"
+  "date": "2026-10-20",
+  "market_open": false,
+  "reason": "NSE holiday (live NSE calendar): Dussehra",
+  "checked_at": "2026-10-20 23:35 IST"
 }
