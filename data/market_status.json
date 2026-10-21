@@ -1,6 +1,6 @@
 {
-  "date": "2026-10-20",
-  "market_open": false,
-  "reason": "NSE holiday (live NSE calendar): Dussehra",
-  "checked_at": "2026-10-20 23:35 IST"
+  "date": "2026-10-21",
+  "market_open": true,
+  "reason": "Regular trading day (live NSE calendar)",
+  "checked_at": "2026-10-21 23:41 IST"
 }
