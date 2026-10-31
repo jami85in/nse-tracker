@@ -1,5 +1,5 @@
 {
-  "generated": "2026-10-24 08:59 UTC",
+  "generated": "2026-10-31 10:30 UTC",
   "params": {
     "bb_threshold": 4.5,
     "target_pct": 3.0,
@@ -7,14 +7,14 @@
     "max_hold_days": 20
   },
   "overall": {
-    "trades": 7358,
+    "trades": 7371,
     "target_pct": 52.0,
     "stop_pct": 28.5,
     "timeout_pct": 19.5,
-    "expectancy_pct": -0.32,
-    "gross_pct": 0.122,
-    "buyhold_net_pct": -0.366,
-    "edge_vs_buyhold": 0.046
+    "expectancy_pct": -0.321,
+    "gross_pct": 0.121,
+    "buyhold_net_pct": -0.361,
+    "edge_vs_buyhold": 0.04
   },
   "by_year": {
     "2020": {
@@ -78,34 +78,34 @@
       "edge_vs_buyhold": 0.518
     },
     "2026": {
-      "trades": 1597,
-      "target_pct": 39.1,
-      "stop_pct": 37.9,
-      "timeout_pct": 23.0,
-      "expectancy_pct": -1.374,
-      "gross_pct": -0.915,
-      "buyhold_net_pct": -2.022,
-      "edge_vs_buyhold": 0.649
+      "trades": 1610,
+      "target_pct": 39.0,
+      "stop_pct": 37.8,
+      "timeout_pct": 23.2,
+      "expectancy_pct": -1.369,
+      "gross_pct": -0.911,
+      "buyhold_net_pct": -1.987,
+      "edge_vs_buyhold": 0.618
     }
   },
   "trend_aligned": {
-    "trades": 5768,
+    "trades": 5774,
     "target_pct": 51.0,
     "stop_pct": 29.3,
     "timeout_pct": 19.7,
-    "expectancy_pct": -0.385,
-    "gross_pct": 0.057,
-    "buyhold_net_pct": -0.369,
-    "edge_vs_buyhold": -0.017
+    "expectancy_pct": -0.386,
+    "gross_pct": 0.056,
+    "buyhold_net_pct": -0.363,
+    "edge_vs_buyhold": -0.024
   },
   "trend_conflict": {
-    "trades": 1590,
-    "target_pct": 55.6,
-    "stop_pct": 25.7,
-    "timeout_pct": 18.7,
+    "trades": 1597,
+    "target_pct": 55.5,
+    "stop_pct": 25.6,
+    "timeout_pct": 18.9,
     "expectancy_pct": -0.082,
     "gross_pct": 0.355,
-    "buyhold_net_pct": -0.354,
-    "edge_vs_buyhold": 0.273
+    "buyhold_net_pct": -0.353,
+    "edge_vs_buyhold": 0.271
   }
 }
