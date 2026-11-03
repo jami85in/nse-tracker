@@ -359,7 +359,7 @@ const RAW_BASE    = `https://raw.githubusercontent.com/${GITHUB_USER}/${GITHUB_R
 // instead of requiring a manual file diff to find out. This exists because
 // PWA/service-worker caching has repeatedly made "is this actually deployed
 // yet" the hardest part of diagnosing issues in this app.
-const BUILD_VERSION = "2026-11-03.1";
+const BUILD_VERSION = "2026-11-04.1";
 const GITHUB_APP_ACTIONS_URL = `https://github.com/${GITHUB_USER}/${GITHUB_REPO}/actions/workflows/scan.yml`;
 
 // ── Fetch strategy ────────────────────────────────────────────────────────────
@@ -2554,6 +2554,46 @@ function cyWindowText(s) {
   return `Buy by end-${CY_MONTHS[s.entry - 1]} → sell by end-${CY_MONTHS[s.exit - 1]}`;
 }
 
+// Where a stock sits in its cycle relative to TODAY's month (not the data
+// date, so a list viewed after a month rolls over is still sequenced right).
+// Month indexes are absolute (year*12 + month0) so exits that fall in next
+// year sort after this year's.
+function cyTimeline(s, now = new Date()) {
+  const cur = now.getFullYear() * 12 + now.getMonth();
+  const E = s.entry - 1, L = s.hold;
+  const since = (now.getMonth() - E + 12) % 12;          // months after the entry month
+  let phase, entryIdx;
+  if (since === 0) { phase = "BUY_WINDOW"; entryIdx = cur; }
+  else if (since === 11) { phase = "BUY_SOON"; entryIdx = cur + 1; }
+  else if (since < L) { phase = "IN_SEASON"; entryIdx = cur - since; }
+  else if (since === L) { phase = "SELL_WINDOW"; entryIdx = cur - since; }
+  else { phase = "OFF_SEASON"; entryIdx = cur + (12 - since); }
+  const exitIdx = entryIdx + L;
+  return { phase, entryIdx, exitIdx, toEntry: entryIdx - cur, toExit: exitIdx - cur, cur };
+}
+const cyMon = idx => `${CY_MONTHS[((idx % 12) + 12) % 12]} ${Math.floor(idx / 12)}`;
+const cyIn = n => (n === 0 ? "this month" : n === 1 ? "next month" : `in ${n} months`);
+// Plain-language next action for a card, with real calendar months.
+function cyAction(s, tl) {
+  const buy = `late ${cyMon(tl.entryIdx)}`, sell = `end-${cyMon(tl.exitIdx)}`;
+  switch (tl.phase) {
+    case "BUY_WINDOW":  return { main: `Buy ${buy} (this month)`, sub: `→ sell by ${sell} · hold ~${s.hold} mo` };
+    case "BUY_SOON":    return { main: `Buy ${buy} (next month)`, sub: `→ sell by ${sell} · hold ~${s.hold} mo` };
+    case "IN_SEASON":   return { main: `Sell by ${sell} (${cyIn(tl.toExit)})`, sub: `up-leg started end-${cyMon(tl.entryIdx)}` };
+    case "SELL_WINDOW": return { main: `Sell by ${sell} (this month)`, sub: `seasonal up-leg ends now · next buy late ${cyMon(tl.entryIdx + 12)}` };
+    default:            return { main: `Next buy ${buy} (${cyIn(tl.toEntry)})`, sub: `→ sell by ${sell} · usually falling until then` };
+  }
+}
+// The "usual low" line, phrased relative to today's price so a stock that has
+// already fallen past it doesn't read as if it still has to drop to it.
+function cyLowText(s) {
+  const lvl = s.indicative_buy_level, px = s.last_close;
+  if (typeof lvl !== "number" || typeof px !== "number") return null;
+  const gap = (lvl / px - 1) * 100;
+  if (gap >= -2) return { text: `already at/below its usual low (${cyRs(lvl)})`, color: T.green };
+  return { text: `usual low ≈ ${cyRs(lvl)} (${gap.toFixed(0)}% from here)`, color: T.muted };
+}
+
 async function fetchCycles(path) {
   const res = await fetch(`${RAW_BASE}/cycles/${path}?t=${Date.now()}`);
   if (!res.ok) throw new Error(res.status === 404 ? "Cycle data not generated yet — run the “Seasonal Cycles” workflow once." : `Failed to load cycles (${res.status})`);
@@ -2595,7 +2635,7 @@ function CycleDetail({ symbol, summaryRow, held, onClose }) {
     const k = (m - entry + 12) % 12;
     return k >= 1 && k <= hold;
   };
-  const ph = d ? (CY_PHASE[d.status.phase] || CY_PHASE.NONE) : null;
+  const ph = d ? (CY_PHASE[cyTimeline(d.best).phase] || CY_PHASE.NONE) : null;
   const maxAbs = d ? Math.max(5, ...d.month_stats.map(m => Math.abs(m.avg || 0))) : 1;
   const years = d ? Object.keys(d.heatmap).sort() : [];
   const wf = d && d.best.walk_forward;
@@ -2622,11 +2662,15 @@ function CycleDetail({ symbol, summaryRow, held, onClose }) {
                 <span style={{ fontSize: 11, fontWeight: 800, color: ph.color }}>{ph.label}</span>
                 {typeof d.status.cycle_return === "number" && <span style={{ color: T.muted, fontSize: 11 }}>· this cycle so far {cyPct(d.status.cycle_return)}</span>}
               </div>
-              <div style={{ color: T.text, fontWeight: 700, fontSize: 14 }}>{cyWindowText(d.best)}</div>
+              <div style={{ color: T.text, fontWeight: 700, fontSize: 14 }}>{(() => { const tl = cyTimeline(d.best); const a = cyAction(d.best, tl); return `${a.main} ${a.sub}`; })()}</div>
+              <div style={{ color: T.muted, fontSize: 11, marginTop: 2 }}>Pattern: {cyWindowText(d.best)} (hold ~{d.best.hold} months)</div>
               <div style={{ color: T.muted, fontSize: 12, marginTop: 4, lineHeight: 1.5 }}>
-                {d.status.note}. Worked in {cyFrac(d.best.hit, d.best.n)} years with a median gain of {cyPct(d.best.median)}
+                Worked in {cyFrac(d.best.hit, d.best.n)} years with a median gain of {cyPct(d.best.median)}
                 {typeof d.best.beat_rate === "number" && <> and beat the market in {cyFrac(d.best.beat_rate, d.best.n)}</>}.
-                {typeof d.indicative_buy_level === "number" && <> If the usual {cyPct(d.median_decline)} slide repeats from the last peak, the next low would be near <b style={{ color: T.text }}>{cyRs(d.indicative_buy_level)}</b>.</>}
+                {typeof d.indicative_buy_level === "number" && (() => {
+                  const lt = cyLowText({ indicative_buy_level: d.indicative_buy_level, last_close: d.last_close });
+                  return <> The usual slide after the peak is {cyPct(d.median_decline)}; repeated from the last peak that gives a low near <b style={{ color: T.text }}>{cyRs(d.indicative_buy_level)}</b>{lt && lt.color === T.green ? " — the price is already there" : ""}.</>;
+                })()}
               </div>
             </div>
 
@@ -2765,7 +2809,7 @@ function CycleDetail({ symbol, summaryRow, held, onClose }) {
 function CyclesPage({ holdings, positions }) {
   const [data, setData] = useState(null);
   const [err, setErr] = useState(null);
-  const [view, setView] = useState("buy");
+  const [view, setView] = useState("buy");  // calendar is one tap away
   const [grades, setGrades] = useState("good");
   const [onlyHeld, setOnlyHeld] = useState(false);
   const [q, setQ] = useState("");
@@ -2783,7 +2827,12 @@ function CyclesPage({ holdings, positions }) {
   if (err) return <div style={{ color: T.red, padding: 20, fontSize: 13 }}>{err}</div>;
   if (!data) return <div style={{ color: T.muted, textAlign: "center", padding: 60 }}>Loading seasonal cycles…</div>;
 
+  const now = new Date();
+  const TL = {};
+  data.stocks.forEach(s => { TL[s.symbol] = cyTimeline(s, now); });
+  const phaseOf = s => TL[s.symbol].phase;
   const VIEWS = [
+    { id: "calendar", label: "📅 Calendar", phases: null, calendar: true },
     { id: "buy", label: "Buy now / soon", phases: ["BUY_WINDOW", "BUY_SOON"] },
     { id: "season", label: "In season", phases: ["IN_SEASON"] },
     { id: "sell", label: "Sell window", phases: ["SELL_WINDOW"] },
@@ -2792,10 +2841,36 @@ function CyclesPage({ holdings, positions }) {
   ];
   const gradeOk = g => grades === "strong" ? g === "STRONG" : grades === "good" ? (g === "STRONG" || g === "MODERATE") : true;
   const base = data.stocks.filter(s => gradeOk(s.grade) && (!onlyHeld || held.has(s.symbol)) && (!q || s.symbol.includes(q.toUpperCase())));
-  const count = v => base.filter(s => !v.phases || v.phases.includes(s.phase)).length;
+  const count = v => v.calendar ? null : base.filter(s => !v.phases || v.phases.includes(phaseOf(s))).length;
   const cur = VIEWS.find(v => v.id === view);
-  let list = base.filter(s => !cur.phases || cur.phases.includes(s.phase));
-  if (view === "off") list = [...list].sort((a, b) => a.months_to_entry - b.months_to_entry || b.score - a.score);
+  let list = cur.calendar ? [] : base.filter(s => !cur.phases || cur.phases.includes(phaseOf(s)));
+  // Sequence by what happens first: buys by entry month, in-season by exit
+  // month, off-season by next entry; strongest pattern first within a month.
+  const byScore = (a, b) => b.score - a.score;
+  const gOrder = { STRONG: 0, MODERATE: 1, WEAK: 2, NONE: 3 };
+  if (view === "buy" || view === "off") list = [...list].sort((a, b) => TL[a.symbol].toEntry - TL[b.symbol].toEntry || gOrder[a.grade] - gOrder[b.grade] || byScore(a, b));
+  else if (view === "season") list = [...list].sort((a, b) => TL[a.symbol].toExit - TL[b.symbol].toExit || gOrder[a.grade] - gOrder[b.grade] || byScore(a, b));
+  else list = [...list].sort((a, b) => gOrder[a.grade] - gOrder[b.grade] || byScore(a, b));
+  // Calendar: the next 12 months, each with the buys and sells that land in it.
+  const calendar = [];
+  if (cur.calendar) {
+    const start = now.getFullYear() * 12 + now.getMonth();
+    for (let k = 0; k < 12; k++) calendar.push({ idx: start + k, buys: [], sells: [] });
+    const put = (idx, kind, s, note) => { const c = calendar[idx - start]; if (c) c[kind].push({ s, note }); };
+    base.forEach(s => {
+      const tl = TL[s.symbol];
+      // this cycle (if already running) and the next one
+      if (tl.phase === "IN_SEASON" || tl.phase === "SELL_WINDOW") {
+        put(tl.exitIdx, "sells", s, "in season now");
+        put(tl.entryIdx + 12, "buys", s, "next cycle");
+        put(tl.exitIdx + 12, "sells", s, "next cycle");
+      } else {
+        put(tl.entryIdx, "buys", s, "");
+        put(tl.exitIdx, "sells", s, "");
+      }
+    });
+    calendar.forEach(c => { c.buys.sort((a, b) => gOrder[a.s.grade] - gOrder[b.s.grade] || byScore(a.s, b.s)); c.sells.sort((a, b) => gOrder[a.s.grade] - gOrder[b.s.grade] || byScore(a.s, b.s)); });
+  }
   const rowFor = sym => data.stocks.find(s => s.symbol === sym);
 
   return (
@@ -2820,7 +2895,7 @@ function CyclesPage({ holdings, positions }) {
         {VIEWS.map(v => (
           <button key={v.id} onClick={() => setView(v.id)}
             style={{ flexShrink: 0, background: view === v.id ? T.accent : T.card, color: view === v.id ? "#000" : T.text, border: `1px solid ${view === v.id ? T.accent : T.border}`, borderRadius: 16, padding: "6px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
-            {v.label} <span style={{ opacity: 0.7 }}>{count(v)}</span>
+            {v.label} {count(v) != null && <span style={{ opacity: 0.7 }}>{count(v)}</span>}
           </button>
         ))}
       </div>
@@ -2836,11 +2911,46 @@ function CyclesPage({ holdings, positions }) {
           style={{ flex: 1, minWidth: 110, background: T.card, border: `1px solid ${T.border}`, borderRadius: 6, color: T.text, padding: "5px 8px", fontSize: 12 }} />
       </div>
 
-      {list.length === 0 && <div style={{ color: T.muted, textAlign: "center", padding: 30, fontSize: 13 }}>No stocks match. Try another tab or include more grades.</div>}
+      {!cur.calendar && list.length === 0 && <div style={{ color: T.muted, textAlign: "center", padding: 30, fontSize: 13 }}>No stocks match. Try another tab or include more grades.</div>}
+
+      {cur.calendar && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <div style={{ color: T.muted, fontSize: 11, lineHeight: 1.5 }}>Your next 12 months in order: what to buy at the end of each month (the usual seasonal low) and what to sell (the usual end of the up-leg). Tap a stock for its history.</div>
+          {calendar.map((c, k) => (
+            <div key={c.idx} style={{ background: T.card, border: `1px solid ${k === 0 ? T.accent : T.border}`, borderRadius: 10, padding: 12 }}>
+              <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 6 }}>
+                <span style={{ fontWeight: 800, fontSize: 14, color: k === 0 ? T.accent : T.text }}>{cyMon(c.idx)}</span>
+                <span style={{ color: T.muted, fontSize: 11 }}>{k === 0 ? "this month" : k === 1 ? "next month" : ""}</span>
+                <span style={{ marginLeft: "auto", color: T.muted, fontSize: 11 }}>{c.buys.length} buy · {c.sells.length} sell</span>
+              </div>
+              {[["buys", "BUY", T.accent], ["sells", "SELL", T.blast]].map(([kind, label, color]) => c[kind].length > 0 && (
+                <div key={kind} style={{ display: "flex", gap: 6, alignItems: "flex-start", marginTop: 4 }}>
+                  <span style={{ fontSize: 9, fontWeight: 800, color, border: `1px solid ${color}`, borderRadius: 5, padding: "2px 5px", marginTop: 3, minWidth: 30, textAlign: "center" }}>{label}</span>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
+                    {c[kind].map(({ s, note }) => (
+                      <button key={s.symbol + note} onClick={() => setOpen(s.symbol)}
+                        style={{ background: held.has(s.symbol) ? T.warnDim : T.surface, border: `1px solid ${held.has(s.symbol) ? T.warn : T.border}`, borderRadius: 6, padding: "3px 7px", fontSize: 11, color: T.text, cursor: "pointer" }}>
+                        <span style={{ color: CY_GRADE[s.grade], fontWeight: 900 }}>●</span> {s.symbol}
+                        {kind === "buys" && <span style={{ color: T.muted }}> →{CY_MONTHS[(s.exit - 1)]}</span>}
+                        {note === "next cycle" && <span style={{ color: T.muted }}> (next)</span>}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ))}
+              {c.buys.length + c.sells.length === 0 && <div style={{ color: T.muted, fontSize: 12 }}>Nothing scheduled.</div>}
+            </div>
+          ))}
+          <div style={{ color: T.muted, fontSize: 11 }}><span style={{ color: T.accent }}>●</span> strong <span style={{ color: T.warn, marginLeft: 8 }}>●</span> moderate · highlighted = you hold it · "→Jun" = its usual sell month</div>
+        </div>
+      )}
 
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         {list.map(s => {
-          const ph = CY_PHASE[s.phase] || CY_PHASE.NONE;
+          const tl = TL[s.symbol];
+          const ph = CY_PHASE[tl.phase] || CY_PHASE.NONE;
+          const act = cyAction(s, tl);
+          const low = (tl.phase === "OFF_SEASON" || tl.phase === "BUY_SOON" || tl.phase === "BUY_WINDOW") ? cyLowText(s) : null;
           return (
             <div key={s.symbol} onClick={() => setOpen(s.symbol)}
               style={{ background: T.card, border: `1px solid ${T.border}`, borderLeft: `3px solid ${ph.color}`, borderRadius: 10, padding: 12, cursor: "pointer" }}>
@@ -2850,7 +2960,8 @@ function CyclesPage({ holdings, positions }) {
                 {held.has(s.symbol) && <span style={{ fontSize: 9, fontWeight: 800, color: "#000", background: T.warn, borderRadius: 5, padding: "1px 5px" }}>YOU HOLD</span>}
                 <span style={{ marginLeft: "auto", fontSize: 10, fontWeight: 800, color: ph.color }}>{ph.label}</span>
               </div>
-              <div style={{ color: T.text, fontSize: 13, marginTop: 6 }}>{cyWindowText(s)}</div>
+              <div style={{ color: ph.color === T.muted ? T.text : ph.color, fontSize: 14, fontWeight: 800, marginTop: 6 }}>{act.main}</div>
+              <div style={{ color: T.text, fontSize: 12, marginTop: 1 }}>{act.sub}</div>
               <div style={{ color: T.muted, fontSize: 12, marginTop: 3, lineHeight: 1.5 }}>
                 Worked <b style={{ color: T.text }}>{cyFrac(s.hit, s.n)}</b> yrs · median <b style={{ color: T.green }}>{cyPct(s.median, 0)}</b> · beat market {cyFrac(s.beat_rate, s.n)}
                 {s.wf_worked === true && <span style={{ color: T.green }}> · ✓ held in latest test</span>}
@@ -2858,9 +2969,8 @@ function CyclesPage({ holdings, positions }) {
               </div>
               <div style={{ color: T.muted, fontSize: 11, marginTop: 3 }}>
                 {cyRs(s.last_close)} · {cyPct(s.pct_from_52w_high, 0)} from 52w high{cyCr(s.mcap_cr) ? ` · mcap ${cyCr(s.mcap_cr)}` : ""}
-                {s.phase === "OFF_SEASON" && <> · buy window in {s.months_to_entry} mo</>}
-                {typeof s.cycle_return === "number" && <> · this cycle {cyPct(s.cycle_return, 0)}</>}
-                {typeof s.indicative_buy_level === "number" && <> · usual low ≈ {cyRs(s.indicative_buy_level)}</>}
+                {typeof s.cycle_return === "number" && tl.phase !== "OFF_SEASON" && <> · this cycle so far {cyPct(s.cycle_return, 0)}</>}
+                {low && <> · <span style={{ color: low.color }}>{low.text}</span></>}
               </div>
             </div>
           );
