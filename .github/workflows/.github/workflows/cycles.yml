@@ -1,0 +1,62 @@
+name: Seasonal Cycles (market cap + cycle analysis)
+
+# Weekly: refresh market caps (Yahoo via yfinance), then recompute the
+# seasonal-cycle analysis behind the dashboard's Cycles tab.
+# Cycles change slowly (they're built from month-end closes), so weekly is
+# enough; run it manually from the Actions tab any time.
+
+on:
+  schedule:
+    - cron: "17 4 * * 6"   # Saturday 09:47 IST — markets closed, after Friday's OHLC refresh
+  workflow_dispatch:
+    inputs:
+      skip_mcap:
+        description: "Skip the market-cap refresh (just recompute cycles)?"
+        required: false
+        default: "false"
+        type: choice
+        options: ["false", "true"]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: nse-cycles
+  cancel-in-progress: false
+
+jobs:
+  cycles:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install yfinance
+        if: ${{ github.event.inputs.skip_mcap != 'true' }}
+        run: pip install --quiet yfinance
+
+      - name: Refresh market caps
+        if: ${{ github.event.inputs.skip_mcap != 'true' }}
+        continue-on-error: true      # cycles still run on the cached / proxy caps
+        env:
+          MCAP_TIME_BUDGET_SECONDS: "1200"
+        run: python scripts/fetch_market_caps.py
+
+      - name: Compute cycles
+        env:
+          CYCLES_MIN_MCAP_CR: "10000"
+        run: python scripts/cycles.py
+
+      - name: Commit results
+        run: |
+          git config user.name "nse-tracker-bot"
+          git config user.email "actions@github.com"
+          git add -A data/cycles
+          [ -f data/market_caps.json ] && git add data/market_caps.json
+          git diff --staged --quiet || git commit -m "cycles: $(date -u +'%Y-%m-%d')"
+          git pull --rebase --autostash origin main || true
+          git push
+          
