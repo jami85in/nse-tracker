@@ -359,7 +359,7 @@ const RAW_BASE    = `https://raw.githubusercontent.com/${GITHUB_USER}/${GITHUB_R
 // instead of requiring a manual file diff to find out. This exists because
 // PWA/service-worker caching has repeatedly made "is this actually deployed
 // yet" the hardest part of diagnosing issues in this app.
-const BUILD_VERSION = "2026-08-27.1";
+const BUILD_VERSION = "2026-11-03.1";
 const GITHUB_APP_ACTIONS_URL = `https://github.com/${GITHUB_USER}/${GITHUB_REPO}/actions/workflows/scan.yml`;
 
 // ── Fetch strategy ────────────────────────────────────────────────────────────
@@ -2076,6 +2076,7 @@ function BottomNav({ tab, setTab, scanCount, posCount, shortCount, hsCount, newC
     { id: "highstrong", icon: "⭐", label: "H+S", badge: hsCount },
     { id: "shorts", icon: "🔻", label: "Short", badge: shortCount },
     { id: "portfolio", icon: "💼", label: "Portfolio", badge: posCount },
+    { id: "cycles", icon: "🔄", label: "Cycles" },
     { id: "guide", icon: "📖", label: "Guide" },
   ];
   return (
@@ -2521,6 +2522,356 @@ function ShortsPage({ scanData, livePrices, pricesStale, backtestReport, relativ
       <div style={{ color: T.muted, fontSize: 10, textAlign: "center" }}>
         Short signals from the same scan · updated {scanData.scan_time}
       </div>
+    </div>
+  );
+}
+
+// ── Seasonal Cycles ───────────────────────────────────────────────────────────
+// Stocks (market cap >= ₹10,000 cr) that repeat a yearly up/down cycle.
+// Data: data/cycles/summary.json + data/cycles/<SYMBOL>.json, built weekly by
+// scripts/cycles.py (.github/workflows/cycles.yml).
+const CY_MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const CY_PHASE = {
+  BUY_WINDOW:  { label: "BUY WINDOW", color: T.accent },
+  BUY_SOON:    { label: "BUY SOON",   color: T.green },
+  IN_SEASON:   { label: "IN SEASON",  color: T.warn },
+  SELL_WINDOW: { label: "SELL WINDOW", color: T.blast },
+  OFF_SEASON:  { label: "OFF-SEASON", color: T.muted },
+  NONE:        { label: "—", color: T.muted },
+};
+const CY_GRADE = { STRONG: T.accent, MODERATE: T.warn, WEAK: T.muted, NONE: T.muted };
+const cyPct = (v, d = 1) => (typeof v === "number" ? `${v > 0 ? "+" : ""}${v.toFixed(d)}%` : "—");
+const cyRs = v => (typeof v === "number" ? `₹${v.toLocaleString("en-IN", { maximumFractionDigits: v >= 1000 ? 0 : 2 })}` : "—");
+const cyCr = v => (typeof v === "number" ? (v >= 100000 ? `₹${(v / 100000).toFixed(1)}L cr` : `₹${Math.round(v).toLocaleString("en-IN")} cr`) : null);
+const cyDate = d => { if (!d) return "—"; const [y, m, dd] = d.split("-"); return `${+dd} ${CY_MONTHS[+m - 1]} ${y.slice(2)}`; };
+const cyFrac = (r, n) => (typeof r === "number" && n ? `${Math.round(r * n)}/${n}` : "—");
+const cyHeat = v => {
+  if (typeof v !== "number") return "transparent";
+  const a = Math.min(1, Math.abs(v) / 15);
+  return v >= 0 ? `rgba(34,197,94,${0.15 + a * 0.6})` : `rgba(239,68,68,${0.15 + a * 0.6})`;
+};
+function cyWindowText(s) {
+  return `Buy by end-${CY_MONTHS[s.entry - 1]} → sell by end-${CY_MONTHS[s.exit - 1]}`;
+}
+
+async function fetchCycles(path) {
+  const res = await fetch(`${RAW_BASE}/cycles/${path}?t=${Date.now()}`);
+  if (!res.ok) throw new Error(res.status === 404 ? "Cycle data not generated yet — run the “Seasonal Cycles” workflow once." : `Failed to load cycles (${res.status})`);
+  return res.json();
+}
+
+function CyStat({ label, value, sub, color }) {
+  return (
+    <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, padding: "8px 10px" }}>
+      <div style={{ color: T.muted, fontSize: 10, textTransform: "uppercase", letterSpacing: 0.4 }}>{label}</div>
+      <div style={{ color: color || T.text, fontWeight: 800, fontSize: 15, marginTop: 2 }}>{value}</div>
+      {sub && <div style={{ color: T.muted, fontSize: 10, marginTop: 1 }}>{sub}</div>}
+    </div>
+  );
+}
+
+function CySection({ title, children, note }) {
+  return (
+    <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: 12, marginBottom: 12 }}>
+      <div style={{ fontWeight: 800, fontSize: 13, color: T.text, marginBottom: note ? 2 : 10 }}>{title}</div>
+      {note && <div style={{ color: T.muted, fontSize: 11, marginBottom: 10, lineHeight: 1.4 }}>{note}</div>}
+      {children}
+    </div>
+  );
+}
+
+function CycleDetail({ symbol, summaryRow, held, onClose }) {
+  const [d, setD] = useState(null);
+  const [err, setErr] = useState(null);
+  useEffect(() => {
+    let alive = true;
+    fetchCycles(`${symbol}.json`).then(x => alive && setD(x)).catch(e => alive && setErr(e.message));
+    return () => { alive = false; };
+  }, [symbol]);
+
+  const inWindow = m => {
+    if (!d) return false;
+    const { entry, hold } = d.best;
+    const k = (m - entry + 12) % 12;
+    return k >= 1 && k <= hold;
+  };
+  const ph = d ? (CY_PHASE[d.status.phase] || CY_PHASE.NONE) : null;
+  const maxAbs = d ? Math.max(5, ...d.month_stats.map(m => Math.abs(m.avg || 0))) : 1;
+  const years = d ? Object.keys(d.heatmap).sort() : [];
+  const wf = d && d.best.walk_forward;
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: T.bg, zIndex: 120, overflowY: "auto", WebkitOverflowScrolling: "touch" }}>
+      <div style={{ position: "sticky", top: 0, background: T.surface, borderBottom: `1px solid ${T.border}`, padding: "12px 14px", display: "flex", alignItems: "center", gap: 10, zIndex: 2 }}>
+        <button onClick={onClose} style={{ background: "none", border: "none", color: T.accent, fontSize: 22, cursor: "pointer", padding: 0 }}>←</button>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontWeight: 800, fontSize: 16, color: T.text }}>{symbol} {held && <span style={{ fontSize: 10, color: "#000", background: T.warn, borderRadius: 6, padding: "1px 6px", marginLeft: 4 }}>YOU HOLD</span>}</div>
+          <div style={{ color: T.muted, fontSize: 11 }}>{summaryRow && cyCr(summaryRow.mcap_cr) ? `mcap ${cyCr(summaryRow.mcap_cr)} · ` : ""}{d ? `as of ${cyDate(d.as_of)} · ${cyRs(d.last_close)}` : "loading…"}</div>
+        </div>
+        {d && <span style={{ fontSize: 10, fontWeight: 800, color: CY_GRADE[d.grade], border: `1px solid ${CY_GRADE[d.grade]}`, borderRadius: 6, padding: "2px 6px" }}>{d.grade}</span>}
+      </div>
+
+      <div style={{ padding: 14, paddingBottom: 90, maxWidth: 760, margin: "0 auto" }}>
+        {err && <div style={{ color: T.red, fontSize: 13 }}>{err}</div>}
+        {!d && !err && <div style={{ color: T.muted, textAlign: "center", padding: 40 }}>Loading cycle history…</div>}
+        {d && (
+          <>
+            {/* When to buy */}
+            <div style={{ background: `${ph.color}14`, border: `1px solid ${ph.color}55`, borderLeft: `3px solid ${ph.color}`, borderRadius: 10, padding: 12, marginBottom: 12 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                <span style={{ fontSize: 11, fontWeight: 800, color: ph.color }}>{ph.label}</span>
+                {typeof d.status.cycle_return === "number" && <span style={{ color: T.muted, fontSize: 11 }}>· this cycle so far {cyPct(d.status.cycle_return)}</span>}
+              </div>
+              <div style={{ color: T.text, fontWeight: 700, fontSize: 14 }}>{cyWindowText(d.best)}</div>
+              <div style={{ color: T.muted, fontSize: 12, marginTop: 4, lineHeight: 1.5 }}>
+                {d.status.note}. Worked in {cyFrac(d.best.hit, d.best.n)} years with a median gain of {cyPct(d.best.median)}
+                {typeof d.best.beat_rate === "number" && <> and beat the market in {cyFrac(d.best.beat_rate, d.best.n)}</>}.
+                {typeof d.indicative_buy_level === "number" && <> If the usual {cyPct(d.median_decline)} slide repeats from the last peak, the next low would be near <b style={{ color: T.text }}>{cyRs(d.indicative_buy_level)}</b>.</>}
+              </div>
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(120px, 1fr))", gap: 8, marginBottom: 12 }}>
+              <CyStat label="Worked" value={cyFrac(d.best.hit, d.best.n)} sub="years positive" color={T.accent} />
+              <CyStat label="Beat market" value={cyFrac(d.best.beat_rate, d.best.n)} sub={`median excess ${cyPct(d.best.excess_median)}`} />
+              <CyStat label="Median gain" value={cyPct(d.best.median)} sub={`worst ${cyPct(d.best.worst)} · best ${cyPct(d.best.best)}`} color={T.green} />
+              <CyStat label="Off-season" value={cyPct(d.best.off_median)} sub="median, sell → next buy" color={(d.best.off_median || 0) < 0 ? T.red : T.text} />
+              <CyStat label="Typical rally" value={cyPct(d.median_rally)} sub="low → high" />
+              <CyStat label="Typical fall" value={cyPct(d.median_decline)} sub="high → next low" color={T.red} />
+              {wf && <CyStat label={`Test on ${wf.test_year}`} value={wf.worked ? "✓ held" : "✗ failed"} sub={`${CY_MONTHS[wf.entry - 1]}→${CY_MONTHS[wf.exit - 1]} picked on data ${wf.fit_years}: ${cyPct(wf.ret, 0)} vs mkt ${cyPct(wf.market, 0)}`} color={wf.worked ? T.green : T.red} />}
+              <CyStat label="vs 52w high" value={cyPct(summaryRow ? summaryRow.pct_from_52w_high : null)} sub={`52w ${cyRs(d.lo_52w)}–${cyRs(d.hi_52w)}`} />
+            </div>
+
+            {d.timing && (
+              <CySection title="📅 Calendar timing" note="What you'd see on a chart: the month of each year's low, and of the highest point after it.">
+                <div style={{ color: T.text, fontSize: 13, lineHeight: 1.6 }}>
+                  Yearly low usually in <b>{CY_MONTHS[d.timing.low.month - 1]}</b> <span style={{ color: T.muted }}>({d.timing.low.within_1m}/{d.timing.low.years} years within ±1 month)</span><br />
+                  High after it usually in <b>{CY_MONTHS[d.timing.high.month - 1]}</b> <span style={{ color: T.muted }}>({d.timing.high.within_1m}/{d.timing.high.years} years within ±1 month)</span>
+                </div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
+                  {d.timing_rows.map(r => (
+                    <div key={r.year} style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, padding: "4px 8px", fontSize: 11, color: T.muted }}>
+                      <b style={{ color: T.text }}>{r.year}</b> low {CY_MONTHS[r.low_month - 1]} → high {CY_MONTHS[r.high_month - 1]} <span style={{ color: T.green }}>{cyPct(r.rise, 0)}</span>
+                    </div>
+                  ))}
+                </div>
+              </CySection>
+            )}
+
+            <CySection title="📊 Average return by month" note="Bars = average monthly return across all years; % below = share of years that month was up. Shaded = the holding window.">
+              <div style={{ display: "flex", alignItems: "stretch", gap: 3, height: 150 }}>
+                {d.month_stats.map(m => {
+                  const v = m.avg || 0;
+                  const h = Math.abs(v) / maxAbs * 60;
+                  return (
+                    <div key={m.month} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", background: inWindow(m.month) ? `${T.accent}12` : "transparent", borderRadius: 4 }}>
+                      <div style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "flex-end", width: "100%", alignItems: "center" }}>
+                        {v > 0 && <div style={{ fontSize: 9, color: T.green }}>{v.toFixed(0)}</div>}
+                        <div style={{ width: "70%", height: v > 0 ? h : 0, background: T.green, borderRadius: "3px 3px 0 0" }} />
+                      </div>
+                      <div style={{ width: "100%", borderTop: `1px solid ${T.border}` }} />
+                      <div style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "flex-start", width: "100%", alignItems: "center" }}>
+                        <div style={{ width: "70%", height: v < 0 ? h : 0, background: T.red, borderRadius: "0 0 3px 3px" }} />
+                        {v < 0 && <div style={{ fontSize: 9, color: T.red }}>{v.toFixed(0)}</div>}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              <div style={{ display: "flex", gap: 3, marginTop: 4 }}>
+                {d.month_stats.map(m => (
+                  <div key={m.month} style={{ flex: 1, textAlign: "center" }}>
+                    <div style={{ fontSize: 10, color: m.month === d.best.entry ? T.accent : m.month === d.best.exit ? T.blast : T.text, fontWeight: (m.month === d.best.entry || m.month === d.best.exit) ? 800 : 500 }}>{CY_MONTHS[m.month - 1][0]}</div>
+                    <div style={{ fontSize: 9, color: T.muted }}>{m.up_rate != null ? `${Math.round(m.up_rate * 100)}%` : ""}</div>
+                  </div>
+                ))}
+              </div>
+            </CySection>
+
+            <CySection title="🗓️ Month-by-month returns" note="Each cell is that month's return. The current month is partial.">
+              <div style={{ overflowX: "auto" }}>
+                <table style={{ borderCollapse: "collapse", fontSize: 10, width: "100%", minWidth: 520 }}>
+                  <thead><tr><th style={{ color: T.muted, textAlign: "left", padding: 3 }}>Year</th>{CY_MONTHS.map((m, i) => <th key={m} style={{ color: (i + 1) === d.best.entry ? T.accent : (i + 1) === d.best.exit ? T.blast : T.muted, padding: 3, fontWeight: 600 }}>{m}</th>)}</tr></thead>
+                  <tbody>
+                    {years.map(y => (
+                      <tr key={y}>
+                        <td style={{ color: T.text, padding: 3, fontWeight: 700 }}>{y}</td>
+                        {d.heatmap[y].map((v, i) => (
+                          <td key={i} style={{ background: cyHeat(v), color: T.text, textAlign: "center", padding: "4px 2px", border: `1px solid ${T.bg}` }}>{typeof v === "number" ? v.toFixed(0) : ""}</td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </CySection>
+
+            <CySection title="🔁 Cycle history" note="For each year: the low around the usual bottom month, the high that followed, then the slide into the next year's low. 'Window' is the buy/sell window's return that year vs the market.">
+              <div style={{ overflowX: "auto" }}>
+                <table style={{ borderCollapse: "collapse", fontSize: 11, width: "100%", minWidth: 560 }}>
+                  <thead>
+                    <tr style={{ color: T.muted, textAlign: "left" }}>
+                      {["Year", "Low", "High", "Rally", "Next low", "Fall", "Window", "Market"].map(h => <th key={h} style={{ padding: "4px 6px", fontWeight: 600 }}>{h}</th>)}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {d.cycles.map(c => {
+                      const by = (d.best.by_year || []).find(r => r.year === c.year);
+                      return (
+                        <tr key={c.year} style={{ borderTop: `1px solid ${T.border}` }}>
+                          <td style={{ padding: "6px", color: T.text, fontWeight: 700 }}>{c.year}</td>
+                          <td style={{ padding: "6px", color: T.text }}>{cyRs(c.trough)}<div style={{ color: T.muted, fontSize: 10 }}>{cyDate(c.trough_date)}</div></td>
+                          <td style={{ padding: "6px", color: T.text }}>{cyRs(c.peak)}<div style={{ color: T.muted, fontSize: 10 }}>{cyDate(c.peak_date)}</div></td>
+                          <td style={{ padding: "6px", color: T.green, fontWeight: 700 }}>{cyPct(c.rally, 0)}</td>
+                          <td style={{ padding: "6px", color: T.text }}>{c.next_trough ? <>{cyRs(c.next_trough)}<div style={{ color: T.muted, fontSize: 10 }}>{cyDate(c.next_trough_date)}</div></> : <span style={{ color: T.muted }}>pending</span>}</td>
+                          <td style={{ padding: "6px", color: T.red, fontWeight: 700 }}>{cyPct(c.decline, 0)}</td>
+                          <td style={{ padding: "6px", color: (by && by.ret > 0) ? T.green : T.red }}>{by ? cyPct(by.ret, 0) : "—"}</td>
+                          <td style={{ padding: "6px", color: T.muted }}>{by ? cyPct(by.market, 0) : "—"}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </CySection>
+
+            {d.alternatives && d.alternatives.length > 0 && (
+              <CySection title="🔀 Other windows that also worked" note="Ranked below the main window because they beat the market less consistently or by less.">
+                {d.alternatives.map((w, i) => (
+                  <div key={i} style={{ display: "flex", justifyContent: "space-between", gap: 8, padding: "6px 0", borderTop: i ? `1px solid ${T.border}` : "none", fontSize: 12 }}>
+                    <span style={{ color: T.text }}>{cyWindowText(w)} <span style={{ color: T.muted }}>({w.hold} mo)</span></span>
+                    <span style={{ color: T.muted, textAlign: "right" }}>up {cyFrac(w.hit, w.n)} · beat mkt {cyFrac(w.beat_rate, w.n)}<br />med <b style={{ color: T.green }}>{cyPct(w.median, 0)}</b> · vs mkt {cyPct(w.excess_median, 0)}</span>
+                  </div>
+                ))}
+              </CySection>
+            )}
+
+            {(d.corporate_actions.length > 0 || d.warnings.length > 0) && (
+              <CySection title="ℹ️ Data notes">
+                {d.corporate_actions.map(a => <div key={a.date} style={{ color: T.muted, fontSize: 12 }}>Split/bonus adjusted on {cyDate(a.date)} (prices before it × {a.factor})</div>)}
+                {d.warnings.map((w, i) => <div key={i} style={{ color: T.warn, fontSize: 12, marginTop: 4 }}>⚠ {w}</div>)}
+              </CySection>
+            )}
+
+            <div style={{ color: T.muted, fontSize: 11, lineHeight: 1.5 }}>
+              History from {cyDate(d.first_date)} — about {d.best.n} cycles. With so few years some patterns appear by chance, so the "Test" box shows whether the pattern picked from earlier years also worked in the latest year. Patterns break when something big changes (results, regulation, market regime). Not investment advice.
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function CyclesPage({ holdings, positions }) {
+  const [data, setData] = useState(null);
+  const [err, setErr] = useState(null);
+  const [view, setView] = useState("buy");
+  const [grades, setGrades] = useState("good");
+  const [onlyHeld, setOnlyHeld] = useState(false);
+  const [q, setQ] = useState("");
+  const [open, setOpen] = useState(null);
+
+  useEffect(() => {
+    fetchCycles("summary.json").then(setData).catch(e => setErr(e.message));
+  }, []);
+
+  const held = new Set([
+    ...(holdings || []).map(h => (h.symbol || "").replace(/-SM$|-BE$/, "")),
+    ...(positions || []).filter(p => p.status === "OPEN").map(p => (p.symbol || "").replace(/-SM$|-BE$/, "")),
+  ]);
+
+  if (err) return <div style={{ color: T.red, padding: 20, fontSize: 13 }}>{err}</div>;
+  if (!data) return <div style={{ color: T.muted, textAlign: "center", padding: 60 }}>Loading seasonal cycles…</div>;
+
+  const VIEWS = [
+    { id: "buy", label: "Buy now / soon", phases: ["BUY_WINDOW", "BUY_SOON"] },
+    { id: "season", label: "In season", phases: ["IN_SEASON"] },
+    { id: "sell", label: "Sell window", phases: ["SELL_WINDOW"] },
+    { id: "off", label: "Off-season", phases: ["OFF_SEASON"] },
+    { id: "all", label: "All", phases: null },
+  ];
+  const gradeOk = g => grades === "strong" ? g === "STRONG" : grades === "good" ? (g === "STRONG" || g === "MODERATE") : true;
+  const base = data.stocks.filter(s => gradeOk(s.grade) && (!onlyHeld || held.has(s.symbol)) && (!q || s.symbol.includes(q.toUpperCase())));
+  const count = v => base.filter(s => !v.phases || v.phases.includes(s.phase)).length;
+  const cur = VIEWS.find(v => v.id === view);
+  let list = base.filter(s => !cur.phases || cur.phases.includes(s.phase));
+  if (view === "off") list = [...list].sort((a, b) => a.months_to_entry - b.months_to_entry || b.score - a.score);
+  const rowFor = sym => data.stocks.find(s => s.symbol === sym);
+
+  return (
+    <div>
+      <div style={{ marginBottom: 12 }}>
+        <div style={{ fontWeight: 800, fontSize: 16, color: T.accent }}>🔄 Seasonal Cycles</div>
+        <div style={{ color: T.muted, fontSize: 12, marginTop: 3, lineHeight: 1.5 }}>
+          Stocks over {cyCr(data.min_mcap_cr)} that repeat a yearly up/down cycle. Prices to {cyDate(data.as_of)}; history from {cyDate(data.history_from)}.
+          {" "}<span style={{ color: T.text }}>{data.counts.STRONG} strong · {data.counts.MODERATE} moderate</span> of {data.stocks.length} analysed.
+          {data.validation && data.validation.STRONG && data.validation.STRONG.tested > 0 && (
+            <> Reliability check: when the pattern was picked using only earlier years, it held in the latest year for <span style={{ color: T.text }}>{data.validation.STRONG.held}/{data.validation.STRONG.tested} strong</span> and {data.validation.MODERATE.held}/{data.validation.MODERATE.tested} moderate stocks.</>
+          )}
+        </div>
+        {data.mcap_source === "proxy" && (
+          <div style={{ marginTop: 8, background: T.warnDim, border: `1px solid ${T.warn}55`, borderRadius: 8, padding: "8px 10px", color: T.warn, fontSize: 12 }}>
+            Market-cap data hasn't loaded yet, so this list uses the {data.stocks.length} most-traded stocks as a stand-in. It switches to the true ₹10,000 cr filter after the next “Seasonal Cycles” run.
+          </div>
+        )}
+      </div>
+
+      <div style={{ display: "flex", gap: 6, overflowX: "auto", paddingBottom: 6, marginBottom: 8 }}>
+        {VIEWS.map(v => (
+          <button key={v.id} onClick={() => setView(v.id)}
+            style={{ flexShrink: 0, background: view === v.id ? T.accent : T.card, color: view === v.id ? "#000" : T.text, border: `1px solid ${view === v.id ? T.accent : T.border}`, borderRadius: 16, padding: "6px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
+            {v.label} <span style={{ opacity: 0.7 }}>{count(v)}</span>
+          </button>
+        ))}
+      </div>
+
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center", marginBottom: 12 }}>
+        {[["strong", "Strong"], ["good", "Strong + Moderate"], ["all", "All grades"]].map(([id, label]) => (
+          <button key={id} onClick={() => setGrades(id)}
+            style={{ background: grades === id ? T.accentDim : "none", color: grades === id ? T.accent : T.muted, border: `1px solid ${grades === id ? T.accent : T.border}`, borderRadius: 6, padding: "4px 8px", fontSize: 11, cursor: "pointer" }}>{label}</button>
+        ))}
+        <button onClick={() => setOnlyHeld(!onlyHeld)}
+          style={{ background: onlyHeld ? T.warnDim : "none", color: onlyHeld ? T.warn : T.muted, border: `1px solid ${onlyHeld ? T.warn : T.border}`, borderRadius: 6, padding: "4px 8px", fontSize: 11, cursor: "pointer" }}>My holdings</button>
+        <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search symbol"
+          style={{ flex: 1, minWidth: 110, background: T.card, border: `1px solid ${T.border}`, borderRadius: 6, color: T.text, padding: "5px 8px", fontSize: 12 }} />
+      </div>
+
+      {list.length === 0 && <div style={{ color: T.muted, textAlign: "center", padding: 30, fontSize: 13 }}>No stocks match. Try another tab or include more grades.</div>}
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        {list.map(s => {
+          const ph = CY_PHASE[s.phase] || CY_PHASE.NONE;
+          return (
+            <div key={s.symbol} onClick={() => setOpen(s.symbol)}
+              style={{ background: T.card, border: `1px solid ${T.border}`, borderLeft: `3px solid ${ph.color}`, borderRadius: 10, padding: 12, cursor: "pointer" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                <span style={{ fontWeight: 800, fontSize: 15, color: T.text }}>{s.symbol}</span>
+                <span style={{ fontSize: 9, fontWeight: 800, color: CY_GRADE[s.grade], border: `1px solid ${CY_GRADE[s.grade]}`, borderRadius: 5, padding: "1px 5px" }}>{s.grade}</span>
+                {held.has(s.symbol) && <span style={{ fontSize: 9, fontWeight: 800, color: "#000", background: T.warn, borderRadius: 5, padding: "1px 5px" }}>YOU HOLD</span>}
+                <span style={{ marginLeft: "auto", fontSize: 10, fontWeight: 800, color: ph.color }}>{ph.label}</span>
+              </div>
+              <div style={{ color: T.text, fontSize: 13, marginTop: 6 }}>{cyWindowText(s)}</div>
+              <div style={{ color: T.muted, fontSize: 12, marginTop: 3, lineHeight: 1.5 }}>
+                Worked <b style={{ color: T.text }}>{cyFrac(s.hit, s.n)}</b> yrs · median <b style={{ color: T.green }}>{cyPct(s.median, 0)}</b> · beat market {cyFrac(s.beat_rate, s.n)}
+                {s.wf_worked === true && <span style={{ color: T.green }}> · ✓ held in latest test</span>}
+                {s.wf_worked === false && <span style={{ color: T.red }}> · ✗ failed latest test</span>}
+              </div>
+              <div style={{ color: T.muted, fontSize: 11, marginTop: 3 }}>
+                {cyRs(s.last_close)} · {cyPct(s.pct_from_52w_high, 0)} from 52w high{cyCr(s.mcap_cr) ? ` · mcap ${cyCr(s.mcap_cr)}` : ""}
+                {s.phase === "OFF_SEASON" && <> · buy window in {s.months_to_entry} mo</>}
+                {typeof s.cycle_return === "number" && <> · this cycle {cyPct(s.cycle_return, 0)}</>}
+                {typeof s.indicative_buy_level === "number" && <> · usual low ≈ {cyRs(s.indicative_buy_level)}</>}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      <div style={{ color: T.muted, fontSize: 11, marginTop: 14, lineHeight: 1.5 }}>
+        How it works: every “buy at the end of month X, sell months later” window is tested on each year of history and compared with the market (equal-weight average of these stocks) over the same months. STRONG = worked ≥5 of 6 years, beat the market ≥80% of the time by a median ≥8%, and the stock usually falls in the off-season. Tap a stock for the full year-by-year history. Rebuilt every Saturday.
+      </div>
+
+      {open && <CycleDetail symbol={open} summaryRow={rowFor(open)} held={held.has(open)} onClose={() => setOpen(null)} />}
     </div>
   );
 }
@@ -3632,6 +3983,10 @@ function App() {
             </div>
           )}
 
+          {tab === "cycles" && (
+            <CyclesPage holdings={holdings} positions={positions} />
+          )}
+
           {tab === "guide" && (
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
               {[
@@ -3643,6 +3998,7 @@ function App() {
                 { title: "👀 What is the Watchlist?", color: T.warn, body: "A looser, earlier tier for stocks that are visibly tightening (BB width under 9%) and turning up, but haven't yet cleared the strict 4.5% squeeze threshold or the 15% return target. Nothing here is a confirmed signal — it's a heads-up that a stock is forming. When a watchlist stock later earns a real squeeze signal, it's marked 'GRADUATED' with its full history." },
                 { title: "🔴 What is End of Blast?", color: T.blast, body: "BB bands expand and Stochastic K exceeds 75 while price holds above EMA10. This is the EXIT signal — book profits before the next correction." },
                 { title: "👀 What is the Watchlist?", color: T.warn, body: "A looser, earlier tier for stocks that are visibly tightening (BB width under 8%) and turning up, but haven't yet cleared the strict 3% squeeze threshold. Nothing here is a confirmed signal — it's a heads-up that a stock is forming. When a watchlist stock later earns a real SQUEEZE signal, it's marked 'GRADUATED' with its full history (when it was first spotted, at what price) so you can see the lead-up to confirmed entries." },
+                { title: "🔄 What is the Cycles tab?", color: T.accent, body: "Stocks over ₹10,000 cr market cap that repeat a yearly pattern — e.g. bottoming around March and rallying into September. Each card shows the buy/sell months, how many years it worked, and whether it beat the market. 'Buy now / soon' lists stocks whose usual buy month is now or next month. Tap any stock for its year-by-year cycle history. Rebuilt weekly (Saturday)." },
                 { title: "📊 Indicators used", color: T.warn, body: "Bollinger Bands: 20, 2 SD | EMA: 10 & 30 | RSI(14) → Stochastic 3/3 smoothing | Pivots: Traditional (prior day H/L/C) | Timeframe: Daily, for 5–10 day holds" },
                 { title: "⚠️ Disclaimer", color: T.red, body: "Educational and informational only — not investment advice. All trading decisions are your responsibility. Past patterns don't guarantee future returns." },
               ].map(({ title, color, body }) => (
