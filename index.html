@@ -359,7 +359,7 @@ const RAW_BASE    = `https://raw.githubusercontent.com/${GITHUB_USER}/${GITHUB_R
 // instead of requiring a manual file diff to find out. This exists because
 // PWA/service-worker caching has repeatedly made "is this actually deployed
 // yet" the hardest part of diagnosing issues in this app.
-const BUILD_VERSION = "2026-11-04.1";
+const BUILD_VERSION = "2026-11-04.2";
 const GITHUB_APP_ACTIONS_URL = `https://github.com/${GITHUB_USER}/${GITHUB_REPO}/actions/workflows/scan.yml`;
 
 // ── Fetch strategy ────────────────────────────────────────────────────────────
@@ -2620,7 +2620,30 @@ function CySection({ title, children, note }) {
   );
 }
 
-function CycleDetail({ symbol, summaryRow, held, onClose }) {
+// Market-cap size filter. Data is collected down to the workflow's floor
+// (₹3,000 cr); the list defaults to ₹10,000 cr+ because smaller companies'
+// patterns held up noticeably less often in the out-of-sample test.
+const CY_SIZES = [10000, 5000, 3000];
+const cySizeLabel = v => `₹${v / 1000}k+ cr`;
+function cyBand(mcap) {
+  if (typeof mcap !== "number") return null;
+  return mcap >= 10000 ? "₹10,000 cr+" : mcap >= 5000 ? "₹5,000–10,000 cr" : "₹3,000–5,000 cr";
+}
+// held/tested per (band, grade) from the walk-forward flag on each summary row
+function cyBandReliability(stocks) {
+  const out = {};
+  stocks.forEach(s => {
+    const b = cyBand(s.mcap_cr);
+    if (!b || s.wf_worked == null) return;
+    const k = `${b}|${s.grade}`;
+    out[k] = out[k] || { held: 0, tested: 0 };
+    out[k].tested++;
+    if (s.wf_worked) out[k].held++;
+  });
+  return out;
+}
+
+function CycleDetail({ symbol, summaryRow, held, onClose, sizeNote }) {
   const [d, setD] = useState(null);
   const [err, setErr] = useState(null);
   useEffect(() => {
@@ -2665,6 +2688,7 @@ function CycleDetail({ symbol, summaryRow, held, onClose }) {
               <div style={{ color: T.text, fontWeight: 700, fontSize: 14 }}>{(() => { const tl = cyTimeline(d.best); const a = cyAction(d.best, tl); return `${a.main} ${a.sub}`; })()}</div>
               <div style={{ color: T.muted, fontSize: 11, marginTop: 2 }}>Pattern: {cyWindowText(d.best)} (hold ~{d.best.hold} months)</div>
               <div style={{ color: T.muted, fontSize: 12, marginTop: 4, lineHeight: 1.5 }}>
+                {sizeNote && <div style={{ color: T.warn, fontSize: 12, marginBottom: 6 }}>⚠ {sizeNote}</div>}
                 Worked in {cyFrac(d.best.hit, d.best.n)} years with a median gain of {cyPct(d.best.median)}
                 {typeof d.best.beat_rate === "number" && <> and beat the market in {cyFrac(d.best.beat_rate, d.best.n)}</>}.
                 {typeof d.indicative_buy_level === "number" && (() => {
@@ -2814,6 +2838,10 @@ function CyclesPage({ holdings, positions }) {
   const [onlyHeld, setOnlyHeld] = useState(false);
   const [q, setQ] = useState("");
   const [open, setOpen] = useState(null);
+  const [minCap, setMinCapState] = useState(() => {
+    try { const v = parseInt(localStorage.getItem("cycles_min_cap"), 10); return CY_SIZES.includes(v) ? v : 10000; } catch { return 10000; }
+  });
+  const setMinCap = v => { setMinCapState(v); try { localStorage.setItem("cycles_min_cap", String(v)); } catch {} };
 
   useEffect(() => {
     fetchCycles("summary.json").then(setData).catch(e => setErr(e.message));
@@ -2840,7 +2868,25 @@ function CyclesPage({ holdings, positions }) {
     { id: "all", label: "All", phases: null },
   ];
   const gradeOk = g => grades === "strong" ? g === "STRONG" : grades === "good" ? (g === "STRONG" || g === "MODERATE") : true;
-  const base = data.stocks.filter(s => gradeOk(s.grade) && (!onlyHeld || held.has(s.symbol)) && (!q || s.symbol.includes(q.toUpperCase())));
+  // Size chips offered: only those at or above the floor the data was built with.
+  const floor = data.min_mcap_cr || 10000;
+  const sizes = CY_SIZES.filter(v => v >= floor);
+  const capMin = Math.max(minCap, floor);
+  const sizeOk = s => typeof s.mcap_cr !== "number" || s.mcap_cr >= capMin;   // proxy mode has no caps
+  const inSize = data.stocks.filter(sizeOk);
+  const sizeCounts = { STRONG: 0, MODERATE: 0 }, sizeVal = { STRONG: { held: 0, tested: 0 }, MODERATE: { held: 0, tested: 0 } };
+  inSize.forEach(s => {
+    if (sizeCounts[s.grade] != null) sizeCounts[s.grade]++;
+    if (sizeVal[s.grade] && s.wf_worked != null) { sizeVal[s.grade].tested++; if (s.wf_worked) sizeVal[s.grade].held++; }
+  });
+  const bandRel = cyBandReliability(data.stocks);
+  const smallNote = s => {
+    const b = cyBand(s.mcap_cr);
+    if (!b || s.mcap_cr >= 10000) return null;
+    const r = bandRel[`${b}|${s.grade}`];
+    return r && r.tested ? `Smaller company (${b}): ${s.grade.toLowerCase()} patterns in this size band held ${r.held}/${r.tested} times in the latest-year test` : `Smaller company (${b}): patterns are less reliable than for large caps`;
+  };
+  const base = inSize.filter(s => gradeOk(s.grade) && (!onlyHeld || held.has(s.symbol)) && (!q || s.symbol.includes(q.toUpperCase())));
   const count = v => v.calendar ? null : base.filter(s => !v.phases || v.phases.includes(phaseOf(s))).length;
   const cur = VIEWS.find(v => v.id === view);
   let list = cur.calendar ? [] : base.filter(s => !cur.phases || cur.phases.includes(phaseOf(s)));
@@ -2878,18 +2924,29 @@ function CyclesPage({ holdings, positions }) {
       <div style={{ marginBottom: 12 }}>
         <div style={{ fontWeight: 800, fontSize: 16, color: T.accent }}>🔄 Seasonal Cycles</div>
         <div style={{ color: T.muted, fontSize: 12, marginTop: 3, lineHeight: 1.5 }}>
-          Stocks over {cyCr(data.min_mcap_cr)} that repeat a yearly up/down cycle. Prices to {cyDate(data.as_of)}; history from {cyDate(data.history_from)}.
-          {" "}<span style={{ color: T.text }}>{data.counts.STRONG} strong · {data.counts.MODERATE} moderate</span> of {data.stocks.length} analysed.
-          {data.validation && data.validation.STRONG && data.validation.STRONG.tested > 0 && (
-            <> Reliability check: when the pattern was picked using only earlier years, it held in the latest year for <span style={{ color: T.text }}>{data.validation.STRONG.held}/{data.validation.STRONG.tested} strong</span> and {data.validation.MODERATE.held}/{data.validation.MODERATE.tested} moderate stocks.</>
+          Stocks over {cyCr(capMin)} that repeat a yearly up/down cycle. Prices to {cyDate(data.as_of)}; history from {cyDate(data.history_from)}.
+          {" "}<span style={{ color: T.text }}>{sizeCounts.STRONG} strong · {sizeCounts.MODERATE} moderate</span> of {inSize.length} analysed.
+          {sizeVal.STRONG.tested > 0 && (
+            <> Reliability check: when the pattern was picked using only earlier years, it held in the latest year for <span style={{ color: T.text }}>{sizeVal.STRONG.held}/{sizeVal.STRONG.tested} strong</span> and {sizeVal.MODERATE.held}/{sizeVal.MODERATE.tested} moderate stocks.</>
           )}
         </div>
         {data.mcap_source === "proxy" && (
           <div style={{ marginTop: 8, background: T.warnDim, border: `1px solid ${T.warn}55`, borderRadius: 8, padding: "8px 10px", color: T.warn, fontSize: 12 }}>
-            Market-cap data hasn't loaded yet, so this list uses the {data.stocks.length} most-traded stocks as a stand-in. It switches to the true ₹10,000 cr filter after the next “Seasonal Cycles” run.
+            Market-cap data hasn't loaded yet, so this list uses the {data.stocks.length} most-traded stocks as a stand-in. It switches to the real market-cap filter after the next “Seasonal Cycles” run.
           </div>
         )}
       </div>
+
+      {sizes.length > 1 && (
+        <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap", marginBottom: 8 }}>
+          <span style={{ color: T.muted, fontSize: 11 }}>Market cap</span>
+          {sizes.map(v => (
+            <button key={v} onClick={() => setMinCap(v)}
+              style={{ background: capMin === v ? T.accentDim : "none", color: capMin === v ? T.accent : T.muted, border: `1px solid ${capMin === v ? T.accent : T.border}`, borderRadius: 6, padding: "4px 8px", fontSize: 11, fontWeight: 700, cursor: "pointer" }}>{cySizeLabel(v)}</button>
+          ))}
+          {capMin < 10000 && <span style={{ color: T.warn, fontSize: 11 }}>smaller companies' patterns are less reliable</span>}
+        </div>
+      )}
 
       <div style={{ display: "flex", gap: 6, overflowX: "auto", paddingBottom: 6, marginBottom: 8 }}>
         {VIEWS.map(v => (
@@ -2972,6 +3029,7 @@ function CyclesPage({ holdings, positions }) {
                 {typeof s.cycle_return === "number" && tl.phase !== "OFF_SEASON" && <> · this cycle so far {cyPct(s.cycle_return, 0)}</>}
                 {low && <> · <span style={{ color: low.color }}>{low.text}</span></>}
               </div>
+              {smallNote(s) && <div style={{ color: T.warn, fontSize: 11, marginTop: 3 }}>⚠ {smallNote(s)}</div>}
             </div>
           );
         })}
@@ -2981,7 +3039,7 @@ function CyclesPage({ holdings, positions }) {
         How it works: every “buy at the end of month X, sell months later” window is tested on each year of history and compared with the market (equal-weight average of these stocks) over the same months. STRONG = worked ≥5 of 6 years, beat the market ≥80% of the time by a median ≥8%, and the stock usually falls in the off-season. Tap a stock for the full year-by-year history. Rebuilt every Saturday.
       </div>
 
-      {open && <CycleDetail symbol={open} summaryRow={rowFor(open)} held={held.has(open)} onClose={() => setOpen(null)} />}
+      {open && <CycleDetail symbol={open} summaryRow={rowFor(open)} held={held.has(open)} sizeNote={rowFor(open) ? smallNote(rowFor(open)) : null} onClose={() => setOpen(null)} />}
     </div>
   );
 }
@@ -4108,7 +4166,7 @@ function App() {
                 { title: "👀 What is the Watchlist?", color: T.warn, body: "A looser, earlier tier for stocks that are visibly tightening (BB width under 9%) and turning up, but haven't yet cleared the strict 4.5% squeeze threshold or the 15% return target. Nothing here is a confirmed signal — it's a heads-up that a stock is forming. When a watchlist stock later earns a real squeeze signal, it's marked 'GRADUATED' with its full history." },
                 { title: "🔴 What is End of Blast?", color: T.blast, body: "BB bands expand and Stochastic K exceeds 75 while price holds above EMA10. This is the EXIT signal — book profits before the next correction." },
                 { title: "👀 What is the Watchlist?", color: T.warn, body: "A looser, earlier tier for stocks that are visibly tightening (BB width under 8%) and turning up, but haven't yet cleared the strict 3% squeeze threshold. Nothing here is a confirmed signal — it's a heads-up that a stock is forming. When a watchlist stock later earns a real SQUEEZE signal, it's marked 'GRADUATED' with its full history (when it was first spotted, at what price) so you can see the lead-up to confirmed entries." },
-                { title: "🔄 What is the Cycles tab?", color: T.accent, body: "Stocks over ₹10,000 cr market cap that repeat a yearly pattern — e.g. bottoming around March and rallying into September. Each card shows the buy/sell months, how many years it worked, and whether it beat the market. 'Buy now / soon' lists stocks whose usual buy month is now or next month. Tap any stock for its year-by-year cycle history. Rebuilt weekly (Saturday)." },
+                { title: "🔄 What is the Cycles tab?", color: T.accent, body: "Stocks that repeat a yearly pattern — e.g. bottoming around March and rallying into September. Each card shows the buy/sell months, how many years it worked, and whether it beat the market. 'Buy now / soon' lists stocks whose usual buy month is now or next month. Tap any stock for its year-by-year cycle history. The list defaults to companies over ₹10,000 cr; the ₹5k+ / ₹3k+ chips widen it, but smaller companies' patterns held up noticeably less often in testing, so those cards carry a warning. Rebuilt weekly (Saturday)." },
                 { title: "📊 Indicators used", color: T.warn, body: "Bollinger Bands: 20, 2 SD | EMA: 10 & 30 | RSI(14) → Stochastic 3/3 smoothing | Pivots: Traditional (prior day H/L/C) | Timeframe: Daily, for 5–10 day holds" },
                 { title: "⚠️ Disclaimer", color: T.red, body: "Educational and informational only — not investment advice. All trading decisions are your responsibility. Past patterns don't guarantee future returns." },
               ].map(({ title, color, body }) => (
