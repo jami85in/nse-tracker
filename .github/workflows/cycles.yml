@@ -47,7 +47,7 @@ jobs:
 
       - name: Compute cycles
         env:
-          CYCLES_MIN_MCAP_CR: "10000"
+          CYCLES_MIN_MCAP_CR: "3000"   # collect down to ₹3,000 cr; dashboard defaults to ₹10,000 cr+
         run: python scripts/cycles.py
 
       - name: Commit results
@@ -59,4 +59,4 @@ jobs:
           git diff --staged --quiet || git commit -m "cycles: $(date -u +'%Y-%m-%d')"
           git pull --rebase --autostash origin main || true
           git push
-          
+
