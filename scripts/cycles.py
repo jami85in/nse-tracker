@@ -58,8 +58,15 @@ MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
 #   bonus a:b  -> b/(a+b)   (1:1 0.5, 2:1 0.333, 1:2 0.667, 3:1 0.25, 4:1 0.2)
 #   split 1:k  -> 1/k       (2, 2.5, 4, 5, 10)
 CA_FACTORS = [1/2, 1/3, 2/3, 1/4, 1/5, 2/5, 1/10, 1/6, 1/8, 3/4, 4/5]
-CA_TOL = 0.035          # |observed/expected - 1| must be within 3.5%
+CA_TOL = 0.035          # |observed/expected - 1| must be within 3.5% ...
+CA_TOL_DEEP = 0.08      # ... or 8% for ratios <= 0.5: NSE circuit limits make a
+                        # genuine one-day fall of 50%+ effectively impossible, so a
+                        # gap that deep near 1/2, 1/3, 1/4 ... is a bonus/split even
+                        # if the stock also moved a few % that day (AARTIDRUGS 3:1, 2020)
 CA_MAX_RATIO = 0.82     # only gaps deeper than -18% are considered
+MAX_ADJ_GAP_DAYS = 7    # bars further apart than this are a DATA HOLE (e.g. weeks in
+                        # the trade-to-trade segment), not consecutive sessions — a price
+                        # change across a hole must never be mistaken for a split
 
 
 # ── data loading / cleaning ─────────────────────────────────────────────────
@@ -91,10 +98,17 @@ def clean_bars(raw):
 
 
 def match_factor(ratio):
+    best = None
     for f in CA_FACTORS:
-        if abs(ratio / f - 1) <= CA_TOL:
-            return f
-    return None
+        tol = CA_TOL_DEEP if f <= 0.5 else CA_TOL
+        err = abs(ratio / f - 1)
+        if err <= tol and (best is None or err < best[1]):
+            best = (f, err)
+    return best[0] if best else None
+
+
+def day_gap(d1, d2):
+    return (datetime.date.fromisoformat(d2) - datetime.date.fromisoformat(d1)).days
 
 
 def adjust_corporate_actions(bars):
@@ -106,6 +120,12 @@ def adjust_corporate_actions(bars):
         prev_c = bars[i - 1]["c"]
         r_open = bars[i]["o"] / prev_c
         r_close = bars[i]["c"] / prev_c
+        gap = day_gap(bars[i - 1]["date"], bars[i]["date"])
+        if gap > MAX_ADJ_GAP_DAYS:
+            if gap > 20:
+                warnings.append(f"No price data from {bars[i - 1]['date']} to {bars[i]['date']} "
+                                f"({gap} days, likely trade-to-trade/suspended) — windows spanning it are less reliable")
+            continue
         if r_open > CA_MAX_RATIO and r_close > CA_MAX_RATIO:
             continue
         f = match_factor(r_open) or match_factor(r_close)
