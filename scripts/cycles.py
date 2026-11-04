@@ -42,6 +42,9 @@ MARKET CAP
 import os, sys, json, csv, glob, math, datetime, statistics as st
 
 RAW_DIR = os.environ.get("CYCLES_RAW_DIR", "data/backtest/raw_ohlc")
+# Older history (pre-Sep-2020) collected separately by ohlc_extend_history.yml.
+# Merged in by date when present; harmless when the folder doesn't exist.
+HIST_DIR = os.environ.get("CYCLES_HIST_DIR", "data/backtest/raw_ohlc_hist")
 OUT_DIR = os.environ.get("CYCLES_OUT_DIR", "data/cycles")
 MIN_MCAP_CR = float(os.environ.get("CYCLES_MIN_MCAP_CR", "10000"))
 PROXY_TOP_N = int(os.environ.get("CYCLES_PROXY_TOP_N", "450"))
@@ -480,6 +483,19 @@ def load_market_caps(meta):
 
 
 # ── main ────────────────────────────────────────────────────────────────────
+def load_history(sym, path):
+    """Current bars plus any older bars from HIST_DIR, merged by date."""
+    raw = load_json(path, []) or []
+    hp = os.path.join(HIST_DIR, f"{sym}.json")
+    if os.path.exists(hp):
+        by_date = {b.get("date"): b for b in (load_json(hp, []) or []) if b.get("date")}
+        for b in raw:
+            if b.get("date"):
+                by_date[b["date"]] = b
+        raw = [by_date[d] for d in sorted(by_date)]
+    return raw
+
+
 def prepare_symbol(raw):
     bars = clean_bars(raw)
     if len(bars) < 250 * MIN_YEARS:
@@ -636,7 +652,7 @@ def main():
     for p in universe:
         s = os.path.basename(p)[:-5]
         try:
-            prep = prepare_symbol(load_json(p, []))
+            prep = prepare_symbol(load_history(s, p))
         except Exception as e:
             print(f"  {s}: prepare error {e}")
             continue

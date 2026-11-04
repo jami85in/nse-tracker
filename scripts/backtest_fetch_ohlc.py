@@ -32,8 +32,13 @@ DAILY_MODE = os.environ.get("BACKTEST_MODE", "").lower() == "daily"
 DAILY_LOOKBACK_DAYS = int(os.environ.get("BACKTEST_DAILY_LOOKBACK_DAYS", "12"))
 
 DATA_DIR = "data/backtest"
-OHLC_DIR = os.path.join(DATA_DIR, "raw_ohlc")
-PROGRESS_PATH = os.path.join(DATA_DIR, "progress_ohlc.json")  # separate progress file — new collection pass
+# Overridable so an older-history backfill (ohlc_extend_history.yml) can write
+# to its own folder and progress file, leaving the live raw_ohlc/ that the
+# scanner and daily refresh use completely untouched.
+OHLC_DIR = os.environ.get("BACKTEST_OHLC_DIR", os.path.join(DATA_DIR, "raw_ohlc"))
+PROGRESS_PATH = os.environ.get("BACKTEST_PROGRESS_PATH", os.path.join(DATA_DIR, "progress_ohlc.json"))
+# Optional last date to collect (inclusive). Unset = up to yesterday.
+END_DATE = os.environ.get("BACKTEST_END_DATE", "")
 SYMBOLS_PATH = os.path.join(DATA_DIR, "symbols_all.json" if UNIVERSE == "all" else "symbols.json")
 
 
@@ -122,13 +127,16 @@ def merge_ohlc(chunk_ohlc):
 
 def process_one_chunk(symbols, progress):
     today = datetime.date.today()
+    last_day = today - datetime.timedelta(days=1)
+    if END_DATE:
+        last_day = min(last_day, datetime.date.fromisoformat(END_DATE))
     chunk_start = datetime.date.fromisoformat(progress["next_chunk_start"])
-    chunk_end = min(chunk_start + datetime.timedelta(days=CHUNK_DAYS - 1), today - datetime.timedelta(days=1))
+    chunk_end = min(chunk_start + datetime.timedelta(days=CHUNK_DAYS - 1), last_day)
 
-    if chunk_start > today - datetime.timedelta(days=1):
+    if chunk_start > last_day:
         progress["done"] = True
         progress["last_run"] = datetime.datetime.now().isoformat()
-        print("Reached today's date. OHLC collection complete.")
+        print(f"Reached {last_day}. OHLC collection complete.")
         return "done"
 
     cs, ce = chunk_start.isoformat(), chunk_end.isoformat()
@@ -166,7 +174,7 @@ def process_one_chunk(symbols, progress):
     progress["current_chunk_failures"] = 0
     progress["last_run"] = datetime.datetime.now().isoformat()
 
-    total_days_est = (today - datetime.date.fromisoformat(START_DATE)).days
+    total_days_est = (last_day - datetime.date.fromisoformat(START_DATE)).days
     done_days = (chunk_end - datetime.date.fromisoformat(START_DATE)).days
     pct = round(done_days / total_days_est * 100, 1) if total_days_est > 0 else 100
     print(f"  Progress: {pct}% ({progress['chunks_completed']} chunks done)")
