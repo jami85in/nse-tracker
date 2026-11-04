@@ -359,7 +359,7 @@ const RAW_BASE    = `https://raw.githubusercontent.com/${GITHUB_USER}/${GITHUB_R
 // instead of requiring a manual file diff to find out. This exists because
 // PWA/service-worker caching has repeatedly made "is this actually deployed
 // yet" the hardest part of diagnosing issues in this app.
-const BUILD_VERSION = "2026-11-04.2";
+const BUILD_VERSION = "2026-11-04.3";
 const GITHUB_APP_ACTIONS_URL = `https://github.com/${GITHUB_USER}/${GITHUB_REPO}/actions/workflows/scan.yml`;
 
 // ── Fetch strategy ────────────────────────────────────────────────────────────
@@ -718,6 +718,36 @@ function fromDateInputValue(isoStr) {
   return new Date(isoStr + "T00:00:00").toLocaleDateString("en-IN");
 }
 const uid = () => Math.random().toString(36).slice(2, 9);
+
+// Module-level toast bridge. Several components outside App (position edit,
+// add-quantity, sell, cycle purchase) call showToast for validation messages,
+// but the real toast lives in App's state — so those calls used to throw a
+// ReferenceError instead of showing the warning. App registers its toast here.
+function showToast(msg) {
+  try { if (window.__nseToast) { window.__nseToast(msg); return; } } catch {}
+  try { alert(msg); } catch {}
+}
+
+// ── Cycle-trade tracking helpers ──
+// A position bought from the Cycles tab carries signalOrigin "cycles" and a
+// `cycle` object recorded AT PURCHASE (grade, window, sell-by month), so the
+// plan stays attached even after the weekly cycle data changes.
+const CY_MON3 = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+function cycleExitInfo(cycle, now = new Date()) {
+  if (!cycle || !cycle.exitBy) return null;
+  const [y, m] = cycle.exitBy.split("-").map(Number);
+  const left = (y * 12 + m - 1) - (now.getFullYear() * 12 + now.getMonth());
+  const when = `end-${CY_MON3[m - 1]} ${y}`;
+  if (left < 0) return { left, due: true, overdue: true, text: `Seasonal exit was ${when} — overdue`, short: `exit overdue (${CY_MON3[m - 1]} ${String(y).slice(2)})` };
+  if (left === 0) return { left, due: true, text: `Seasonal exit month — sell by ${when}`, short: `sell by ${when}` };
+  return { left, due: false, text: `Seasonal plan: sell by ${when} (${left} mo left)`, short: `sell by ${CY_MON3[m - 1]} ${String(y).slice(2)}` };
+}
+function CycleTag({ cycle }) {
+  const info = cycleExitInfo(cycle);
+  if (!info) return null;
+  const col = info.due ? T.blast : T.accent;
+  return <span style={{ fontSize: 9, fontWeight: 800, color: col, border: `1px solid ${col}66`, background: col + "14", borderRadius: 5, padding: "2px 6px", whiteSpace: "nowrap" }}>🔄 CYCLE · {info.short}</span>;
+}
 
 function Pill({ label, color }) {
   const map = { HIGH: T.accent, MEDIUM: T.warn, LOW: T.red, BULLISH: T.green, NEUTRAL: T.warn, BEARISH: T.red, CAUTIOUS: T.warn };
@@ -1694,6 +1724,8 @@ function PortfolioRow({ pos, onClose, onEdit, livePrice, scanData, pricesStale }
                 show nothing rather than a guessed value. */}
             {pos.signalOrigin === "validated" && <Pill label="✅ VALIDATED" color={T.green} />}
             {pos.signalOrigin === "unvalidated" && <Pill label="⚠️ UNVALIDATED" color={T.warn} />}
+            {pos.signalOrigin === "cycles" && isOpen && <CycleTag cycle={pos.cycle} />}
+            {pos.signalOrigin === "cycles" && !isOpen && <Pill label="🔄 CYCLE" color={T.accent} />}
             <WeeklyTrendBadge symbol={pos.symbol} scanData={scanData} />
           </div>
           <div style={{ color: T.muted, fontSize: 11, marginTop: 3 }}>{pos.qty} sh @ {curr(pos.entryPrice)} · {pos.date}</div>
@@ -1838,6 +1870,9 @@ function computeNetPositions(positions) {
       targetPrice: latestLot.targetPrice, stopLoss: latestLot.stopLoss,
       earliestDate: [...lots].sort((a, b) => parseIndianDate(a.date) - parseIndianDate(b.date))[0].date,
       lotCount: lots.length,
+      // seasonal plan from the most recent cycle-tagged lot, if any
+      cycle: ([...lots].filter(l => l.signalOrigin === "cycles" && l.cycle)
+        .sort((a, b) => parseIndianDate(b.date) - parseIndianDate(a.date))[0] || {}).cycle || null,
     };
   });
 }
@@ -1893,6 +1928,7 @@ function NetPositionCard({ net, livePrice, onSell, onAdd, scanData, pricesStale 
           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
             <span style={{ color: T.text, fontWeight: 800, fontSize: 15, fontFamily: "monospace" }}>{net.symbol}</span>
             {net.lotCount > 1 && <Pill label={`${net.lotCount} lots`} color={T.warn} />}
+            {net.cycle && <CycleTag cycle={net.cycle} />}
             <WeeklyTrendBadge symbol={net.symbol} scanData={scanData} />
           </div>
           <div style={{ color: T.muted, fontSize: 11, marginTop: 2 }}>
@@ -1906,12 +1942,23 @@ function NetPositionCard({ net, livePrice, onSell, onAdd, scanData, pricesStale 
       </div>
 
       <ExitWatchBanner symbol={net.symbol} scanData={scanData} />
+      {net.cycle && (() => {
+        const info = cycleExitInfo(net.cycle);
+        const col = info && info.due ? T.blast : T.muted;
+        return info ? (
+          <div style={{ marginTop: 8, background: (info.due ? T.blast : T.accent) + "10", border: `1px solid ${(info.due ? T.blast : T.accent)}33`, borderRadius: 8, padding: "7px 10px", fontSize: 11, color: col, lineHeight: 1.5 }}>
+            <b style={{ color: info.due ? T.blast : T.accent }}>{info.text}</b>
+            <span style={{ color: T.muted }}> · {net.cycle.grade} pattern, buy end-{CY_MON3[net.cycle.entry - 1]} → sell end-{CY_MON3[net.cycle.exit - 1]}, worked {net.cycle.hit} yrs, median {net.cycle.median > 0 ? "+" : ""}{net.cycle.median}%</span>
+          </div>
+        ) : null;
+      })()}
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(2,1fr)", gap: 8, marginTop: 10 }}>
         <Stat label="Invested" value={curr(net.invested)} />
         <Stat label="Current Value" value={hasPrice ? curr(currentValue) : "—"} color={hasPrice ? (gainLoss >= 0 ? T.green : T.red) : T.muted} />
         <Stat label="Gain/Loss" value={hasPrice ? ((gainLoss >= 0 ? "+" : "-") + curr(Math.abs(gainLoss))) : "—"} color={hasPrice ? (gainLoss >= 0 ? T.green : T.red) : T.muted} />
         {net.targetPrice && <Stat label="Target" value={curr(net.targetPrice)} color={T.green} />}
+        {net.cycle && net.stopLoss && <Stat label="Stop" value={curr(net.stopLoss)} color={T.red} />}
       </div>
 
       {!showSell && !showAdd ? (
@@ -2007,6 +2054,12 @@ function PortfolioSummary({ positions, livePrices = {}, tradingDividends = 0, ho
   // traded, which can flip a losing strategy into an apparent winner.
   const strategyReturn = realizedPL + unrealizedPL + tradingDividends;
   const allInReturn = strategyReturn + holdingDividends;
+  // Split out seasonal-cycle trades so the two strategies can be judged separately.
+  const cyc = p => p.signalOrigin === "cycles";
+  const cyclePL = closed.filter(cyc).reduce((s, p) => s + (p.exitPrice - p.entryPrice) * p.qty, 0)
+    + pricedOpen.filter(cyc).reduce((s, p) => s + (livePrices[p.symbol] - p.entryPrice) * p.qty, 0);
+  const hasCycles = positions.some(cyc);
+  const signed = v => (v >= 0 ? "+" : "-") + curr(Math.abs(v));
 
   return (
     <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, padding: 16, marginBottom: 16 }}>
@@ -2028,7 +2081,8 @@ function PortfolioSummary({ positions, livePrices = {}, tradingDividends = 0, ho
           </span>
         </div>
         <div style={{ color: T.muted, fontSize: 10, marginBottom: 10 }}>
-          Trades the scanner produced: realized + unrealized + dividends on those symbols only.
+          Trades tracked in this app: realized + unrealized + dividends on those symbols only.
+          {hasCycles && <> Of which <b style={{ color: T.text }}>scanner {signed(strategyReturn - cyclePL)}</b> · <b style={{ color: T.accent }}>🔄 cycle trades {signed(cyclePL)}</b>.</>}
         </div>
         {holdingDividends > 0 && (
           <>
@@ -2143,6 +2197,11 @@ function MonitorPage({ scanData, positions, holdings, livePrices, priceUpdated, 
       }
     });
   }
+  // Seasonal exit reminders for cycle trades — calendar-based, never price-dependent
+  computeNetPositions(openPos).forEach(n => {
+    const info = cycleExitInfo(n.cycle);
+    if (info && info.due) alerts.push({ type: "exit", symbol: n.symbol, msg: info.overdue ? `cycle trade past its seasonal exit (${info.short})` : `cycle trade in its exit month — ${info.short}`, color: T.blast });
+  });
   // Signal-based alerts (from scan data) are always valid — not price-dependent
   (holdings || []).forEach(h => {
     const inBlast = (scanData.blast_stocks || []).some(b => b.symbol === h.symbol);
@@ -2256,7 +2315,7 @@ function MonitorPage({ scanData, positions, holdings, livePrices, priceUpdated, 
                 return (
                   <MiniRow key={net.symbol} sym={net.symbol} borderColor={hasPrice ? (ret >= 0 ? T.green : T.red) : T.muted}
                     cols={[
-                      { text: `${net.qty}sh @ ₹${fmt(net.avgEntry)}${net.lotCount > 1 ? ` · ${net.lotCount} lots` : ""}` },
+                      { text: `${net.qty}sh @ ₹${fmt(net.avgEntry)}${net.lotCount > 1 ? ` · ${net.lotCount} lots` : ""}${net.cycle ? ` · 🔄 ${cycleExitInfo(net.cycle)?.short || ""}` : ""}` },
                       { text: hasPrice ? `₹${fmt(price)}` : "no price", color: T.text },
                       { text: hasPrice ? pct(ret) : "—", color: hasPrice ? (ret >= 0 ? T.green : T.red) : T.muted, bold: true },
                     ]} />
@@ -2643,7 +2702,7 @@ function cyBandReliability(stocks) {
   return out;
 }
 
-function CycleDetail({ symbol, summaryRow, held, onClose, sizeNote }) {
+function CycleDetail({ symbol, summaryRow, held, onClose, sizeNote, onBuy }) {
   const [d, setD] = useState(null);
   const [err, setErr] = useState(null);
   useEffect(() => {
@@ -2687,6 +2746,11 @@ function CycleDetail({ symbol, summaryRow, held, onClose, sizeNote }) {
               </div>
               <div style={{ color: T.text, fontWeight: 700, fontSize: 14 }}>{(() => { const tl = cyTimeline(d.best); const a = cyAction(d.best, tl); return `${a.main} ${a.sub}`; })()}</div>
               <div style={{ color: T.muted, fontSize: 11, marginTop: 2 }}>Pattern: {cyWindowText(d.best)} (hold ~{d.best.hold} months)</div>
+              {onBuy && (
+                <button onClick={onBuy} style={{ marginTop: 10, background: T.accent, color: "#000", border: "none", borderRadius: 8, padding: "8px 14px", fontSize: 13, fontWeight: 800, cursor: "pointer" }}>
+                  {held ? "➕ Record another buy" : "➕ I bought this"}
+                </button>
+              )}
               <div style={{ color: T.muted, fontSize: 12, marginTop: 4, lineHeight: 1.5 }}>
                 {sizeNote && <div style={{ color: T.warn, fontSize: 12, marginBottom: 6 }}>⚠ {sizeNote}</div>}
                 Worked in {cyFrac(d.best.hit, d.best.n)} years with a median gain of {cyPct(d.best.median)}
@@ -2830,7 +2894,107 @@ function CycleDetail({ symbol, summaryRow, held, onClose, sizeNote }) {
   );
 }
 
-function CyclesPage({ holdings, positions }) {
+// ── Record a purchase made from the Cycles list ───────────────────────────────
+// Writes into the SAME positions store as the scanner's Invest flow, so the
+// trade shows up in Portfolio and Monitor; tagged signalOrigin "cycles" with
+// the seasonal plan frozen at purchase time.
+function CycleBuyModal({ row, sizeNote, onClose, onConfirm }) {
+  const today = new Date().toISOString().slice(0, 10);
+  const [qty, setQty] = useState("");
+  const [price, setPrice] = useState(row.last_close ? String(row.last_close) : "");
+  const [date, setDate] = useState(today);
+  const [target, setTarget] = useState(null);   // null = follow the default
+  const [stop, setStop] = useState(null);
+  const [notes, setNotes] = useState("");
+  const px = Number(price) || 0;
+  const defTarget = px ? +(px * (1 + (row.median || 0) / 100)).toFixed(2) : 0;
+  const defStop = px ? +(px * 0.90).toFixed(2) : 0;
+  const tgt = target != null ? Number(target) : defTarget;
+  const stp = stop != null ? Number(stop) : defStop;
+  const when = new Date(date + "T12:00:00");
+  const tl = cyTimeline(row, isNaN(when) ? new Date() : when);
+  const exitMonth = tl.exitIdx;
+  const exitBy = `${Math.floor(exitMonth / 12)}-${String((exitMonth % 12) + 1).padStart(2, "0")}`;
+  const invested = (Number(qty) || 0) * px;
+  const timingNote = {
+    BUY_WINDOW: { c: T.green, t: "You're in the usual buy month — on plan." },
+    BUY_SOON: { c: T.warn, t: `Early by about a month — the usual buy point is late ${cyMon(tl.entryIdx)}.` },
+    IN_SEASON: { c: T.warn, t: `Buying mid-season — the up-leg started end-${cyMon(tl.entryIdx)}, so part of the usual move may be done.` },
+    SELL_WINDOW: { c: T.red, t: "This is the usual SELL month — buying now goes against the pattern." },
+    OFF_SEASON: { c: T.red, t: `Off-season — the stock usually drifts until the buy month (late ${cyMon(tl.entryIdx)}).` },
+  }[tl.phase];
+
+  const field = (label, val, set, opts = {}) => (
+    <div style={{ flex: 1 }}>
+      <div style={{ color: T.muted, fontSize: 10, marginBottom: 3 }}>{label}</div>
+      <input type={opts.type || "number"} inputMode={opts.type ? undefined : "decimal"} value={val} max={opts.max} placeholder={opts.ph}
+        onChange={e => set(e.target.value)}
+        style={{ width: "100%", background: T.bg, border: `1px solid ${T.border}`, borderRadius: 6, padding: "9px 10px", color: T.text, fontSize: 14 }} />
+    </div>
+  );
+
+  const submit = () => {
+    const q = Number(qty);
+    if (!q || q <= 0 || !px || px <= 0 || !date) { showToast("⚠ Check quantity, price and date"); return; }
+    if (new Date(date) > new Date()) { showToast("⚠ Purchase date can't be in the future"); return; }
+    const isToday = date === today;
+    onConfirm({
+      id: uid(), symbol: row.symbol, qty: q, entryPrice: px, invested: q * px,
+      targetPrice: tgt || null, stopLoss: stp || null, notes,
+      date: isToday ? nowStr() : new Date(date + "T00:00:00").toLocaleDateString("en-IN"),
+      status: "OPEN", currentPrice: px, actualReturn: 0,
+      signalOrigin: "cycles",
+      cycle: {
+        grade: row.grade, entry: row.entry, exit: row.exit, hold: row.hold, exitBy,
+        median: row.median, worst: row.worst, hit: cyFrac(row.hit, row.n), beat: cyFrac(row.beat_rate, row.n),
+        phaseAtBuy: tl.phase, mcap_cr: row.mcap_cr, asOf: row.as_of,
+      },
+    });
+  };
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "#000000DD", display: "flex", alignItems: "flex-end", justifyContent: "center", zIndex: 150 }} onClick={onClose}>
+      <div onClick={e => e.stopPropagation()} style={{ background: T.card, borderTopLeftRadius: 18, borderTopRightRadius: 18, padding: "20px 18px calc(20px + env(safe-area-inset-bottom))", width: "100%", maxWidth: 480, maxHeight: "88vh", overflowY: "auto" }}>
+        <div style={{ width: 36, height: 4, background: T.border, borderRadius: 2, margin: "0 auto 14px" }} />
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+          <span style={{ color: T.accent, fontWeight: 800, fontSize: 17 }}>Record purchase: {row.symbol}</span>
+          <button onClick={onClose} style={{ background: T.surface, border: "none", color: T.muted, cursor: "pointer", fontSize: 16, width: 30, height: 30, borderRadius: 15 }}>✕</button>
+        </div>
+        <div style={{ background: T.surface, borderRadius: 10, padding: 12, marginBottom: 12, fontSize: 12, lineHeight: 1.6 }}>
+          <div style={{ color: T.text, fontWeight: 700 }}>🔄 {row.grade} cycle · buy end-{CY_MONTHS[row.entry - 1]} → sell end-{CY_MONTHS[row.exit - 1]}</div>
+          <div style={{ color: T.muted }}>Worked {cyFrac(row.hit, row.n)} yrs · median {cyPct(row.median, 0)} · worst {cyPct(row.worst, 0)} · beat market {cyFrac(row.beat_rate, row.n)}</div>
+          <div style={{ color: T.text, marginTop: 4 }}>Sell-by for this trade: <b>end-{cyMon(exitMonth)}</b></div>
+          {timingNote && <div style={{ color: timingNote.c, marginTop: 4 }}>{timingNote.t}</div>}
+          {sizeNote && <div style={{ color: T.warn, marginTop: 4 }}>⚠ {sizeNote}</div>}
+        </div>
+        <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+          {field("Quantity (shares)", qty, setQty, { ph: "e.g. 50" })}
+          {field("Buy price ₹", price, setPrice)}
+        </div>
+        <div style={{ marginBottom: 10 }}>{field("Purchase date", date, setDate, { type: "date", max: today })}</div>
+        <div style={{ display: "flex", gap: 8, marginBottom: 4 }}>
+          {field(`Target ₹ (median ${cyPct(row.median, 0)})`, target != null ? target : (defTarget || ""), setTarget)}
+          {field("Stop ₹ (default −10%)", stop != null ? stop : (defStop || ""), setStop)}
+        </div>
+        <div style={{ color: T.muted, fontSize: 10, marginBottom: 10, lineHeight: 1.5 }}>
+          Target = the pattern's median seasonal gain from your price. The stop isn't part of the seasonal backtest — it's a safety net; adjust to taste. The plan says sell by the exit month even if the target isn't reached.
+        </div>
+        <div style={{ marginBottom: 12 }}>
+          <div style={{ color: T.muted, fontSize: 10, marginBottom: 3 }}>Notes (optional)</div>
+          <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={2}
+            style={{ width: "100%", background: T.bg, border: `1px solid ${T.border}`, borderRadius: 6, padding: "8px 10px", color: T.text, fontSize: 13, resize: "none" }} />
+        </div>
+        <div style={{ display: "flex", justifyContent: "space-between", color: T.muted, fontSize: 12, marginBottom: 10 }}>
+          <span>Invested <b style={{ color: T.text }}>{invested ? curr(invested) : "—"}</b></span>
+          <span>Target <b style={{ color: T.green }}>{tgt ? curr(tgt) : "—"}</b> · Stop <b style={{ color: T.red }}>{stp ? curr(stp) : "—"}</b></span>
+        </div>
+        <button onClick={submit} style={{ width: "100%", background: T.accent, color: "#000", border: "none", borderRadius: 10, padding: 14, fontWeight: 800, fontSize: 15, cursor: "pointer" }}>✅ Add to portfolio</button>
+      </div>
+    </div>
+  );
+}
+
+function CyclesPage({ holdings, positions, onRecordBuy }) {
   const [data, setData] = useState(null);
   const [err, setErr] = useState(null);
   const [view, setView] = useState("buy");  // calendar is one tap away
@@ -2838,6 +3002,7 @@ function CyclesPage({ holdings, positions }) {
   const [onlyHeld, setOnlyHeld] = useState(false);
   const [q, setQ] = useState("");
   const [open, setOpen] = useState(null);
+  const [buying, setBuying] = useState(null);   // summary row being recorded
   const [minCap, setMinCapState] = useState(() => {
     try { const v = parseInt(localStorage.getItem("cycles_min_cap"), 10); return CY_SIZES.includes(v) ? v : 10000; } catch { return 10000; }
   });
@@ -3030,6 +3195,14 @@ function CyclesPage({ holdings, positions }) {
                 {low && <> · <span style={{ color: low.color }}>{low.text}</span></>}
               </div>
               {smallNote(s) && <div style={{ color: T.warn, fontSize: 11, marginTop: 3 }}>⚠ {smallNote(s)}</div>}
+              {onRecordBuy && (
+                <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 8 }}>
+                  <button onClick={e => { e.stopPropagation(); setBuying(s); }}
+                    style={{ background: T.accentDim, border: `1px solid ${T.accent}66`, color: T.accent, borderRadius: 8, padding: "6px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
+                    {held.has(s.symbol) ? "➕ Record another buy" : "➕ I bought this"}
+                  </button>
+                </div>
+              )}
             </div>
           );
         })}
@@ -3039,7 +3212,10 @@ function CyclesPage({ holdings, positions }) {
         How it works: every “buy at the end of month X, sell months later” window is tested on each year of history and compared with the market (equal-weight average of these stocks) over the same months. STRONG = worked ≥5 of 6 years, beat the market ≥80% of the time by a median ≥8%, and the stock usually falls in the off-season. Tap a stock for the full year-by-year history. Rebuilt every Saturday.
       </div>
 
-      {open && <CycleDetail symbol={open} summaryRow={rowFor(open)} held={held.has(open)} sizeNote={rowFor(open) ? smallNote(rowFor(open)) : null} onClose={() => setOpen(null)} />}
+      {open && <CycleDetail symbol={open} summaryRow={rowFor(open)} held={held.has(open)} sizeNote={rowFor(open) ? smallNote(rowFor(open)) : null}
+        onBuy={onRecordBuy && rowFor(open) ? () => setBuying(rowFor(open)) : null} onClose={() => setOpen(null)} />}
+      {buying && <CycleBuyModal row={buying} sizeNote={smallNote(buying)} onClose={() => setBuying(null)}
+        onConfirm={pos => { setBuying(null); setOpen(null); onRecordBuy(pos); }} />}
     </div>
   );
 }
@@ -3147,6 +3323,7 @@ function App() {
   const intervalRef = useRef(null);
 
   const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(null), 2500); };
+  window.__nseToast = showToast;
 
   const savePositions = ps => {
     setPositions(ps);
@@ -3447,6 +3624,8 @@ function App() {
       invested: qtyToAdd * buyPrice,
       targetPrice: existingLot?.targetPrice ?? null,
       stopLoss: existingLot?.stopLoss ?? null,
+      // a top-up of a cycle trade stays a cycle trade with the same plan
+      ...(existingLot?.signalOrigin === "cycles" ? { signalOrigin: "cycles", cycle: existingLot.cycle } : {}),
       notes: "",
       date: displayDate,
       status: "OPEN",
@@ -3949,11 +4128,11 @@ function App() {
                           const wins = set.filter(p => p.exitPrice > p.entryPrice).length;
                           return { n: set.length, inv, pnl, wins, ret: inv ? pnl / inv * 100 : 0 };
                         };
-                        const v = grp("validated"), u = grp("unvalidated");
+                        const v = grp("validated"), u = grp("unvalidated"), cy = grp("cycles");
                         return (
                           <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: 12, marginBottom: 16 }}>
                             <div style={{ color: T.muted, fontSize: 11, letterSpacing: 1, marginBottom: 10 }}>PERFORMANCE BY SIGNAL ORIGIN</div>
-                            {[["✅ Validated signals", v, T.green], ["⚠️ Unvalidated / discretionary", u, T.warn]].map(([label, g, col]) => (
+                            {[["✅ Validated signals", v, T.green], ["🔄 Seasonal cycle trades", cy, T.accent], ["⚠️ Unvalidated / discretionary", u, T.warn]].map(([label, g, col]) => (
                               <div key={label} style={{ marginBottom: 8 }}>
                                 <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
                                   <span style={{ color: col, fontWeight: 700 }}>{label}</span>
@@ -4152,7 +4331,7 @@ function App() {
           )}
 
           {tab === "cycles" && (
-            <CyclesPage holdings={holdings} positions={positions} />
+            <CyclesPage holdings={holdings} positions={positions} onRecordBuy={handleConfirmInvest} />
           )}
 
           {tab === "guide" && (
