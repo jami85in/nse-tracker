@@ -1,0 +1,60 @@
+name: NSE OHLC History Extension (2014-2020)
+
+# One-off backfill of OLDER daily OHLC (Jan 2014 -> Aug 2020) so the seasonal
+# cycle analysis and its backtest have ~12 years instead of ~6.
+#
+# Writes to its OWN folder (data/backtest/raw_ohlc_hist/) and progress file,
+# so the live raw_ohlc/ used by the scanner and the daily refresh is never
+# touched. cycles.py merges the two folders by date.
+#
+# Resumable: each run fetches as many 28-day chunks as fit in ~8 minutes and
+# commits; the schedule below keeps it going (~85 chunks, a few hours).
+# Once the log says "OHLC collection already complete", DELETE this workflow
+# file (or remove the schedule) — after that it only does no-op runs.
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: nse-ohlc-extend
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Fetch older OHLC chunks
+        env:
+          BACKTEST_WORKER_URL: ${{ secrets.BACKTEST_WORKER_URL }}
+          BACKTEST_UNIVERSE: "all"
+          BACKTEST_START_DATE: "2014-01-01"
+          BACKTEST_END_DATE: "2020-08-31"
+          BACKTEST_OHLC_DIR: "data/backtest/raw_ohlc_hist"
+          BACKTEST_PROGRESS_PATH: "data/backtest/progress_ohlc_extend.json"
+          BACKTEST_CHUNK_DAYS: "28"
+          BACKTEST_TIME_BUDGET_SECONDS: "480"
+          BACKTEST_PAUSE_SECONDS: "5"
+        run: python scripts/backtest_fetch_ohlc.py
+
+      - name: Commit
+        if: always()
+        run: |
+          git config user.name "nse-tracker-bot"
+          git config user.email "actions@github.com"
+          mkdir -p data/backtest/raw_ohlc_hist
+          git add data/backtest/raw_ohlc_hist/ data/backtest/progress_ohlc_extend.json 2>/dev/null || true
+          git diff --staged --quiet || git commit -m "ohlc-history: chunks $(date -u +'%Y-%m-%d %H:%M UTC')"
+          git pull --rebase --autostash origin main || true
+          git push
+          
