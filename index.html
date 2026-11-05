@@ -359,7 +359,7 @@ const RAW_BASE    = `https://raw.githubusercontent.com/${GITHUB_USER}/${GITHUB_R
 // instead of requiring a manual file diff to find out. This exists because
 // PWA/service-worker caching has repeatedly made "is this actually deployed
 // yet" the hardest part of diagnosing issues in this app.
-const BUILD_VERSION = "2026-11-05.1";
+const BUILD_VERSION = "2026-11-05.2";
 const GITHUB_APP_ACTIONS_URL = `https://github.com/${GITHUB_USER}/${GITHUB_REPO}/actions/workflows/scan.yml`;
 
 // ── Fetch strategy ────────────────────────────────────────────────────────────
@@ -2991,7 +2991,7 @@ function LedgerPanel({ livePrices }) {
             <div style={{ display: "grid", gridTemplateColumns: "repeat(2,1fr)", gap: 12, marginTop: 10 }}>
               <Stat label="Holdings value" value={rs(value)} />
               <Stat label="Invested (effective)" value={rs(effInv)} />
-              <Stat label="P&L vs original cost" value={sgnRs(value - effInv)} color={value - effInv >= 0 ? T.green : T.red} />
+              <Stat label="P&L vs effective cost" value={sgnRs(value - effInv)} color={value - effInv >= 0 ? T.green : T.red} />
               <Stat label="P&L vs tax cost" value={sgnRs(value - taxInv)} color={value - taxInv >= 0 ? T.green : T.red} />
             </div>
             <div style={{ marginTop: 12, paddingTop: 10, borderTop: `1px solid ${T.border}` }}>
@@ -3021,7 +3021,8 @@ function LedgerPanel({ livePrices }) {
           )}
 
           {H.map(h => {
-            const pe = pctOf(h.px, h.effective_cost), pt = pctOf(h.px, h.tax_cost);
+            const pe = pctOf(h.px, h.effective_cost), pt = pctOf(h.px, h.tax_cost), po = pctOf(h.px, h.original_cost);
+            const pctTxt = x => x != null ? `${x >= 0 ? "+" : ""}${x.toFixed(1)}%` : null;
             const lt = nextLT(h);
             const col = pe == null ? T.muted : pe >= 0 ? T.green : T.red;
             return (
@@ -3036,14 +3037,17 @@ function LedgerPanel({ livePrices }) {
                     <div style={{ color: col, fontWeight: 800, fontSize: 13 }}>{pe != null ? `${pe >= 0 ? "+" : ""}${pe.toFixed(1)}%` : "—"}</div>
                   </div>
                 </div>
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 8, marginTop: 8 }}>
-                  <Stat label="Original cost" value={rs(h.effective_cost)} />
-                  <Stat label="Tax cost" value={rs(h.tax_cost)} sub={pt != null ? `${pt >= 0 ? "+" : ""}${pt.toFixed(1)}%` : null} />
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(2,1fr)", gap: 8, marginTop: 8 }}>
+                  <Stat label="Original buy price" value={h.original_cost != null ? rs(h.original_cost) : "—"} sub={pctTxt(po)} />
+                  <Stat label="Effective cost (all-in)" value={rs(h.effective_cost)} sub={pctTxt(pe)} />
+                  <Stat label="Tax cost (FIFO)" value={rs(h.tax_cost)} sub={pctTxt(pt)} />
                   <Stat label="Value" value={rs(h.value)} />
                 </div>
                 <div style={{ color: T.muted, fontSize: 10, marginTop: 6, lineHeight: 1.5 }}>
                   {h.dividends_gross > 0 && <>After ₹{Math.round(h.dividends_gross).toLocaleString("en-IN")} dividends, break-even is {rs(h.breakeven_after_div)}. </>}
-                  {Math.abs(h.effective_cost - h.tax_cost) > Math.max(0.5, 0.003 * h.tax_cost) && <>Tax cost differs from original cost (harvest or intraday history). </>}
+                  {h.original_cost != null && Math.abs(h.original_cost - h.tax_cost) > Math.max(0.5, 0.003 * h.tax_cost) && <>Tax cost is lower/higher than the original price because of tax-harvest sales. </>}
+                  {h.original_cost != null && Math.abs(h.effective_cost - h.original_cost) > Math.max(0.5, 0.003 * h.original_cost) && <>Effective cost folds in {h.effective_cost < h.original_cost ? "profits" : "losses"} from partial sales, intraday trades and charges. </>}
+                  {h.rounds > 1 && h.earlier_rounds_pnl ? <>Earlier, closed-out rounds in this stock: {sgnRs(h.earlier_rounds_pnl)}. </> : null}
                   {lt && <>Next lot turns long-term on {lt}. </>}
                   Charges paid {rs(h.charges)}.
                 </div>
