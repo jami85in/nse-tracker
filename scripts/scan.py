@@ -2163,12 +2163,30 @@ def scan_all_symbols(session: requests.Session, universe: list, as_of_date: str 
     return all_candidates, fetched_histories
 
 
+def session_date_ist(ist_now=None) -> datetime.date:
+    """The trading session this run belongs to, in IST.
+
+    GitHub starts the 19:00 IST evening refresh hours late (often after
+    midnight). datetime.date.today() on the runner is the UTC date, and the
+    old "before 15:35 IST" check then read 01:00 IST as "market still open"
+    and skipped the scan — so most scheduled scans silently did nothing.
+    A run between midnight and 09:00 IST belongs to the previous day's
+    evening session."""
+    ist_now = ist_now or now_ist()
+    d = ist_now.date()
+    if ist_now.hour < 9:
+        d -= datetime.timedelta(days=1)
+    return d
+
+
 def run(backfill_days: int = 0, allow_weekend: bool = False):
     session = get_nse_session()
 
-    today = datetime.date.today()
+    ist_now = now_ist()
+    today = session_date_ist(ist_now)
     is_open, reason = is_trading_day(today, session)
-    print(f"Market day check for {today.isoformat()}: {'OPEN' if is_open else 'CLOSED'} — {reason}")
+    print(f"Market day check for {today.isoformat()} (IST now {ist_now.strftime('%Y-%m-%d %H:%M')}): "
+          f"{'OPEN' if is_open else 'CLOSED'} — {reason}")
 
     # Pre-close guard: if this is a trading day and the market is STILL OPEN
     # (before 15:30 IST), the daily candle is not yet settled. Running now
@@ -2178,10 +2196,11 @@ def run(backfill_days: int = 0, allow_weekend: bool = False):
     # this is a backfill (which uses historical settled data) or an explicit
     # weekend override (market already closed, data is final).
     # GitHub Actions runs in UTC; IST = UTC + 5:30.
-    ist_now = now_ist()
     # Market closes 15:30 IST; add a small buffer (settle to 15:35) before we
-    # consider the candle final.
-    is_before_close = (ist_now.hour < 15 or (ist_now.hour == 15 and ist_now.minute < 35))
+    # consider the candle final. Only applies while that session is actually
+    # running — from 09:00 to 15:35 IST on the session's own date.
+    is_before_close = (ist_now.date() == today and ist_now.hour >= 9 and
+                       (ist_now.hour < 15 or (ist_now.hour == 15 and ist_now.minute < 35)))
     if is_open and is_before_close and backfill_days == 0 and not allow_weekend:
         print(f"IST now ~{ist_now.strftime('%H:%M')} — market still open, daily candle not settled.")
         print(f"Skipping scan to avoid partial-candle data. Wait until after 15:35 IST,")
@@ -2602,7 +2621,7 @@ def run(backfill_days: int = 0, allow_weekend: bool = False):
 
     # Keep a dated history for backtesting prediction accuracy later
     os.makedirs("data/history", exist_ok=True)
-    hist_path = f"data/history/scan_{datetime.date.today().isoformat()}.json"
+    hist_path = f"data/history/scan_{scan_date}.json"
     with open(hist_path, "w") as f:
         dump_json_safe(output, f, indent=2)
 
