@@ -19,6 +19,12 @@ exactly how new vs. already-known vs. manually-added holdings are handled
 
 Kite's holdings() response does not include an original purchase date, so
 synced holdings show "Synced from Zerodha" instead of a since-date.
+
+PRIVACY: this repo is public, so the file holds only WHICH symbols you hold
+(the price and scan jobs need that list) and their exchange — never the
+quantity, average price or P&L. Those live in the private
+nse-tracker-secrets repo (ledger/portfolio_ledger.json), which the
+dashboard reads with your read-only key.
 """
 import json, os, sys, datetime
 from kiteconnect import KiteConnect
@@ -84,20 +90,13 @@ def main():
         # (e.g. bonus/gifted shares with no cost basis) the same as missing
         # data. Missing is None; 0 is a valid, real value. Default to 0.0
         # only when truly absent, never silently drop the holding.
-        avg_price = h.get("average_price")
-        holdings[sym] = {
-            "qty": int(qty),
-            "avgPrice": round(float(avg_price), 2) if avg_price is not None else 0.0,
-            "lastPrice": round(float(h.get("last_price") or 0), 2),
-            "pnl": round(float(h.get("pnl") or 0), 2),
-            "exchange": h.get("exchange"),  # kept for visibility/debugging, not filtered on
-        }
+        holdings[sym] = {"exchange": h.get("exchange")}
 
     print(f"  Fetched {len(raw_holdings)} raw holdings from Kite, {len(holdings)} captured "
           f"(no exchange/avg_price filtering), {len(skipped)} genuinely skipped.")
     print(f"  All captured symbols: {sorted(holdings.keys())}")
     for h, reason in skipped:
-        print(f"    SKIPPED {h.get('tradingsymbol')}: {reason} (raw: {h})")
+        print(f"    SKIPPED {h.get('tradingsymbol')}: {reason}")
 
     # Recently-bought stocks can sit in kite.positions() for up to a day
     # before they settle into kite.holdings() (T+1 settlement) — a real,
@@ -120,15 +119,7 @@ def main():
             qty = p.get("quantity") or 0
             if qty <= 0:
                 continue
-            avg_price = p.get("average_price")
-            holdings[sym] = {
-                "qty": int(qty),
-                "avgPrice": round(float(avg_price), 2) if avg_price is not None else 0.0,
-                "lastPrice": round(float(p.get("last_price") or 0), 2),
-                "pnl": round(float(p.get("pnl") or 0), 2),
-                "exchange": p.get("exchange"),
-                "source_note": "from positions() — not yet settled into holdings()",
-            }
+            holdings[sym] = {"exchange": p.get("exchange"), "pending_settlement": True}
             added_from_positions.append(sym)
         if added_from_positions:
             print(f"  +{len(added_from_positions)} symbols from positions() not yet in "
@@ -165,7 +156,7 @@ def main():
 
     output = {
         "updated_at": now_ist.strftime("%Y-%m-%d %H:%M IST"),
-        "source": "Kite Connect (licensed) — kite.holdings()",
+        "source": "Kite Connect (licensed) — kite.holdings(); symbols only (quantities and prices are kept private)",
         "count": len(holdings),
         "holdings": holdings,
     }
