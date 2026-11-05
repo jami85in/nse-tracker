@@ -359,7 +359,7 @@ const RAW_BASE    = `https://raw.githubusercontent.com/${GITHUB_USER}/${GITHUB_R
 // instead of requiring a manual file diff to find out. This exists because
 // PWA/service-worker caching has repeatedly made "is this actually deployed
 // yet" the hardest part of diagnosing issues in this app.
-const BUILD_VERSION = "2026-11-04.3";
+const BUILD_VERSION = "2026-11-05.1";
 const GITHUB_APP_ACTIONS_URL = `https://github.com/${GITHUB_USER}/${GITHUB_REPO}/actions/workflows/scan.yml`;
 
 // ── Fetch strategy ────────────────────────────────────────────────────────────
@@ -764,11 +764,12 @@ function Pill({ label, color }) {
   );
 }
 
-function Stat({ label, value, color }) {
+function Stat({ label, value, color, sub }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0 }}>
       <span style={{ color: T.muted, fontSize: 10, letterSpacing: 0.6, textTransform: "uppercase" }}>{label}</span>
       <span style={{ color: color || T.text, fontSize: 13, fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{value}</span>
+      {sub && <span style={{ color: T.muted, fontSize: 10 }}>{sub}</span>}
     </div>
   );
 }
@@ -2898,6 +2899,210 @@ function CycleDetail({ symbol, summaryRow, held, onClose, sizeNote, onBuy }) {
 // Writes into the SAME positions store as the scanner's Invest flow, so the
 // trade shows up in Portfolio and Monitor; tagged signalOrigin "cycles" with
 // the seasonal plan frozen at purchase time.
+// ── Trade ledger (auto, from Zerodha tradebooks + daily Kite trades) ──────────
+// Lives in the PRIVATE nse-tracker-secrets repo; read with a read-only GitHub
+// key saved on this phone only. Built by scripts/ledger.py over there.
+const LEDGER_PATH = "ledger/portfolio_ledger.json";
+function lsGet(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : v; } catch { return d; } }
+function lsSet(k, v) { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch {} }
+async function fetchLedger(repo, pat) {
+  const res = await fetch(`https://api.github.com/repos/${repo}/contents/${LEDGER_PATH}?t=${Date.now()}`, {
+    headers: { Authorization: `Bearer ${pat}`, Accept: "application/vnd.github.raw+json" },
+  });
+  if (res.status === 401) throw new Error("The saved key was rejected — it may have expired. Paste a new one.");
+  if (res.status === 404) throw new Error("No ledger yet — upload a tradebook or run the “Trade Ledger” workflow in nse-tracker-secrets.");
+  if (!res.ok) throw new Error(`Couldn't load the ledger (${res.status}).`);
+  return res.json();
+}
+const rs = v => (typeof v === "number" ? (v < 0 ? "-" : "") + "₹" + Math.abs(v).toLocaleString("en-IN", { maximumFractionDigits: Math.abs(v) >= 1000 ? 0 : 2 }) : "—");
+const sgnRs = v => (typeof v === "number" ? (v >= 0 ? "+" : "-") + "₹" + Math.abs(v).toLocaleString("en-IN", { maximumFractionDigits: 0 }) : "—");
+const pctOf = (a, b) => (typeof a === "number" && b ? ((a / b - 1) * 100) : null);
+function currentFY(now = new Date()) {
+  const y = now.getFullYear(), m = now.getMonth();
+  const s = m >= 3 ? y : y - 1;
+  return `FY${s}-${String(s + 1).slice(2)}`;
+}
+
+function LedgerPanel({ livePrices }) {
+  const [pat, setPat] = useState(() => lsGet("ledger_pat", ""));
+  const [repo, setRepo] = useState(() => lsGet("ledger_repo", "jami85in/nse-tracker-secrets"));
+  const [draft, setDraft] = useState("");
+  const [data, setData] = useState(null);
+  const [err, setErr] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [showWarn, setShowWarn] = useState(false);
+  const [showClosed, setShowClosed] = useState(false);
+
+  const load = useCallback(() => {
+    if (!pat) return;
+    setLoading(true); setErr(null);
+    fetchLedger(repo, pat).then(d => {
+      setData(d);
+      lsSet("ledger_symbols", JSON.stringify((d.holdings || []).map(h => h.symbol)));
+    }).catch(e => setErr(e.message)).finally(() => setLoading(false));
+  }, [pat, repo]);
+  useEffect(() => { load(); }, [load]);
+
+  if (!pat) {
+    return (
+      <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, padding: 16 }}>
+        <div style={{ color: T.accent, fontWeight: 800, fontSize: 15, marginBottom: 6 }}>📒 Connect your trade ledger</div>
+        <div style={{ color: T.muted, fontSize: 12, lineHeight: 1.6, marginBottom: 12 }}>
+          Your holdings, original costs, gains and dividends are calculated automatically from your Zerodha trades in the private
+          <b style={{ color: T.text }}> nse-tracker-secrets</b> repo. To show them here, paste a <b style={{ color: T.text }}>read-only</b> GitHub key
+          (fine-grained token → only that repo → Contents: Read-only). It's stored on this phone only.
+        </div>
+        <input value={draft} onChange={e => setDraft(e.target.value.trim())} placeholder="github_pat_…"
+          style={{ width: "100%", background: T.bg, border: `1px solid ${T.border}`, borderRadius: 8, padding: "10px 12px", color: T.text, fontSize: 13, marginBottom: 8 }} />
+        <input value={repo} onChange={e => setRepo(e.target.value.trim())}
+          style={{ width: "100%", background: T.bg, border: `1px solid ${T.border}`, borderRadius: 8, padding: "8px 12px", color: T.muted, fontSize: 12, marginBottom: 10 }} />
+        <button onClick={() => { if (draft) { lsSet("ledger_pat", draft); lsSet("ledger_repo", repo); setPat(draft); } }}
+          style={{ width: "100%", background: T.accent, color: "#000", border: "none", borderRadius: 10, padding: 12, fontWeight: 800, cursor: "pointer" }}>Save key & load</button>
+      </div>
+    );
+  }
+
+  const fy = currentFY();
+  const H = (data?.holdings || []).map(h => {
+    const px = livePrices[h.symbol] ?? livePrices[`${h.symbol}-SM`] ?? h.last_price ?? null;
+    const value = px != null ? px * h.qty : null;
+    return { ...h, px, value };
+  }).sort((a, b) => (b.value || 0) - (a.value || 0));
+  const priced = H.filter(h => h.value != null);
+  const value = priced.reduce((s, h) => s + h.value, 0);
+  const effInv = priced.reduce((s, h) => s + h.net_invested, 0);
+  const taxInv = priced.reduce((s, h) => s + h.tax_cost_total, 0);
+  const fyR = (data?.realized_by_fy || {})[fy] || {};
+  const today = new Date().toISOString().slice(0, 10);
+  const nextLT = h => (h.lots || []).filter(l => l.long_term_from > today).map(l => l.long_term_from).sort()[0];
+  const stale = data && data.sources?.holdings_snapshot && data.sources.holdings_snapshot < today;
+
+  return (
+    <div>
+      {err && <div style={{ background: T.red + "14", border: `1px solid ${T.red}55`, borderRadius: 10, padding: 12, color: T.red, fontSize: 12, marginBottom: 12 }}>{err}</div>}
+      {loading && !data && <div style={{ color: T.muted, textAlign: "center", padding: 30 }}>Loading ledger…</div>}
+      {data && (
+        <>
+          <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, padding: 16, marginBottom: 12 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+              <div style={{ color: T.muted, fontSize: 11, letterSpacing: 1 }}>FROM YOUR TRADES</div>
+              <button onClick={load} style={{ background: "none", border: "none", color: T.accent, fontSize: 12, cursor: "pointer" }}>{loading ? "…" : "↻ refresh"}</button>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(2,1fr)", gap: 12, marginTop: 10 }}>
+              <Stat label="Holdings value" value={rs(value)} />
+              <Stat label="Invested (effective)" value={rs(effInv)} />
+              <Stat label="P&L vs original cost" value={sgnRs(value - effInv)} color={value - effInv >= 0 ? T.green : T.red} />
+              <Stat label="P&L vs tax cost" value={sgnRs(value - taxInv)} color={value - taxInv >= 0 ? T.green : T.red} />
+            </div>
+            <div style={{ marginTop: 12, paddingTop: 10, borderTop: `1px solid ${T.border}` }}>
+              <div style={{ color: T.muted, fontSize: 10, letterSpacing: 0.6, marginBottom: 6 }}>{fy} SO FAR</div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 10 }}>
+                <Stat label="STCG" value={sgnRs(fyR.stcg || 0)} color={(fyR.stcg || 0) >= 0 ? T.green : T.red} />
+                <Stat label="LTCG" value={sgnRs(fyR.ltcg || 0)} color={(fyR.ltcg || 0) >= 0 ? T.green : T.red} />
+                <Stat label="Intraday" value={sgnRs(fyR.intraday || 0)} color={(fyR.intraday || 0) >= 0 ? T.green : T.red} />
+                <Stat label="Dividends" value={rs(fyR.dividends_gross || 0)} color={T.green} />
+                <Stat label="Charges" value={rs(fyR.charges || 0)} color={T.red} />
+                <Stat label="of which STT" value={rs(fyR.stt || 0)} />
+              </div>
+            </div>
+            <div style={{ color: T.muted, fontSize: 10, marginTop: 10, lineHeight: 1.5 }}>
+              Trades to {data.sources?.last_trade || "—"} · Zerodha holdings as of {data.sources?.holdings_snapshot || "—"}{stale ? " (updates after today's close)" : ""} · {data.sources?.tradebooks?.length || 0} tradebook file(s) + {data.sources?.kite_days || 0} auto-captured day(s).
+              {priced.length < H.length && <> {H.length - priced.length} holding(s) have no price yet and are left out of the totals.</>}
+            </div>
+          </div>
+
+          {(data.warnings || []).length > 0 && (
+            <div style={{ background: T.warnDim, border: `1px solid ${T.warn}55`, borderRadius: 10, padding: 12, marginBottom: 12 }}>
+              <div onClick={() => setShowWarn(!showWarn)} style={{ color: T.warn, fontWeight: 700, fontSize: 12, cursor: "pointer" }}>
+                ⚠ {data.warnings.length} item(s) to review {showWarn ? "▲" : "▼"}
+              </div>
+              {showWarn && data.warnings.map((w, i) => <div key={i} style={{ color: T.text, fontSize: 11, marginTop: 6, lineHeight: 1.5 }}>• {w}</div>)}
+            </div>
+          )}
+
+          {H.map(h => {
+            const pe = pctOf(h.px, h.effective_cost), pt = pctOf(h.px, h.tax_cost);
+            const lt = nextLT(h);
+            const col = pe == null ? T.muted : pe >= 0 ? T.green : T.red;
+            return (
+              <div key={h.symbol} style={{ background: T.card, border: `1px solid ${T.border}`, borderLeft: `3px solid ${col}`, borderRadius: 10, padding: 12, marginBottom: 8 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                  <div>
+                    <div style={{ color: T.text, fontWeight: 800, fontSize: 15, fontFamily: "monospace" }}>{h.symbol}</div>
+                    <div style={{ color: T.muted, fontSize: 11 }}>{h.qty} sh · since {h.first_buy || "—"}</div>
+                  </div>
+                  <div style={{ textAlign: "right" }}>
+                    <div style={{ color: T.text, fontWeight: 700 }}>{h.px != null ? rs(h.px) : "no price"}</div>
+                    <div style={{ color: col, fontWeight: 800, fontSize: 13 }}>{pe != null ? `${pe >= 0 ? "+" : ""}${pe.toFixed(1)}%` : "—"}</div>
+                  </div>
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 8, marginTop: 8 }}>
+                  <Stat label="Original cost" value={rs(h.effective_cost)} />
+                  <Stat label="Tax cost" value={rs(h.tax_cost)} sub={pt != null ? `${pt >= 0 ? "+" : ""}${pt.toFixed(1)}%` : null} />
+                  <Stat label="Value" value={rs(h.value)} />
+                </div>
+                <div style={{ color: T.muted, fontSize: 10, marginTop: 6, lineHeight: 1.5 }}>
+                  {h.dividends_gross > 0 && <>After ₹{Math.round(h.dividends_gross).toLocaleString("en-IN")} dividends, break-even is {rs(h.breakeven_after_div)}. </>}
+                  {Math.abs(h.effective_cost - h.tax_cost) > Math.max(0.5, 0.003 * h.tax_cost) && <>Tax cost differs from original cost (harvest or intraday history). </>}
+                  {lt && <>Next lot turns long-term on {lt}. </>}
+                  Charges paid {rs(h.charges)}.
+                </div>
+                {(h.flags || []).map((f, i) => <div key={i} style={{ color: T.warn, fontSize: 10, marginTop: 4 }}>⚠ {f}</div>)}
+              </div>
+            );
+          })}
+
+          <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: 12, marginTop: 4, marginBottom: 8 }}>
+            <div style={{ color: T.muted, fontSize: 11, letterSpacing: 1, marginBottom: 8 }}>REALISED BY FINANCIAL YEAR</div>
+            <div style={{ overflowX: "auto" }}>
+              <table style={{ width: "100%", minWidth: 420, borderCollapse: "collapse", fontSize: 11 }}>
+                <thead><tr style={{ color: T.muted, textAlign: "right" }}>{["FY", "STCG", "LTCG", "Intraday", "Dividends", "Charges"].map(x => <th key={x} style={{ padding: 4, textAlign: x === "FY" ? "left" : "right", fontWeight: 600 }}>{x}</th>)}</tr></thead>
+                <tbody>
+                  {Object.entries(data.realized_by_fy || {}).reverse().map(([k, v]) => (
+                    <tr key={k} style={{ borderTop: `1px solid ${T.border}` }}>
+                      <td style={{ padding: 4, color: T.text, fontWeight: 700 }}>{k}</td>
+                      {["stcg", "ltcg", "intraday"].map(f => <td key={f} style={{ padding: 4, textAlign: "right", color: (v[f] || 0) >= 0 ? T.green : T.red }}>{sgnRs(v[f] || 0)}</td>)}
+                      <td style={{ padding: 4, textAlign: "right", color: T.green }}>{rs(v.dividends_gross || 0)}</td>
+                      <td style={{ padding: 4, textAlign: "right", color: T.red }}>{rs(v.charges || 0)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div style={{ color: T.muted, fontSize: 10, marginTop: 6 }}>Capital gains use FIFO and exclude STT (not deductible). Charges are estimated from Zerodha's rate card. Not tax advice — check against Console's Tax P&L before filing.</div>
+          </div>
+
+          {(data.dividends || []).length > 0 && (
+            <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: 12, marginBottom: 8 }}>
+              <div style={{ color: T.muted, fontSize: 11, letterSpacing: 1, marginBottom: 6 }}>DIVIDENDS (AUTO)</div>
+              {data.dividends.slice(0, 12).map((d, i) => (
+                <div key={i} style={{ display: "flex", justifyContent: "space-between", fontSize: 11, padding: "3px 0", color: T.text }}>
+                  <span>{d.symbol} · ex {d.ex_date} · {d.qty} × ₹{d.dps}</span>
+                  <span style={{ color: T.green }}>{rs(d.gross)}{d.tds ? <span style={{ color: T.muted }}> (TDS {rs(d.tds)})</span> : null}</span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {(data.closed || []).length > 0 && (
+            <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: 12, marginBottom: 8 }}>
+              <div onClick={() => setShowClosed(!showClosed)} style={{ color: T.muted, fontSize: 11, letterSpacing: 1, cursor: "pointer" }}>CLOSED POSITIONS ({data.closed.length}) {showClosed ? "▲" : "▼"}</div>
+              {showClosed && data.closed.map(c => (
+                <div key={c.symbol} style={{ display: "flex", justifyContent: "space-between", fontSize: 11, padding: "4px 0", borderTop: `1px solid ${T.border}`, marginTop: 4, color: T.text }}>
+                  <span>{c.symbol}</span><span style={{ color: c.total_pnl >= 0 ? T.green : T.red }}>{sgnRs(c.total_pnl)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <button onClick={() => { if (confirm("Remove the saved ledger key from this phone?")) { lsSet("ledger_pat", null); setPat(""); setData(null); } }}
+            style={{ background: "none", border: `1px solid ${T.border}`, color: T.muted, borderRadius: 8, padding: "8px 12px", fontSize: 11, cursor: "pointer", marginTop: 6 }}>Disconnect ledger key</button>
+        </>
+      )}
+    </div>
+  );
+}
+
 function CycleBuyModal({ row, sizeNote, onClose, onConfirm }) {
   const today = new Date().toISOString().slice(0, 10);
   const [qty, setQty] = useState("");
@@ -3012,7 +3217,9 @@ function CyclesPage({ holdings, positions, onRecordBuy }) {
     fetchCycles("summary.json").then(setData).catch(e => setErr(e.message));
   }, []);
 
+  const ledgerSyms = (() => { try { return JSON.parse(lsGet("ledger_symbols", "[]")) || []; } catch { return []; } })();
   const held = new Set([
+    ...ledgerSyms,
     ...(holdings || []).map(h => (h.symbol || "").replace(/-SM$|-BE$/, "")),
     ...(positions || []).filter(p => p.status === "OPEN").map(p => (p.symbol || "").replace(/-SM$|-BE$/, "")),
   ]);
@@ -3236,7 +3443,7 @@ function App() {
   const [showAllBlast, setShowAllBlast] = useState(false);
   const [showAddHolding, setShowAddHolding] = useState(false);
   const [showAddDividend, setShowAddDividend] = useState(false);
-  const [portfolioTab, setPortfolioTab] = useState("swing");
+  const [portfolioTab, setPortfolioTab] = useState(() => (lsGet("ledger_pat", "") ? "ledger" : "swing"));
   const [livePrices, setLivePrices] = useState({});   // symbol → live price
   const [priceDebug, setPriceDebug] = useState(null);  // last fetchBrowserPrices() diagnostics, for surfacing "no price" root cause in-app
   const [showPriceDebug, setShowPriceDebug] = useState(false);
@@ -4012,13 +4219,15 @@ function App() {
             <div>
               {/* Sub-tab switcher */}
               <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
-                {[["swing", "💼 Portfolio"], ["trades", "📜 Trades"], ["longterm", "📦 Long-Term Holdings"]].map(([id, label]) => (
+                {[["ledger", "📒 Ledger"], ["swing", "💼 Portfolio"], ["trades", "📜 Trades"], ["longterm", "📦 Long-Term"]].map(([id, label]) => (
                   <button key={id} onClick={() => setPortfolioTab(id)}
                     style={{ flex: 1, padding: "10px 0", borderRadius: 10, border: `1px solid ${portfolioTab === id ? T.accent : T.border}`, background: portfolioTab === id ? T.accentDim : T.card, color: portfolioTab === id ? T.accent : T.muted, fontWeight: 700, fontSize: 12, cursor: "pointer" }}>
                     {label}
                   </button>
                 ))}
               </div>
+
+              {portfolioTab === "ledger" && <LedgerPanel livePrices={livePrices} />}
 
               {/* ── Portfolio (net positions) sub-tab ── */}
               {portfolioTab === "swing" && (
