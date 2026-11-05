@@ -1,23 +1,40 @@
 name: NSE Live Price Update (Kite Connect)
 
 # Uses Zerodha Kite Connect — official, licensed, reliable NSE data.
-# Requires today's access token to already exist (see the daily manual
-# login step in "Kite Daily Token Refresh"). If that hasn't happened yet,
-# this exits cleanly and preserves existing prices.
+#
+# WHY ONE LONG RUN INSTEAD OF A 15-MINUTE CRON
+# The old design scheduled 33 separate runs a day (*/15). GitHub delays and
+# DROPS scheduled runs under load, frequent ones first — the commit history
+# showed only 1-2 price updates landing per day (e.g. 23 Oct: one update at
+# 13:52 out of 33 slots), which is why prices only moved after a manual run.
+#
+# Now a single run starts before the open and LOOPS for the whole session:
+#   - every INTERVAL_SECONDS (default 10 min) it fetches prices and commits;
+#   - if today's Kite token isn't refreshed yet it simply waits and re-checks,
+#     so prices start flowing within minutes of your daily login, unattended;
+#   - it stops at 15:35 IST (or before GitHub's 6-hour job limit).
+# Only one scheduled start has to fire per day; the later cron times are
+# backups in case the morning one is dropped. If a loop is already running, a
+# later start queues behind it and simply continues the session when the first
+# loop hits GitHub's 6-hour job cap (~14:58), or exits at once after 15:35.
+#
+# The "Kite Daily Token Refresh" workflow also starts this run the moment a
+# new token is saved (workflow_dispatch, which GitHub does not drop).
 
 on:
   schedule:
-    # Every 15 min, 08:30-16:29 IST, weekdays (UTC 03:00-10:59).
-    #
-    # Deliberately 15 min rather than 5. GitHub explicitly documents that
-    # scheduled workflows "may be delayed during periods of high loads",
-    # and high-frequency crons are the first to be dropped -- a */5
-    # schedule is routinely skipped outright rather than merely delayed,
-    # which is the most likely reason runs appeared not to happen at all.
-    # A 15-minute cadence is far more likely to actually fire every slot,
-    # so in practice it can deliver MORE real updates per day than */5.
-    - cron: "*/15 3-10 * * 1-5"
+    - cron: "38 3 * * 1-5"    # 09:08 IST — primary start, before the 09:15 open
+    - cron: "13 5 * * 1-5"    # 10:43 IST — backup if the morning start was dropped
+    - cron: "47 6 * * 1-5"    # 12:17 IST — backup
+    - cron: "7 9 * * 1-5"     # 14:37 IST — relay: a GitHub job can run at most 6 h, so the
+                              #   09:08 loop stops ~14:58; this start queues behind it and
+                              #   covers the last half hour to 15:35
   workflow_dispatch:
+    inputs:
+      interval_seconds:
+        description: "Seconds between price fetches (default 600 = 10 min)"
+        required: false
+        default: "600"
 
 permissions:
   contents: write
@@ -29,6 +46,7 @@ concurrency:
 jobs:
   prices:
     runs-on: ubuntu-latest
+    timeout-minutes: 360
     steps:
       - uses: actions/checkout@v4
 
@@ -39,52 +57,63 @@ jobs:
       - name: Install dependencies
         run: pip install kiteconnect
 
-      # Explicit gate BEFORE doing any real work. prices_kite.py already
-      # refuses to run on a stale token, but that check happened silently
-      # inside the script, so a skipped day looked identical to a broken
-      # one in the Actions list. This surfaces the reason as its own step
-      # status: fresh token -> prices fetched; stale/missing -> the later
-      # steps are skipped and a warning explains exactly why.
-      - name: Check today's Kite token is refreshed
-        id: token_check
-        env:
-          SECRETS_REPO_PAT: ${{ secrets.SECRETS_REPO_PAT }}
-          SECRETS_REPO: ${{ secrets.SECRETS_REPO }}
-        run: |
-          set -e
-          python - <<'PY'
-          import os, sys
-          sys.path.insert(0, "scripts")
-          from kite_token_reader import get_kite_token
-          token, stale = get_kite_token()
-          out = os.environ["GITHUB_OUTPUT"]
-          if token is None:
-              print("::warning::No Kite token found - check SECRETS_REPO / SECRETS_REPO_PAT secrets.")
-              open(out, "a").write("fresh=false\n")
-          elif stale:
-              print("::warning::Kite token is from a previous day - run the "
-                    "'Kite Daily Token Refresh' workflow. Skipping price fetch; "
-                    "existing prices_live.json is preserved.")
-              open(out, "a").write("fresh=false\n")
-          else:
-              print("Kite token is fresh for today - proceeding with price fetch.")
-              open(out, "a").write("fresh=true\n")
-          PY
-
-      - name: Fetch live prices via Kite Connect
-        if: steps.token_check.outputs.fresh == 'true'
+      - name: Price loop (until 15:35 IST)
         env:
           KITE_API_KEY: ${{ secrets.KITE_API_KEY }}
           SECRETS_REPO_PAT: ${{ secrets.SECRETS_REPO_PAT }}
           SECRETS_REPO: ${{ secrets.SECRETS_REPO }}
-        run: python scripts/prices_kite.py
-
-      - name: Commit price data
-        if: steps.token_check.outputs.fresh == 'true'
+          INTERVAL_SECONDS: ${{ github.event.inputs.interval_seconds || '600' }}
         run: |
           git config user.name "nse-tracker-bot"
           git config user.email "actions@github.com"
-          git add data/prices_live.json
-          git diff --staged --quiet || git commit -m "prices(kite): $(date -u +'%H:%M UTC')"
-          git pull --rebase --autostash origin main || true
-          git push
+
+          now()   { date +%s; }
+          ist()   { TZ=Asia/Kolkata date +'%H:%M IST'; }
+          END=$(TZ=Asia/Kolkata date -d "today 15:35" +%s)
+          LIMIT=$(( $(now) + 350*60 ))          # stay inside GitHub's 6-hour cap
+          [ "$LIMIT" -lt "$END" ] && END=$LIMIT
+
+          if [ "$(now)" -ge "$END" ]; then
+            echo "Started after the close ($(ist)) — nothing to do."
+            exit 0
+          fi
+
+          token_fresh() {
+            python - <<'PY'
+          import sys
+          sys.path.insert(0, "scripts")
+          from kite_token_reader import get_kite_token
+          token, stale = get_kite_token()
+          if token is None:
+              print("::warning::No Kite token found - check SECRETS_REPO / SECRETS_REPO_PAT secrets.")
+              sys.exit(2)
+          sys.exit(1 if stale else 0)
+          PY
+          }
+
+          waited=0; fetched=0
+          while [ "$(now)" -lt "$END" ]; do
+            if token_fresh; then
+              python scripts/prices_kite.py || echo "::warning::price fetch failed at $(ist) — will retry"
+              git add data/prices_live.json
+              if ! git diff --staged --quiet; then
+                git commit -q -m "prices(kite): $(date -u +'%H:%M UTC')"
+                for try in 1 2 3; do
+                  git pull -q --rebase --autostash origin main && git push -q && break
+                  echo "push attempt $try failed — retrying"; sleep 10
+                done
+                fetched=$((fetched+1))
+                echo "[$(ist)] prices committed (#$fetched)"
+              else
+                echo "[$(ist)] no price change (market closed or unchanged)"
+              fi
+            else
+              rc=$?
+              [ "$rc" = "2" ] && { echo "::error::Token unavailable — stopping."; exit 1; }
+              waited=$((waited+1))
+              [ "$waited" = "1" ] && echo "::notice::Today's Kite token isn't refreshed yet — waiting for the daily login, re-checking every ${INTERVAL_SECONDS}s."
+              echo "[$(ist)] waiting for today's token..."
+            fi
+            sleep "$INTERVAL_SECONDS"
+          done
+          echo "Session done at $(ist): $fetched price updates committed."
