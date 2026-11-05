@@ -13,6 +13,10 @@ name: Kite Daily Token Refresh
 # 4. Trigger this workflow AGAIN, pasting that token into the input box.
 # 5. This exchanges it for a real access_token and commits it to the
 #    PRIVATE secrets repo (kite_token.json) — never into this public repo.
+# 6. NEW: it then starts the live-price loop immediately, so prices begin
+#    updating within a minute without any further manual trigger. (If the
+#    morning loop is already running and waiting for the token, it picks the
+#    new token up on its own; this start just queues behind it harmlessly.)
 
 on:
   workflow_dispatch:
@@ -23,7 +27,8 @@ on:
         default: ""
 
 permissions:
-  contents: read   # this workflow no longer writes to THIS repo at all
+  contents: read   # this workflow never writes to THIS repo
+  actions: write   # only to start the live-price workflow after a refresh
 
 jobs:
   refresh_token:
@@ -49,4 +54,20 @@ jobs:
             python3 scripts/kite_generate_token.py
           else
             python3 scripts/kite_generate_token.py "${{ github.event.inputs.request_token }}"
+          fi
+
+      - name: Start live prices now
+        if: ${{ github.event.inputs.request_token != '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # workflow_dispatch from GITHUB_TOKEN is one of the two event types
+          # GitHub allows to start another workflow run.
+          IST_HM=$(TZ=Asia/Kolkata date +%H%M)
+          if [ "$IST_HM" -ge "1535" ]; then
+            echo "After 15:35 IST — not starting the price loop."
+          elif gh run list --workflow prices_kite.yml --status in_progress --limit 1 --json databaseId -q '.[0].databaseId' | grep -q .; then
+            echo "Price loop already running — it will pick up the new token by itself."
+          else
+            gh workflow run prices_kite.yml --ref "${GITHUB_REF_NAME:-main}" && echo "Started the live-price loop."
           fi
