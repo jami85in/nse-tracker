@@ -79,7 +79,7 @@
     "first_seen": "2026-07-13",
     "blast_triggered_date": "2026-07-13",
     "confidence": "HIGH",
-    "reason": "Up 70.91% over 10 days since squeeze entry at 28.60"
+    "reason": "Up 70.91% over 10 days since squeeze entry at 28.6"
   },
   "DIACABS": {
     "symbol": "DIACABS",
@@ -1510,7 +1510,7 @@
     "first_seen": "2026-08-17",
     "blast_triggered_date": "2026-08-17",
     "confidence": "HIGH",
-    "reason": "Up 57.37% over 21 days since squeeze entry at 67.40"
+    "reason": "Up 57.37% over 21 days since squeeze entry at 67.4"
   },
   "BRNL": {
     "symbol": "BRNL",
@@ -4554,7 +4554,7 @@
     "status": "BLAST",
     "first_seen": "2026-10-21",
     "blast_triggered_date": "2026-10-21",
-    "confidence": "MEDIUM",
+    "confidence": "HIGH",
     "reason": "Up 61.16% over 28 days since squeeze entry at 5.73"
   },
   "HARDWYN": {

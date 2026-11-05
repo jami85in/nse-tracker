@@ -1,5 +1,5 @@
 {
-  "scan_time": "2026-11-06 00:57 IST",
+  "scan_time": "2026-11-06 02:18 IST",
   "market_mood": "CAUTIOUS \u2014 36 clean squeeze entries (In Play) and 293 blast exit signals across 329 tracked setups. 8 lower-conviction countertrend signals held separately.",
   "squeeze_stocks": [
     {
@@ -2053,7 +2053,7 @@
       "first_seen": "2026-07-13",
       "blast_triggered_date": "2026-07-13",
       "confidence": "HIGH",
-      "reason": "Up 70.91% over 10 days since squeeze entry at 28.60"
+      "reason": "Up 70.91% over 10 days since squeeze entry at 28.6"
     },
     {
       "symbol": "SHALPAINTS",
@@ -2257,7 +2257,7 @@
       "status": "BLAST",
       "first_seen": "2026-10-21",
       "blast_triggered_date": "2026-10-21",
-      "confidence": "MEDIUM",
+      "confidence": "HIGH",
       "reason": "Up 61.16% over 28 days since squeeze entry at 5.73"
     },
     {
@@ -2381,7 +2381,7 @@
       "first_seen": "2026-08-17",
       "blast_triggered_date": "2026-08-17",
       "confidence": "HIGH",
-      "reason": "Up 57.37% over 21 days since squeeze entry at 67.40"
+      "reason": "Up 57.37% over 21 days since squeeze entry at 67.4"
     },
     {
       "symbol": "BI",
