@@ -359,7 +359,7 @@ const RAW_BASE    = `https://raw.githubusercontent.com/${GITHUB_USER}/${GITHUB_R
 // instead of requiring a manual file diff to find out. This exists because
 // PWA/service-worker caching has repeatedly made "is this actually deployed
 // yet" the hardest part of diagnosing issues in this app.
-const BUILD_VERSION = "2026-11-06.1";
+const BUILD_VERSION = "2026-11-06.2";
 const GITHUB_APP_ACTIONS_URL = `https://github.com/${GITHUB_USER}/${GITHUB_REPO}/actions/workflows/scan.yml`;
 
 // ── Fetch strategy ────────────────────────────────────────────────────────────
@@ -876,6 +876,18 @@ function tradePlan(stock, price) {
   return { entry, stop, target, tPct, status, toTargetPct: p ? (target - p) / p * 100 : null, fromEntryPct: p ? (p - entry) / entry * 100 : null };
 }
 const isLiveSignal = (stock, price) => tradePlan(stock, price).status !== "stopped";
+// GitHub often starts the evening scan hours late, so it can finish after
+// midnight IST. That scan still describes the previous trading session.
+function scanSessionDate(scanTime) {
+  const m = /^(\d{4}-\d{2}-\d{2})\s+(\d{2}):/.exec(scanTime || "");
+  if (!m) return (scanTime || "").slice(0, 10);
+  if (Number(m[2]) >= 9) return m[1];
+  return new Date(new Date(m[1] + "T00:00:00Z").getTime() - 86400000).toISOString().slice(0, 10);
+}
+function scanLabel(scanTime) {
+  const sess = scanSessionDate(scanTime), ran = (scanTime || "").slice(0, 10), hm = (scanTime || "").slice(11, 16);
+  return sess && ran && sess !== ran ? `${sess.slice(5)} close (ran ${ran.slice(5)} ${hm})` : `${sess.slice(5)} ${hm}`;
+}
 
 function stillNearEntry(stock, price) {
   // "You haven't missed this one yet" — an already-firing signal whose
@@ -895,12 +907,27 @@ function stillNearEntry(stock, price) {
   };
 }
 
+function rankLive(list, priceOf, scanData) {
+  const score = s => {
+    const p = priceOf(s), plan = tradePlan(s, p), ne = stillNearEntry(s, p);
+    let k = 0;
+    if (signalQuality(s, scanData).qualifies) k += 4;
+    if (s.conviction_score === "STRONG") k += 2; else if (s.conviction_score === "MODERATE") k += 1;
+    if (s.confidence === "HIGH") k += 1;
+    if (ne?.isNearEntry) k += 1;
+    if (p && plan.status === "active" && (p - plan.stop) / p * 100 < 2) k -= 3;
+    return k;
+  };
+  return list.map((s, i) => ({ s, i, k: score(s) })).sort((a, b) => b.k - a.k || a.i - b.i).map(x => x.s);
+}
+
 function SqueezeCard({ stock, onInvest, rank, livePrice, zoneStats, relStrength, stale, scanDate, scanData }) {
   const [expanded, setExpanded] = useState(false);
   const price = livePrice || stock.price;
   const cushion = emaCushion(stock, price);
   const nearEntry = stillNearEntry(stock, price);
   const plan = tradePlan(stock, price);
+  const ledgerShared = useSharedLedger();
   const daysTracked = stock.entry_date ? Math.max(0, Math.round((new Date() - new Date(stock.entry_date)) / 86400000)) : null;
   const liveReturn = (stock.entry_price && price) ? ((price - stock.entry_price) / stock.entry_price) * 100 : null;
   return (
@@ -960,6 +987,21 @@ function SqueezeCard({ stock, onInvest, rank, livePrice, zoneStats, relStrength,
           🏁 GTT TARGET REACHED ({curr(plan.target)}) — book profit, or switch to a 10% trailing stop.
         </div>
       )}
+      {plan.status === "active" && price && (price - plan.stop) / price * 100 < 2 && (
+        <div style={{ background: T.warn + "1C", border: `1px solid ${T.warn}66`, borderRadius: 8, padding: "7px 10px", marginTop: 8, fontSize: 11, fontWeight: 700, color: T.warn }}>
+          ⚠️ ONLY {fmt((price - plan.stop) / price * 100)}% ABOVE THE −7% STOP ({curr(plan.stop)}) — one weak day exits this trade.
+        </div>
+      )}
+      {(() => {
+        const lh = (ledgerShared?.holdings || []).find(h => h.symbol === stock.symbol);
+        if (!lh) return null;
+        const r = pctOf(price, lh.effective_cost);
+        return (
+          <div style={{ background: T.accent + "14", border: `1px solid ${T.accent}44`, borderRadius: 8, padding: "6px 10px", marginTop: 8, fontSize: 11, color: T.text }}>
+            💼 You hold {lh.qty} sh · effective cost {curr(lh.effective_cost)}{r != null && <b style={{ color: r >= 0 ? T.green : T.red }}> ({pct(r)})</b>}
+          </div>
+        );
+      })()}
       {plan.status !== "stopped" && nearEntry?.isNearEntry && (
         <div style={{ background: T.green + "1C", border: `1px solid ${T.green}66`, borderRadius: 8, padding: "7px 10px", marginTop: 8, fontSize: 11, fontWeight: 700, color: T.green }}>
           🎯 STILL NEAR ENTRY — {nearEntry.pctFromEntry >= 0 ? "+" : ""}{fmt(nearEntry.pctFromEntry)}% from where it fired
@@ -998,7 +1040,9 @@ function SqueezeCard({ stock, onInvest, rank, livePrice, zoneStats, relStrength,
         <div style={{ flex: 1, textAlign: "right" }}>
           <div style={{ color: T.muted, fontSize: 9, letterSpacing: 0.6, textTransform: "uppercase" }}>Near-term (ATR)</div>
           <div style={{ color: T.green, fontSize: 13, fontWeight: 700 }}>{curr(stock.target_price)}</div>
-          {stock.target_return_pct != null && <div style={{ color: T.green, fontSize: 9 }}>+{fmt(stock.target_return_pct)}%</div>}
+          {stock.target_price && price >= stock.target_price
+            ? <div style={{ color: T.green, fontSize: 9 }}>✓ passed</div>
+            : stock.target_return_pct != null && <div style={{ color: T.green, fontSize: 9 }}>+{fmt(stock.target_return_pct)}%</div>}
         </div>
       </div>
 
@@ -1619,6 +1663,8 @@ function AddHoldingModal({ onClose, onAdd, scanData }) {
 
 function LongTermRow({ holding, onDelete, scanData, livePrices, pricesStale }) {
   const [showDelete, setShowDelete] = useState(false);
+  const ledgerShared = useSharedLedger();
+  const ledgerRow = (ledgerShared?.holdings || []).find(h => h.symbol === holding.symbol);
   const blastSignal = (scanData?.blast_stocks || []).find(s => s.symbol === holding.symbol);
   const squeezeSignal = (scanData?.squeeze_stocks || []).find(s => s.symbol === holding.symbol);
   const watchSignal = (scanData?.watchlist_stocks || []).find(s => s.symbol === holding.symbol);
@@ -1648,7 +1694,8 @@ function LongTermRow({ holding, onDelete, scanData, livePrices, pricesStale }) {
   const targetPct = holding.targetExit ? ((holding.targetExit - holding.avgPrice) / holding.avgPrice) * 100 : null;
 
   let signalBadge = null;
-  if (blastSignal) signalBadge = { label: "EXIT SIGNAL", color: T.blast, note: `+${fmt(blastSignal.return_since_entry)}% — scanner says SELL` };
+  if (blastSignal) signalBadge = { label: "EXIT SIGNAL", color: T.blast, note: `blast is exhausting (${blastSignal.return_since_entry >= 0 ? "+" : ""}${fmt(blastSignal.return_since_entry)}% move since its squeeze fired) — scanner says exit` };
+  else if (squeezeSignal && !isLiveSignal(squeezeSignal, currentPrice || squeezeSignal.price)) signalBadge = { label: "FAILED SQUEEZE", color: T.red, note: `squeeze from ${curr(squeezeSignal.entry_price)} is already below its −7% stop — not an add-on point` };
   else if (squeezeSignal) signalBadge = { label: "RE-ENTRY", color: T.accent, note: "Squeeze detected — good add-on point" };
   else if (watchSignal) signalBadge = { label: "FORMING", color: T.warn, note: `BB ${fmt(watchSignal.bb_width)}% — tightening` };
 
@@ -1666,6 +1713,13 @@ function LongTermRow({ holding, onDelete, scanData, livePrices, pricesStale }) {
             {holding.qty} shares · avg ₹{fmt(holding.avgPrice)}
             {holding.addedDate ? ` · since ${holding.addedDate}` : holding.source === "zerodha" ? " · synced from Zerodha" : ""}
           </div>
+          {ledgerRow && (
+            <div style={{ color: T.muted, fontSize: 11, marginTop: 1 }}>
+              effective cost ₹{fmt(ledgerRow.effective_cost)}
+              {currentPrice ? <b style={{ color: currentPrice >= ledgerRow.effective_cost ? T.green : T.red }}> ({pct((currentPrice / ledgerRow.effective_cost - 1) * 100)})</b> : null}
+              <span> · from your trades</span>
+            </div>
+          )}
         </div>
         <div style={{ textAlign: "right", flexShrink: 0 }}>
           {currentReturn != null ? (
@@ -2243,12 +2297,18 @@ function MonitorPage({ scanData, positions, holdings, livePrices, priceUpdated, 
     const inSqueeze = (scanData.squeeze_stocks || []).some(s => s.symbol === h.symbol);
     const inCountertrend = (scanData.countertrend_stocks || []).some(s => s.symbol === h.symbol);
     if (inBlast) alerts.push({ type: "exit", symbol: h.symbol, msg: "showing BLAST exit signal", color: T.blast });
-    else if (inSqueeze) alerts.push({ type: "reentry", symbol: h.symbol, msg: "showing SQUEEZE re-entry signal", color: T.accent });
+    else if (inSqueeze) {
+      const sq = (scanData.squeeze_stocks || []).find(s => s.symbol === h.symbol);
+      if (isLiveSignal(sq, px(h.symbol) || sq.price)) alerts.push({ type: "reentry", symbol: h.symbol, msg: "showing SQUEEZE re-entry signal", color: T.accent });
+      else alerts.push({ type: "failed", symbol: h.symbol, msg: "squeeze signal already below its −7% stop — not a re-entry", color: T.red });
+    }
     else if (inCountertrend) alerts.push({ type: "reentry", symbol: h.symbol, msg: "countertrend squeeze (below both EMAs) — lower conviction", color: T.red });
   });
 
+  const ALERT_ORDER = { stop: 0, exit: 1, failed: 2, target: 3, reentry: 4 };
+  alerts.sort((a, b) => (ALERT_ORDER[a.type] ?? 5) - (ALERT_ORDER[b.type] ?? 5));
   const squeeze = scanData.squeeze_stocks || [];
-  const squeezeLive = squeeze.filter(s => isLiveSignal(s, px(s.symbol) || s.price));
+  const squeezeLive = rankLive(squeeze.filter(s => isLiveSignal(s, px(s.symbol) || s.price)), s => px(s.symbol) || s.price, scanData);
   const squeezeStopped = squeeze.filter(s => !isLiveSignal(s, px(s.symbol) || s.price));
   const countertrend = scanData.countertrend_stocks || [];
   const blast = scanData.blast_stocks || [];
@@ -2288,16 +2348,15 @@ function MonitorPage({ scanData, positions, holdings, livePrices, priceUpdated, 
           <Stat label="In Play" value={squeezeLive.length} color={T.accent} sub={squeezeStopped.length ? `+${squeezeStopped.length} below stop` : null} />
           <Stat label="Countertrend" value={countertrend.length} color={T.red} />
           <Stat label="Blast Exits" value={blast.length} color={T.blast} />
-          <Stat label="Watchlist" value={watchlist.length} color={T.warn} />
-          <Stat label="Graduated" value={scanData.promoted_from_watchlist_today || 0} color={T.accent} />
-          <Stat label="Open Pos" value={new Set(openPos.map(p => p.symbol)).size} />
+          <Stat label="Watchlist" value={watchlist.length} color={T.warn} sub={scanData.promoted_from_watchlist_today ? `${scanData.promoted_from_watchlist_today} graduated today` : null} />
+          <Stat label="Holdings" value={(ledger?.holdings || holdings || []).length} sub={openPos.length ? `+${new Set(openPos.map(p => p.symbol)).size} swing` : null} />
         </div>
         <div style={{ color: T.muted, fontSize: 10, marginTop: 10, textAlign: "center" }}>
-          Scan {scanData.scan_time} · {priceUpdated ? `prices ${priceUpdated}` : "prices pending"}
+          Scan for the {scanSessionDate(scanData.scan_time)} session (ran {scanData.scan_time}) · {priceUpdated ? `prices ${priceUpdated}` : "prices pending"}
         </div>
         {(() => {
           // The scan should be at most one trading session behind the prices.
-          const sd = (scanData.scan_time || "").slice(0, 10), pd = (priceUpdated || "").slice(0, 10);
+          const sd = scanSessionDate(scanData.scan_time), pd = (priceUpdated || "").slice(0, 10);
           if (!sd || !pd || pd <= sd) return null;
           // count weekdays after the scan date up to the price date (weekends don't count)
           let gap = 0;
@@ -2414,7 +2473,7 @@ function MonitorPage({ scanData, positions, holdings, livePrices, priceUpdated, 
       <Section title="🟢 In Play — Post-Squeeze" count={squeezeLive.length} color={T.accent}>
         {squeezeStopped.length > 0 && (
           <div style={{ color: T.muted, fontSize: 10, margin: "-2px 0 8px" }}>
-            Sorted live first · {squeezeStopped.length} more already below their −7% stop (shown last, in red).
+            Best setups first (validated, strong, not near the stop) · {squeezeStopped.length} more already below their −7% stop (shown last, in red).
           </div>
         )}
         {squeeze.length === 0 ? (
@@ -2429,7 +2488,7 @@ function MonitorPage({ scanData, positions, holdings, livePrices, priceUpdated, 
                 { text: `entry ₹${fmt(s.entry_price)}` },
                 { text: `₹${fmt(price)}`, color: T.text },
                 ret != null ? { text: pct(ret), color: ret >= 0 ? T.green : T.red, bold: true } : { text: "—" },
-                belowStop ? { text: "⛔ stop hit", color: T.red, bold: true } : { text: `tgt ₹${fmt(s.target_price)}`, color: T.green },
+                belowStop ? { text: "⛔ stop hit", color: T.red, bold: true } : { text: `GTT ₹${fmt(tradePlan(s, price).target)}`, color: T.green },
               ]} />
           );
         })}
@@ -2449,7 +2508,7 @@ function MonitorPage({ scanData, positions, holdings, livePrices, priceUpdated, 
               ]} />
           );
         })}
-        {blast.length > 15 && <div style={{ color: T.muted, fontSize: 11, textAlign: "center", padding: 4 }}>+{blast.length - 15} more on Scanner tab</div>}
+        {blast.length > 15 && <div style={{ color: T.muted, fontSize: 11, textAlign: "center", padding: 4 }}>+{blast.length - 15} more on the 🎯 Long tab</div>}
       </Section>
 
       {/* Watchlist pipeline */}
@@ -2462,7 +2521,7 @@ function MonitorPage({ scanData, positions, holdings, livePrices, priceUpdated, 
               { text: `Stoch ${fmt(s.stoch_k, 0)}` },
             ]} />
         ))}
-        {watchlist.length > 12 && <div style={{ color: T.muted, fontSize: 11, textAlign: "center", padding: 4 }}>+{watchlist.length - 12} more on Scanner tab</div>}
+        {watchlist.length > 12 && <div style={{ color: T.muted, fontSize: 11, textAlign: "center", padding: 4 }}>+{watchlist.length - 12} more on the 🎯 Long tab</div>}
       </Section>
 
       <div style={{ color: T.muted, fontSize: 10, textAlign: "center", marginTop: 10 }}>
@@ -3032,6 +3091,15 @@ function loadLedgerShared(force = false) {
   const repo = lsGet("ledger_repo", "jami85in/nse-tracker-secrets");
   _ledgerPromise = fetchLedger(repo, pat).then(d => { _ledgerCache = d; return d; }).finally(() => { _ledgerPromise = null; });
   return _ledgerPromise;
+}
+function useSharedLedger() {
+  const [d, setD] = useState(_ledgerCache);
+  useEffect(() => {
+    let on = true;
+    loadLedgerShared().then(x => { if (on && x) setD(x); }).catch(() => {});
+    return () => { on = false; };
+  }, []);
+  return d;
 }
 const ledgerPrice = (h, livePrices) => livePrices[h.symbol] ?? livePrices[`${h.symbol}-SM`] ?? h.last_price ?? null;
 const rs = v => (typeof v === "number" ? (v < 0 ? "-" : "") + "₹" + Math.abs(v).toLocaleString("en-IN", { maximumFractionDigits: Math.abs(v) >= 1000 ? 0 : 2 }) : "—");
@@ -3765,7 +3833,7 @@ function App() {
   // exists, since weekends/holidays have no history file for that date.
   useEffect(() => {
     if (!scanData || !scanData.scan_time) return;
-    const todayStr = scanData.scan_time.split(" ")[0];
+    const todayStr = scanSessionDate(scanData.scan_time);
     const todaySet = new Set([
       ...(scanData.squeeze_stocks || []).map(s => s.symbol),
       ...(scanData.countertrend_stocks || []).map(s => s.symbol),
@@ -4001,7 +4069,7 @@ function App() {
           <span style={{ color: T.muted, fontSize: 9, marginLeft: 6, opacity: 0.6 }}>build {BUILD_VERSION}</span>
           <div style={{ color: T.muted, fontSize: 10, marginTop: 1, display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
             {scanData && <Pill label={(scanData.market_mood || "").split(/\s+—\s+/)[0]} />}
-            {scanData?.scan_time && <span>scan {scanData.scan_time.slice(5, 16)}</span>}
+            {scanData?.scan_time && <span>scan {scanLabel(scanData.scan_time)}</span>}
             {nextPoll && <span>· next check <Countdown nextAt={nextPoll} /></span>}
           </div>
         </div>
@@ -4274,7 +4342,7 @@ function App() {
               )}
               {(() => {
                 const all = scanData.squeeze_stocks || [];
-                const live = all.filter(s => isLiveSignal(s, livePrices[s.symbol] || s.price));
+                const live = rankLive(all.filter(s => isLiveSignal(s, livePrices[s.symbol] || s.price)), s => livePrices[s.symbol] || s.price, scanData);
                 const stopped = all.filter(s => !isLiveSignal(s, livePrices[s.symbol] || s.price));
                 const card = (s, i) => <SqueezeCard key={s.symbol} stock={s} onInvest={handleInvest} rank={i + 1} livePrice={livePrices[s.symbol]} zoneStats={backtestReport?.report?.[s.symbol]?.zone_forward_return_10d} relStrength={relativeStrength?.results?.[s.symbol]} stale={pricesStale} scanDate={scanData?.scan_time ? scanData.scan_time.split(" ")[0] : null} scanData={scanData} />;
                 return (
@@ -4475,7 +4543,7 @@ function App() {
                     ) : (
                       <div style={{ textAlign: "center", padding: 50, color: T.muted }}>
                         <div style={{ fontSize: 36 }}>📂</div>
-                        <div style={{ marginTop: 10, fontSize: 13 }}>No open positions.<br />Add stocks from the Scanner tab.</div>
+                        <div style={{ marginTop: 10, fontSize: 13 }}>No open positions.<br />Add stocks from the 🎯 Long tab.</div>
                       </div>
                     );
                   })()}
@@ -4643,7 +4711,7 @@ function App() {
                           <Stat label="Holdings" value={holdings.length} />
                           <Stat label="Total Invested" value={curr(holdings.reduce((s,h) => s + h.avgPrice * h.qty, 0))} />
                           <Stat label="Exit Alerts" value={(scanData?.blast_stocks || []).filter(b => holdings.some(h => h.symbol === b.symbol)).length} color={T.blast} />
-                          <Stat label="Re-entry Signals" value={(scanData?.squeeze_stocks || []).filter(sq => holdings.some(h => h.symbol === sq.symbol)).length} color={T.accent} />
+                          <Stat label="Re-entry Signals" value={(scanData?.squeeze_stocks || []).filter(sq => holdings.some(h => h.symbol === sq.symbol) && isLiveSignal(sq, livePrices[sq.symbol] || sq.price)).length} color={T.accent} />
                         </div>
                       </div>
                       {/* Price fetch diagnostics — only shown if something has no price, so
@@ -4714,6 +4782,7 @@ function App() {
                 { title: "🔴 What is End of Blast?", color: T.blast, body: "BB bands expand and Stochastic K exceeds 75 while price holds above EMA10. This is the EXIT signal — book profits before the next correction." },
                 { title: "👀 What is the Watchlist?", color: T.warn, body: "A looser, earlier tier for stocks that are visibly tightening (BB width under 9%) and turning up, but haven't yet cleared the strict 4.5% squeeze threshold or the 15% return target. Nothing here is a confirmed signal — it's a heads-up that a stock is forming. When a watchlist stock later earns a real squeeze signal, it's marked 'GRADUATED' with its full history." },
                 { title: "⛔ Below the −7% stop", color: T.red, body: "Every In Play card now measures its GTT target and −7% stop from the ENTRY price — the way the strategy was backtested. A stock that has fallen more than 7% below its entry stays on the scanner's list until a blast exit fires, but it is no longer a fresh entry: it is shown with a red banner and grouped under 'Below the −7% stop' at the bottom of the Long tab, and left out of the tab badges, 3%+ and H+S." },
+                { title: "🧭 Reading the Long tab order", color: T.accent, body: "Live cards are ranked best-first: validated signals (STRONG + weekly trend confirmed), then conviction and confidence, with a bonus for still being near entry. A card within 2% of its −7% stop shows an amber warning and drops to the bottom. If you already own the stock, the card shows your quantity and effective cost from the ledger.\nA scan that finishes after midnight belongs to the previous session — the header shows it as e.g. “scan 11-05 close (ran 11-06 00:57)”." },
                 { title: "🔻 Short tab", color: T.red, body: "Short Entries are bearish squeezes. Breaking Down lists stocks already falling — ranked by how much fall is left to the cover level. A short whose price has climbed back above its stop is marked STOP HIT (and hidden from Breaking Down), because the setup has failed." },
                 { title: "📒 Ledger — three costs", color: T.accent, body: "Original buy price: what you first paid, carried through tax-harvest sell-and-rebuys.\nEffective cost (all-in): your true break-even — every buy, sell, intraday trade and charge for the current holding, divided by shares held.\nTax cost (FIFO): the cost the tax rules use, so it resets when you harvest a loss or gain.\nThe ledger rebuilds itself every evening from Kite, and whenever you upload a tradebook or edit ledger/adjustments.csv (IPO allotments, rights, buybacks, splits, demergers)." },
                 { title: "🔄 What is the Cycles tab?", color: T.accent, body: "Stocks that repeat a yearly pattern — e.g. bottoming around March and rallying into September. Each card shows the buy/sell months, how many years it worked, and whether it beat the market. 'Buy now / soon' lists stocks whose usual buy month is now or next month. Tap any stock for its year-by-year cycle history. The list defaults to companies over ₹10,000 cr; the ₹5k+ / ₹3k+ chips widen it, but smaller companies' patterns held up noticeably less often in testing, so those cards carry a warning. Rebuilt weekly (Saturday)." },
