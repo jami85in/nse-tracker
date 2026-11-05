@@ -359,7 +359,7 @@ const RAW_BASE    = `https://raw.githubusercontent.com/${GITHUB_USER}/${GITHUB_R
 // instead of requiring a manual file diff to find out. This exists because
 // PWA/service-worker caching has repeatedly made "is this actually deployed
 // yet" the hardest part of diagnosing issues in this app.
-const BUILD_VERSION = "2026-11-06.2";
+const BUILD_VERSION = "2026-11-06.3";
 const GITHUB_APP_ACTIONS_URL = `https://github.com/${GITHUB_USER}/${GITHUB_REPO}/actions/workflows/scan.yml`;
 
 // ── Fetch strategy ────────────────────────────────────────────────────────────
@@ -993,7 +993,7 @@ function SqueezeCard({ stock, onInvest, rank, livePrice, zoneStats, relStrength,
         </div>
       )}
       {(() => {
-        const lh = (ledgerShared?.holdings || []).find(h => h.symbol === stock.symbol);
+        const lh = (ledgerShared?.holdings || []).find(h => h.symbol === stock.symbol.replace(/-SM$/, ""));
         if (!lh) return null;
         const r = pctOf(price, lh.effective_cost);
         return (
@@ -1664,7 +1664,7 @@ function AddHoldingModal({ onClose, onAdd, scanData }) {
 function LongTermRow({ holding, onDelete, scanData, livePrices, pricesStale }) {
   const [showDelete, setShowDelete] = useState(false);
   const ledgerShared = useSharedLedger();
-  const ledgerRow = (ledgerShared?.holdings || []).find(h => h.symbol === holding.symbol);
+  const ledgerRow = (ledgerShared?.holdings || []).find(h => h.symbol === holding.symbol.replace(/-SM$/, ""));
   const blastSignal = (scanData?.blast_stocks || []).find(s => s.symbol === holding.symbol);
   const squeezeSignal = (scanData?.squeeze_stocks || []).find(s => s.symbol === holding.symbol);
   const watchSignal = (scanData?.watchlist_stocks || []).find(s => s.symbol === holding.symbol);
