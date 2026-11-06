@@ -359,7 +359,7 @@ const RAW_BASE    = `https://raw.githubusercontent.com/${GITHUB_USER}/${GITHUB_R
 // instead of requiring a manual file diff to find out. This exists because
 // PWA/service-worker caching has repeatedly made "is this actually deployed
 // yet" the hardest part of diagnosing issues in this app.
-const BUILD_VERSION = "2026-11-06.8";
+const BUILD_VERSION = "2026-11-06.9";
 const GITHUB_APP_ACTIONS_URL = `https://github.com/${GITHUB_USER}/${GITHUB_REPO}/actions/workflows/scan.yml`;
 
 // ── Fetch strategy ────────────────────────────────────────────────────────────
@@ -3420,6 +3420,182 @@ function AutoTrades({ ledger }) {
   );
 }
 
+// ── Dashboard picks: the stocks bought on the dashboard's signals, vs the same money in Nifty 50 ──
+// Built by ledger.py from your trades and the public scan history: a holding counts as a pick when
+// you bought it within a week of the stock showing on the long, countertrend or watch list, or when
+// ledger/picks.csv adds it by hand (DAVANGERE, AKASH).
+function xirrPct(cfs) {
+  // cfs: [[ISO date, amount]] from the investor's side (money in negative, money back positive)
+  const f = cfs.filter(c => c[1] && isFinite(c[1])).map(([d, a]) => [Date.parse(d) / 86400000, a]).sort((a, b) => a[0] - b[0]);
+  if (f.length < 2 || !f.some(c => c[1] > 0) || !f.some(c => c[1] < 0)) return null;
+  const t0 = f[0][0], span = f[f.length - 1][0] - t0;
+  if (span < 1) return null;
+  const npv = r => f.reduce((s, [t, a]) => s + a / Math.pow(1 + r, (t - t0) / 365.25), 0);
+  let lo = -0.9999, hi = 100, flo = npv(lo), fhi = npv(hi);
+  if (!isFinite(flo) || !isFinite(fhi) || flo * fhi > 0) return null;
+  for (let i = 0; i < 200; i++) {
+    const mid = (lo + hi) / 2, fm = npv(mid);
+    if (Math.abs(fm) < 1e-6) { lo = hi = mid; break; }
+    if (flo * fm < 0) { hi = mid; } else { lo = mid; flo = fm; }
+  }
+  return ((lo + hi) / 2) * 100;
+}
+
+const PICK_SRC = {
+  signal: { label: "📡 Signal", color: T.accent },
+  watchlist: { label: "👀 Watchlist", color: T.warn },
+  manual: { label: "✋ Added by you", color: "#A78BFA" },
+};
+const LIST_NAME = { long: "squeeze (long) list", countertrend: "countertrend list", watchlist: "watchlist" };
+
+function picksSummary(list, asOf) {
+  const capital = list.reduce((a, p) => a + (p.capital || 0), 0);
+  const value = list.reduce((a, p) => a + (p.value || 0), 0);
+  const pnl = list.reduce((a, p) => a + (p.pnl || 0), 0);
+  const withN = list.filter(p => p.nifty_pnl != null);
+  const npnl = withN.length === list.length ? withN.reduce((a, p) => a + p.nifty_pnl, 0) : null;
+  const nvalue = withN.length === list.length ? withN.reduce((a, p) => a + (p.nifty_value || 0), 0) : null;
+  const mine = [], nifty = [];
+  list.forEach(p => {
+    (p.flows || []).forEach(([d, a]) => { mine.push([d, -a]); nifty.push([d, -a]); });
+    (p.divs || []).forEach(([d, g]) => { mine.push([d, g]); nifty.push([d, g]); });
+    if (p.open && p.value) mine.push([asOf, p.value]);
+    if (p.nifty_end_value != null) nifty.push([p.open ? asOf : p.end, p.nifty_end_value]);
+  });
+  const closed = list.filter(p => !p.open);
+  return {
+    n: list.length, open: list.length - closed.length, capital, value, pnl, npnl, nvalue,
+    xirr: xirrPct(mine), nxirr: npnl != null ? xirrPct(nifty) : null,
+    wins: list.filter(p => p.pnl > 0).length,
+    beat: withN.filter(p => p.pnl > p.nifty_pnl).length, compared: withN.length,
+    closedWins: closed.filter(p => p.pnl > 0).length, closedN: closed.length,
+  };
+}
+
+function PickCard({ p }) {
+  const src = PICK_SRC[p.source] || PICK_SRC.signal;
+  const edge = p.nifty_pnl != null ? p.pnl - p.nifty_pnl : null;
+  const s = p.signal;
+  return (
+    <div style={{ background: T.card, border: `1px solid ${T.border}`, borderLeft: `3px solid ${p.pnl >= 0 ? T.green : T.red}`, borderRadius: 10, padding: 12, marginBottom: 8 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8 }}>
+        <div style={{ minWidth: 0 }}>
+          <span style={{ fontFamily: "monospace", fontWeight: 800, fontSize: 14, color: T.text }}>{p.symbol}</span>
+          <span style={{ marginLeft: 8, fontSize: 10, fontWeight: 700, color: src.color, border: `1px solid ${src.color}66`, borderRadius: 10, padding: "1px 7px", whiteSpace: "nowrap" }}>{src.label}</span>
+        </div>
+        <span style={{ fontSize: 10, color: p.open ? T.green : T.muted, fontWeight: 700, whiteSpace: "nowrap" }}>{p.open ? "● OPEN" : "CLOSED"}</span>
+      </div>
+      <div style={{ color: T.muted, fontSize: 11, marginTop: 4, lineHeight: 1.5 }}>
+        {p.start}{p.end ? ` → ${p.end}` : ""} · {p.days} day{p.days === 1 ? "" : "s"}
+        {p.open && p.qty_now ? ` · ${p.qty_now} sh @ ${rs(p.price)}` : ""}
+        {s ? <><br />On the {LIST_NAME[s.list] || s.list} {s.seen}{s.entry_price ? ` · dashboard entry ${rs(s.entry_price)}` : ""}{p.first_buy_price ? ` · your first buy ${rs(p.first_buy_price)}` : ""}</>
+           : <><br />{p.note || "added by you"}{p.first_buy_price ? ` · first buy ${rs(p.first_buy_price)}` : ""}</>}
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6, marginTop: 8 }}>
+        <Stat label="Your P&L" value={`${sgnRs(p.pnl)}`} color={p.pnl >= 0 ? T.green : T.red} sub={pcTxt(p.pnl_pct)} />
+        <Stat label="Nifty, same ₹" value={p.nifty_pnl != null ? sgnRs(p.nifty_pnl) : "—"} color={p.nifty_pnl == null ? T.muted : p.nifty_pnl >= 0 ? T.green : T.red} sub={pcTxt(p.nifty_pnl_pct)} />
+        <Stat label="vs Nifty" value={edge != null ? sgnRs(edge) : "—"} color={edge == null ? T.muted : edge >= 0 ? T.green : T.red} sub={`on ${rs(p.capital)}`} />
+      </div>
+      {p.dividends > 0 && <div style={{ color: T.muted, fontSize: 10, marginTop: 4 }}>Includes {rs(p.dividends)} dividends (before TDS).</div>}
+    </div>
+  );
+}
+
+function DashboardPicks({ ledger }) {
+  const [src, setSrc] = useState("all");
+  const [st, setSt] = useState("all");
+  const P = ledger.returns && ledger.returns.picks;
+  if (!P) {
+    return (
+      <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, padding: 20, textAlign: "center", color: T.muted, fontSize: 12, lineHeight: 1.6 }}>
+        <div style={{ fontSize: 30 }}>🎯</div>
+        Dashboard picks show up after the next ledger run (it runs every evening, or start it from GitHub → Actions → Ledger).
+      </div>
+    );
+  }
+  const all = P.picks || [];
+  const asOf = P.as_of;
+  const list = all.filter(p => (src === "all" || p.source === src) && (st === "all" || (st === "open" ? p.open : !p.open)))
+    .sort((a, b) => (b.open - a.open) || b.start.localeCompare(a.start));
+  const S = picksSummary(list, asOf);
+  const ahead = S.npnl != null ? S.pnl - S.npnl : null;
+  const counts = k => all.filter(p => p.source === k).length;
+  const row = (label, you, nifty, f) => (
+    <div style={{ display: "grid", gridTemplateColumns: "1.3fr 1fr 1fr", gap: 6, fontSize: 12, padding: "5px 0", borderTop: `1px solid ${T.border}` }}>
+      <span style={{ color: T.muted }}>{label}</span>
+      <span style={{ textAlign: "right", fontWeight: 800, color: T.text }}>{f(you)}</span>
+      <span style={{ textAlign: "right", color: T.text }}>{f(nifty)}</span>
+    </div>
+  );
+  return (
+    <div>
+      <div style={{ color: T.muted, fontSize: 11, marginBottom: 10, lineHeight: 1.5 }}>
+        Stocks you bought on the dashboard's signals since {P.since}, plus the ones you added — each compared with putting the same rupees, on the same days, into Nifty 50. Prices as of {asOf}.
+      </div>
+      <div style={{ display: "flex", gap: 6, overflowX: "auto", scrollbarWidth: "none", paddingBottom: 4, marginBottom: 6 }}>
+        {[["all", `All ${all.length}`], ["signal", `📡 Signals ${counts("signal")}`], ["watchlist", `👀 Watchlist ${counts("watchlist")}`], ["manual", `✋ Added ${counts("manual")}`]].map(([id, l]) =>
+          <span key={id} onClick={() => setSrc(id)} style={chipStyle(src === id)}>{l}</span>)}
+      </div>
+      <div style={{ display: "flex", gap: 6, overflowX: "auto", scrollbarWidth: "none", paddingBottom: 4, marginBottom: 10 }}>
+        {[["all", "Open + closed"], ["open", "Open"], ["closed", "Closed"]].map(([id, l]) =>
+          <span key={id} onClick={() => setSt(id)} style={chipStyle(st === id)}>{l}</span>)}
+      </div>
+
+      {S.n > 0 && (
+        <div style={{ background: ahead == null ? T.card : (ahead >= 0 ? T.green : T.red) + "12", border: `1px solid ${ahead == null ? T.border : (ahead >= 0 ? T.green : T.red) + "44"}`, borderRadius: 12, padding: 14, marginBottom: 12 }}>
+          <div style={{ color: ahead == null ? T.text : ahead >= 0 ? T.green : T.red, fontWeight: 800, fontSize: 14 }}>
+            {ahead == null ? "🎯 Dashboard picks" : `${ahead >= 0 ? "✅ Ahead of" : "⚠️ Behind"} Nifty 50 by ${rs(Math.abs(ahead))}`}
+            {S.xirr != null && S.nxirr != null ? ` · ${Math.abs(S.xirr - S.nxirr).toFixed(1)}% a year ${S.xirr >= S.nxirr ? "ahead" : "behind"}` : ""}
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1.3fr 1fr 1fr", gap: 6, fontSize: 9, color: T.muted, letterSpacing: 0.5, marginTop: 8 }}>
+            <span></span><span style={{ textAlign: "right" }}>PICKS</span><span style={{ textAlign: "right" }}>NIFTY 50</span>
+          </div>
+          {row("Profit / loss", S.pnl, S.npnl, sgnRs)}
+          {row("Return a year (XIRR)", S.xirr, S.nxirr, pcTxt)}
+          {S.open > 0 && row("Open value today", S.value, S.nvalue, rs)}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 8, marginTop: 10 }}>
+            <Stat label="Picks" value={`${S.n}`} sub={`${S.open} open`} />
+            <Stat label="In profit" value={`${S.wins} of ${S.n}`} sub={S.closedN ? `${S.closedWins}/${S.closedN} closed` : "none closed"} />
+            <Stat label="Beat Nifty" value={`${S.beat} of ${S.compared}`} sub={`capital ${rs(S.capital)}`} />
+          </div>
+          <div style={{ color: T.muted, fontSize: 10, marginTop: 8, lineHeight: 1.5 }}>
+            P&L is after brokerage and charges and includes dividends; tax is not deducted. Capital is the most each pick had tied up. XIRR over a few weeks swings a lot — read it once picks have run for a few months.
+          </div>
+        </div>
+      )}
+
+      {list.map(p => <PickCard key={`${p.symbol}-${p.start}`} p={p} />)}
+      {list.length === 0 && <div style={{ color: T.muted, textAlign: "center", padding: 30, fontSize: 12 }}>No picks match.</div>}
+
+      {(P.not_counted || []).length > 0 && (
+        <div style={{ color: T.muted, fontSize: 11, marginTop: 12, lineHeight: 1.6, background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: 10 }}>
+          <b style={{ color: T.text }}>Not counted</b> — held from before the dashboard started ({P.since}), so they aren't the dashboard's picks:{" "}
+          {P.not_counted.map(x => `${x.symbol} (since ${x.since})`).join(", ")}.
+        </div>
+      )}
+      <div style={{ color: T.muted, fontSize: 10, marginTop: 12, lineHeight: 1.6 }}>
+        How a pick is found: a buy on or after {P.since} within {P.window_days} days of the stock showing on the dashboard's squeeze, countertrend or watch list
+        (from the saved daily scans). A pick runs from the first buy until you've sold every share; selling out and buying back within 5 days (tax harvesting) doesn't end it.
+        Added by hand: {(P.manual || []).join(", ") || "none"}{(P.excluded || []).length ? ` · left out: ${P.excluded.join(", ")}` : ""} — edit ledger/picks.csv in your private repo to add or drop a stock.
+      </div>
+    </div>
+  );
+}
+
+function AllTradesSection({ ledger }) {
+  const [open, setOpen] = useState(false);
+  const n = (ledger.trades || []).length;
+  return (
+    <div style={{ marginTop: 16 }}>
+      <button onClick={() => setOpen(o => !o)}
+        style={{ width: "100%", textAlign: "left", background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: "11px 12px", color: T.text, fontWeight: 700, fontSize: 13, cursor: "pointer" }}>
+        {open ? "▾" : "▸"} 📜 All trades <span style={{ color: T.muted, fontWeight: 400, fontSize: 11 }}>· {n} buy/sell lines + corporate actions</span>
+      </button>
+      {open && <div style={{ marginTop: 10 }}><AutoTrades ledger={ledger} /></div>}
+    </div>
+  );
+}
+
 // ── Ledger cards: corporate actions, returns, tax estimate ──
 const pcTxt = v => (v == null ? "—" : `${v >= 0 ? "+" : ""}${v.toFixed(1)}%`);
 const pcCol = v => (v == null ? T.muted : v >= 0 ? T.green : T.red);
@@ -4237,7 +4413,7 @@ function App() {
   const [showAllBlast, setShowAllBlast] = useState(false);
   const [showAddHolding, setShowAddHolding] = useState(false);
   const [showAddDividend, setShowAddDividend] = useState(false);
-  const [portfolioTab, setPortfolioTabRaw] = useState(() => (lsGet("ledger_pat", "") ? (lsGet("portfolio_tab", "ledger") || "ledger") : "ledger"));
+  const [portfolioTab, setPortfolioTabRaw] = useState(() => { const t = lsGet("ledger_pat", "") ? (lsGet("portfolio_tab", "ledger") || "ledger") : "ledger"; return t === "trades" ? "picks" : t; });
   const setPortfolioTab = t => { setPortfolioTabRaw(t); lsSet("portfolio_tab", t); };
   const [livePrices, setLivePrices] = useState({});   // symbol → live price
   const [priceDebug, setPriceDebug] = useState(null);  // last fetchBrowserPrices() diagnostics, for surfacing "no price" root cause in-app
@@ -5060,7 +5236,7 @@ function App() {
             <div>
               {/* Sub-tab switcher */}
               <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 6, marginBottom: 16 }}>
-                {[["ledger", "📒\nLedger"], ["swing", "💼\nPortfolio"], ["trades", "📜\nTrades"], ["longterm", "📦\nLong-Term"]].map(([id, label]) => (
+                {[["ledger", "📒\nLedger"], ["swing", "💼\nPortfolio"], ["picks", "🎯\nPicks"], ["longterm", "📦\nLong-Term"]].map(([id, label]) => (
                   <button key={id} onClick={() => setPortfolioTab(id)}
                     style={{ minWidth: 0, whiteSpace: "pre-line", lineHeight: 1.35, padding: "8px 2px", borderRadius: 10, border: `1px solid ${portfolioTab === id ? T.accent : T.border}`, background: portfolioTab === id ? T.accentDim : T.card, color: portfolioTab === id ? T.accent : T.muted, fontWeight: 700, fontSize: 12, cursor: "pointer" }}>
                     {label}
@@ -5073,7 +5249,7 @@ function App() {
               {/* ── Portfolio (net positions) sub-tab ── */}
               {portfolioTab === "swing" && (
                 <LedgerGate state={ledgerState} what="Portfolio" onOpenLedger={() => setPortfolioTab("ledger")}>
-                  {d => <AutoPortfolio ledger={d} livePrices={livePrices} scanData={scanData} />}
+                  {d => <><AutoPortfolio ledger={d} livePrices={livePrices} scanData={scanData} /><AllTradesSection ledger={d} /></>}
                 </LedgerGate>
               )}
               {/* The old hand-entered portfolio is kept for reference but no longer shown. */}
@@ -5270,10 +5446,10 @@ function App() {
                 </>
               )}
 
-              {/* ── Trades (full individual-lot ledger) sub-tab ── */}
-              {portfolioTab === "trades" && (
-                <LedgerGate state={ledgerState} what="Trades" onOpenLedger={() => setPortfolioTab("ledger")}>
-                  {d => <AutoTrades ledger={d} />}
+              {/* ── Dashboard picks vs Nifty 50 (the full trade list now sits at the bottom of Portfolio) ── */}
+              {portfolioTab === "picks" && (
+                <LedgerGate state={ledgerState} what="Dashboard picks" onOpenLedger={() => setPortfolioTab("ledger")}>
+                  {d => <DashboardPicks ledger={d} />}
                 </LedgerGate>
               )}
               {portfolioTab === "trades_manual" && (
@@ -5409,7 +5585,7 @@ function App() {
                 { title: "👀 What is the Watchlist?", color: T.warn, body: "A looser, earlier tier for stocks that are visibly tightening (BB width under 9%) and turning up, but haven't yet cleared the strict 4.5% squeeze threshold or the 15% return target. Nothing here is a confirmed signal — it's a heads-up that a stock is forming. When a watchlist stock later earns a real squeeze signal, it's marked 'GRADUATED' with its full history." },
                 { title: "⛔ Below the −7% stop", color: T.red, body: "Every In Play card now measures its GTT target and −7% stop from the ENTRY price — the way the strategy was backtested. A stock that has fallen more than 7% below its entry stays on the scanner's list until a blast exit fires, but it is no longer a fresh entry: it is shown with a red banner and grouped under 'Below the −7% stop' at the bottom of the Long tab, and left out of the tab badges, 3%+ and H+S." },
                 { title: "📈 Returns, 🧾 tax and ⚠️ corporate actions", color: T.accent, body: "Ledger → Returns: each financial year values your holdings at NSE's 31 March closing prices and counts every buy, sale, buyback and dividend on its date. 'Your return a year (XIRR)' is the yearly rate your money actually grew at since the first trade; 'time-weighted' ignores when money was added, so compare that with Nifty.\nTax estimate: capital gains so far this year at 20% (short-term) and 12.5% above ₹1.25 lakh (long-term), and how much booking unrealised losses before 31 March would save. Cess, surcharge and brought-forward losses aren't included.\nCorporate actions: rights entitlements sitting in your demat are flagged on Monitor and Ledger automatically. Upcoming rights issues, buybacks, tender offers, OFS and call money aren't fetched (NSE and BSE block automated access) — Ledger links to Kite → Bids → Corporate actions, BSE's corporate-actions list and each holding's NSE page." },
-                { title: "💼 Portfolio, 📜 Trades, 📦 Long-Term — automatic", color: T.accent, body: "All three are built from your trade ledger (Zerodha tradebooks + the evening Kite capture), so there is nothing to add or remove by hand and every device with your read-only key shows the same thing.\nPortfolio: holdings value, unrealised P&L, booked P&L by month, win rate and hold time on exits (tax-harvest sell-and-rebuys aren't counted as exits), every sale in the year.\nTrades: every buy, sell and corporate action — search, filter by side or year; sells show the P&L booked that day.\nLong-Term: each holding with the scanner's exit / re-entry / forming read." },
+                { title: "💼 Portfolio, 🎯 Picks, 📦 Long-Term — automatic", color: T.accent, body: "All three are built from your trade ledger (Zerodha tradebooks + the evening Kite capture), so there is nothing to add or remove by hand and every device with your read-only key shows the same thing.\nPortfolio: holdings value, unrealised P&L, booked P&L by month, win rate and hold time on exits (tax-harvest sell-and-rebuys aren't counted as exits), every sale in the year. 📜 All trades at the bottom lists every buy, sell and corporate action — search, filter by side or year.\nPicks: only the stocks you bought on the dashboard's signals (a buy within a week of the stock showing on the squeeze, countertrend or watch list), plus the ones added in ledger/picks.csv (DAVANGERE, AKASH) — each against the same money put into Nifty 50 on the same days, with total P&L, XIRR, win rate and how many beat Nifty. Holdings from before the dashboard started aren't counted.\nLong-Term: each holding with the scanner's exit / re-entry / forming read." },
                 { title: "🧭 Reading the Long tab order", color: T.accent, body: "Live cards are ranked best-first: validated signals (STRONG + weekly trend confirmed), then conviction and confidence, with a bonus for still being near entry. A card within 2% of its −7% stop shows an amber warning and drops to the bottom. If you already own the stock, the card shows your quantity and effective cost from the ledger.\nA scan that finishes after midnight belongs to the previous session — the header shows it as e.g. “scan 11-05 close (ran 11-06 00:57)”." },
                 { title: "🔻 Short tab", color: T.red, body: "Short Entries are bearish squeezes. Breaking Down lists stocks already falling — ranked by how much fall is left to the cover level. A short whose price has climbed back above its stop is marked STOP HIT (and hidden from Breaking Down), because the setup has failed." },
                 { title: "📒 Ledger — three costs", color: T.accent, body: "Original buy price: what you first paid, carried through tax-harvest sell-and-rebuys.\nEffective cost (all-in): your true break-even — every buy, sell, intraday trade and charge for the current holding, divided by shares held.\nTax cost (FIFO): the cost the tax rules use, so it resets when you harvest a loss or gain.\nThe ledger rebuilds itself every evening from Kite, and whenever you upload a tradebook or edit ledger/adjustments.csv (IPO allotments, rights, buybacks, splits, demergers)." },
