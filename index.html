@@ -359,7 +359,7 @@ const RAW_BASE    = `https://raw.githubusercontent.com/${GITHUB_USER}/${GITHUB_R
 // instead of requiring a manual file diff to find out. This exists because
 // PWA/service-worker caching has repeatedly made "is this actually deployed
 // yet" the hardest part of diagnosing issues in this app.
-const BUILD_VERSION = "2026-11-06.3";
+const BUILD_VERSION = "2026-11-06.4";
 const GITHUB_APP_ACTIONS_URL = `https://github.com/${GITHUB_USER}/${GITHUB_REPO}/actions/workflows/scan.yml`;
 
 // ── Fetch strategy ────────────────────────────────────────────────────────────
@@ -1144,10 +1144,16 @@ function SqueezeCard({ stock, onInvest, rank, livePrice, zoneStats, relStrength,
             style={{ display: "block", textAlign: "center", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, padding: "10px 0", fontSize: 12, fontWeight: 700, color: T.text, textDecoration: "none", marginBottom: 8 }}>
             🔍 Deep Check — recent earnings & news for {stock.symbol}
           </a>
-          <button onClick={e => { e.stopPropagation(); onInvest(stock); }}
-            style={{ background: T.accent, color: "#000", border: "none", borderRadius: 8, padding: "12px 18px", fontWeight: 800, fontSize: 14, cursor: "pointer", width: "100%" }}>
-            📈 Add to Portfolio
-          </button>
+          {ledgerShared ? (
+            <div style={{ color: T.muted, fontSize: 11, textAlign: "center", lineHeight: 1.5, padding: "4px 0" }}>
+              Buy in Kite as usual — it appears in 💼 Portfolio automatically after the evening sync.
+            </div>
+          ) : (
+            <button onClick={e => { e.stopPropagation(); onInvest(stock); }}
+              style={{ background: T.accent, color: "#000", border: "none", borderRadius: 8, padding: "12px 18px", fontWeight: 800, fontSize: 14, cursor: "pointer", width: "100%" }}>
+              📈 Add to Portfolio
+            </button>
+          )}
         </div>
       )}
     </div>
@@ -1665,9 +1671,9 @@ function LongTermRow({ holding, onDelete, scanData, livePrices, pricesStale }) {
   const [showDelete, setShowDelete] = useState(false);
   const ledgerShared = useSharedLedger();
   const ledgerRow = (ledgerShared?.holdings || []).find(h => h.symbol === holding.symbol.replace(/-SM$/, ""));
-  const blastSignal = (scanData?.blast_stocks || []).find(s => s.symbol === holding.symbol);
-  const squeezeSignal = (scanData?.squeeze_stocks || []).find(s => s.symbol === holding.symbol);
-  const watchSignal = (scanData?.watchlist_stocks || []).find(s => s.symbol === holding.symbol);
+  const blastSignal = scanLookup(scanData?.blast_stocks, holding.symbol);
+  const squeezeSignal = scanLookup(scanData?.squeeze_stocks, holding.symbol);
+  const watchSignal = scanLookup(scanData?.watchlist_stocks, holding.symbol);
 
   // Best current price: scan-signal price first (carries richer exit/re-entry
   // context), then fall back to the general live-price feed — the same
@@ -1685,7 +1691,7 @@ function LongTermRow({ holding, onDelete, scanData, livePrices, pricesStale }) {
   // where "Current Value" and "Gain/Loss" are literally computed from this
   // number — the freshest available price should always win. Scan price
   // now only fills in when livePrices has no entry for the symbol at all.
-  const currentPrice = livePrices?.[holding.symbol] || blastSignal?.price || squeezeSignal?.price || watchSignal?.price || null;
+  const currentPrice = livePrices?.[holding.symbol] || livePrices?.[`${holding.symbol}-SM`] || blastSignal?.price || squeezeSignal?.price || watchSignal?.price || null;
   const currentReturn = currentPrice ? ((currentPrice - holding.avgPrice) / holding.avgPrice) * 100 : null;
   const investedValue = holding.avgPrice * holding.qty;
   const currentValue = currentPrice ? currentPrice * holding.qty : null;
@@ -1710,10 +1716,19 @@ function LongTermRow({ holding, onDelete, scanData, livePrices, pricesStale }) {
             <WeeklyTrendBadge symbol={holding.symbol} scanData={scanData} />
           </div>
           <div style={{ color: T.muted, fontSize: 11, marginTop: 2 }}>
-            {holding.qty} shares · avg ₹{fmt(holding.avgPrice)}
-            {holding.addedDate ? ` · since ${holding.addedDate}` : holding.source === "zerodha" ? " · synced from Zerodha" : ""}
+            {holding.source === "ledger"
+              ? <>{holding.qty} shares · effective cost ₹{fmt(holding.avgPrice)}{holding.firstBuy ? ` · since ${holding.firstBuy}` : ""}</>
+              : <>{holding.qty} shares · avg ₹{fmt(holding.avgPrice)}
+                  {holding.addedDate ? ` · since ${holding.addedDate}` : holding.source === "zerodha" ? " · synced from Zerodha" : ""}</>}
           </div>
-          {ledgerRow && (
+          {ledgerRow && holding.source === "ledger" && (ledgerRow.zerodha_avg || ledgerRow.original_cost) && (
+            <div style={{ color: T.muted, fontSize: 11, marginTop: 1 }}>
+              {ledgerRow.original_cost ? `original buy ₹${fmt(ledgerRow.original_cost)}` : ""}
+              {ledgerRow.original_cost && ledgerRow.zerodha_avg ? " · " : ""}
+              {ledgerRow.zerodha_avg ? `Zerodha avg ₹${fmt(ledgerRow.zerodha_avg)}` : ""}
+            </div>
+          )}
+          {ledgerRow && holding.source !== "ledger" && (
             <div style={{ color: T.muted, fontSize: 11, marginTop: 1 }}>
               effective cost ₹{fmt(ledgerRow.effective_cost)}
               {currentPrice ? <b style={{ color: currentPrice >= ledgerRow.effective_cost ? T.green : T.red }}> ({pct((currentPrice / ledgerRow.effective_cost - 1) * 100)})</b> : null}
@@ -1753,7 +1768,7 @@ function LongTermRow({ holding, onDelete, scanData, livePrices, pricesStale }) {
 
       {holding.notes && <div style={{ color: T.muted, fontSize: 11, marginTop: 8 }}>📝 {holding.notes}</div>}
 
-      <div style={{ marginTop: 10, display: "flex", justifyContent: "flex-end" }}>
+      <div style={{ marginTop: 10, display: holding.source === "ledger" ? "none" : "flex", justifyContent: "flex-end" }}>
         {!showDelete ? (
           <button onClick={() => setShowDelete(true)}
             style={{ background: "none", border: `1px solid ${T.border}`, color: T.muted, borderRadius: 8, padding: "6px 14px", fontSize: 12, cursor: "pointer" }}>
@@ -2293,12 +2308,12 @@ function MonitorPage({ scanData, positions, holdings, livePrices, priceUpdated, 
   });
   // Signal-based alerts (from scan data) are always valid — not price-dependent
   (holdings || []).forEach(h => {
-    const inBlast = (scanData.blast_stocks || []).some(b => b.symbol === h.symbol);
-    const inSqueeze = (scanData.squeeze_stocks || []).some(s => s.symbol === h.symbol);
+    const inBlast = !!scanLookup(scanData.blast_stocks, h.symbol);
+    const inSqueeze = !!scanLookup(scanData.squeeze_stocks, h.symbol);
     const inCountertrend = (scanData.countertrend_stocks || []).some(s => s.symbol === h.symbol);
     if (inBlast) alerts.push({ type: "exit", symbol: h.symbol, msg: "showing BLAST exit signal", color: T.blast });
     else if (inSqueeze) {
-      const sq = (scanData.squeeze_stocks || []).find(s => s.symbol === h.symbol);
+      const sq = scanLookup(scanData.squeeze_stocks, h.symbol);
       if (isLiveSignal(sq, px(h.symbol) || sq.price)) alerts.push({ type: "reentry", symbol: h.symbol, msg: "showing SQUEEZE re-entry signal", color: T.accent });
       else alerts.push({ type: "failed", symbol: h.symbol, msg: "squeeze signal already below its −7% stop — not a re-entry", color: T.red });
     }
@@ -3089,18 +3104,27 @@ function loadLedgerShared(force = false) {
   if (!force && _ledgerCache) return Promise.resolve(_ledgerCache);
   if (!force && _ledgerPromise) return _ledgerPromise;
   const repo = lsGet("ledger_repo", "jami85in/nse-tracker-secrets");
-  _ledgerPromise = fetchLedger(repo, pat).then(d => { _ledgerCache = d; return d; }).finally(() => { _ledgerPromise = null; });
+  _ledgerPromise = fetchLedger(repo, pat).then(d => { setLedgerCache(d); return d; }).finally(() => { _ledgerPromise = null; });
   return _ledgerPromise;
 }
-function useSharedLedger() {
-  const [d, setD] = useState(_ledgerCache);
+const _ledgerSubs = new Set();
+function setLedgerCache(d) { _ledgerCache = d; _ledgerSubs.forEach(f => { try { f(d); } catch {} }); }
+function useSharedLedgerState() {
+  const [st, setSt] = useState(() => ({ data: _ledgerCache, err: null, loading: !_ledgerCache && !!lsGet("ledger_pat", "") }));
   useEffect(() => {
     let on = true;
-    loadLedgerShared().then(x => { if (on && x) setD(x); }).catch(() => {});
-    return () => { on = false; };
+    const sub = d => { if (on) setSt({ data: d, err: null, loading: false }); };
+    _ledgerSubs.add(sub);
+    if (!_ledgerCache && lsGet("ledger_pat", "")) {
+      loadLedgerShared()
+        .then(d => { if (on) setSt({ data: d, err: null, loading: false }); })
+        .catch(err => { if (on) setSt(x => ({ ...x, err: err.message, loading: false })); });
+    }
+    return () => { on = false; _ledgerSubs.delete(sub); };
   }, []);
-  return d;
+  return st;
 }
+function useSharedLedger() { return useSharedLedgerState().data; }
 const ledgerPrice = (h, livePrices) => livePrices[h.symbol] ?? livePrices[`${h.symbol}-SM`] ?? h.last_price ?? null;
 const rs = v => (typeof v === "number" ? (v < 0 ? "-" : "") + "₹" + Math.abs(v).toLocaleString("en-IN", { maximumFractionDigits: Math.abs(v) >= 1000 ? 0 : 2 }) : "—");
 const sgnRs = v => (typeof v === "number" ? (v >= 0 ? "+" : "-") + "₹" + Math.abs(v).toLocaleString("en-IN", { maximumFractionDigits: 0 }) : "—");
@@ -3109,6 +3133,280 @@ function currentFY(now = new Date()) {
   const y = now.getFullYear(), m = now.getMonth();
   const s = m >= 3 ? y : y - 1;
   return `FY${s}-${String(s + 1).slice(2)}`;
+}
+
+// ── Automatic Portfolio / Trades views, built only from the trade ledger ──
+// Nothing here is entered by hand: the ledger is rebuilt every evening from
+// your Zerodha tradebooks and the daily Kite capture, so every device that
+// has the read-only key shows exactly the same numbers.
+function fyOfDate(d) {
+  const y = Number(d.slice(0, 4)), m = Number(d.slice(5, 7));
+  const s = m >= 4 ? y : y - 1;
+  return `FY${s}-${String(s + 1).slice(2)}`;
+}
+const fyMonths = fy => {
+  const s = Number(fy.slice(2, 6));
+  return Array.from({ length: 12 }, (_, i) => {
+    const m = (3 + i) % 12 + 1, y = i < 9 ? s : s + 1;
+    return `${y}-${String(m).padStart(2, "0")}`;
+  });
+};
+const MONTH_ABBR = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const scanLookup = (list, sym) => (list || []).find(s => s.symbol === sym || s.symbol === `${sym}-SM`);
+function holdingSignal(sym, scanData, price) {
+  const b = scanLookup(scanData?.blast_stocks, sym);
+  if (b) return { label: "EXIT", color: T.blast };
+  const sq = scanLookup(scanData?.squeeze_stocks, sym);
+  if (sq) return isLiveSignal(sq, price || sq.price) ? { label: "RE-ENTRY", color: T.accent } : { label: "FAILED SQUEEZE", color: T.red };
+  if (scanLookup(scanData?.watchlist_stocks, sym)) return { label: "FORMING", color: T.warn };
+  return null;
+}
+const chipStyle = on => ({
+  background: on ? T.accentDim : T.card, border: `1px solid ${on ? T.accent : T.border}`, color: on ? T.accent : T.muted,
+  borderRadius: 16, padding: "5px 11px", fontSize: 11, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap",
+});
+
+function LedgerGate({ state, what, onOpenLedger, children }) {
+  if (state.data) return children(state.data);
+  const hasKey = !!lsGet("ledger_pat", "");
+  if (hasKey && state.loading) return <div style={{ color: T.muted, textAlign: "center", padding: 40 }}>Loading your trades…</div>;
+  return (
+    <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, padding: 20, textAlign: "center" }}>
+      <div style={{ fontSize: 30 }}>{hasKey ? "⚠️" : "🔑"}</div>
+      <div style={{ color: T.text, fontWeight: 700, fontSize: 14, marginTop: 6 }}>{what} fills in automatically from your Zerodha trades</div>
+      <div style={{ color: T.muted, fontSize: 12, lineHeight: 1.6, marginTop: 6 }}>
+        {hasKey
+          ? `Couldn't load the ledger${state.err ? ` (${state.err})` : ""}. Check the key in 📒 Ledger.`
+          : "Save your read-only ledger key once on this device in 📒 Ledger. Every device with the key shows the same data — nothing to enter by hand."}
+      </div>
+      <button onClick={onOpenLedger}
+        style={{ marginTop: 12, background: T.accent, color: "#000", border: "none", borderRadius: 10, padding: "10px 16px", fontWeight: 800, cursor: "pointer" }}>
+        Open 📒 Ledger
+      </button>
+    </div>
+  );
+}
+
+function AutoPortfolio({ ledger, livePrices, scanData }) {
+  const fys = [...new Set([...Object.keys(ledger.realized_by_fy || {}), ...(ledger.sales || []).map(s => s.fy)])].filter(Boolean).sort().reverse();
+  const [fy, setFy] = useState(() => (fys.includes(currentFY()) ? currentFY() : (fys[0] || currentFY())));
+  const [showAll, setShowAll] = useState(false);
+  const today = new Date().toISOString().slice(0, 10);
+
+  const H = (ledger.holdings || []).map(h => {
+    const px = ledgerPrice(h, livePrices);
+    return {
+      h, px, value: px != null ? px * h.qty : null, r: pctOf(px, h.effective_cost),
+      pnl: px != null ? px * h.qty - h.net_invested : null,
+      days: h.first_buy ? Math.round((Date.parse(today) - Date.parse(h.first_buy)) / 86400000) : null,
+      sig: holdingSignal(h.symbol, scanData, px),
+    };
+  }).sort((a, b) => (b.value || 0) - (a.value || 0));
+  const priced = H.filter(x => x.value != null);
+  const value = priced.reduce((a, x) => a + x.value, 0);
+  const invested = priced.reduce((a, x) => a + x.h.net_invested, 0);
+
+  const fyR = (ledger.realized_by_fy || {})[fy] || {};
+  const sales = (ledger.sales || []).filter(s => s.fy === fy).sort((a, b) => b.d.localeCompare(a.d));
+  const booked = sales.reduce((a, s) => a + (s.pnl || 0), 0);
+  const exits = sales.filter(s => s.kind === "delivery" && !s.rebought);
+  const wins = exits.filter(s => s.pnl > 0), losses = exits.filter(s => s.pnl <= 0);
+  const avg = xs => (xs.length ? xs.reduce((a, s) => a + s.pnl, 0) / xs.length : null);
+  const avgDays = exits.length ? Math.round(exits.reduce((a, s) => a + (s.days || 0), 0) / exits.length) : null;
+  const intraday = sales.filter(s => s.kind === "intraday");
+  const harvest = sales.filter(s => s.kind === "delivery" && s.rebought);
+  const best = [...exits].sort((a, b) => b.pnl - a.pnl)[0], worst = [...exits].sort((a, b) => a.pnl - b.pnl)[0];
+
+  const months = fyMonths(fy);
+  const byMonth = Object.fromEntries(months.map(m => [m, 0]));
+  sales.forEach(s => { const m = s.d.slice(0, 7); if (m in byMonth) byMonth[m] += s.pnl || 0; });
+  const maxAbs = Math.max(1, ...Object.values(byMonth).map(Math.abs));
+
+  const shown = showAll ? sales : sales.slice(0, 15);
+  return (
+    <div>
+      <div style={{ display: "flex", gap: 6, overflowX: "auto", paddingBottom: 4, marginBottom: 10 }}>
+        {fys.map(f => <span key={f} onClick={() => setFy(f)} style={chipStyle(f === fy)}>{f}</span>)}
+      </div>
+
+      <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, padding: 14, marginBottom: 12 }}>
+        <div style={{ color: T.muted, fontSize: 11, letterSpacing: 1, marginBottom: 10 }}>FROM YOUR TRADES · UPDATES ITSELF</div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(2,1fr)", gap: 12 }}>
+          <Stat label="Holdings value" value={rs(value)} sub={`${H.length} stocks`} />
+          <Stat label="Unrealised P&L" value={sgnRs(value - invested)} color={value - invested >= 0 ? T.green : T.red}
+            sub={invested ? `${pct((value / invested - 1) * 100)} vs effective cost` : null} />
+          <Stat label={`Booked P&L ${fy}`} value={sgnRs(booked)} color={booked >= 0 ? T.green : T.red} sub={`${sales.length} sales, after charges`} />
+          <Stat label={`Dividends ${fy}`} value={rs(fyR.dividends_gross || 0)} color={T.green} sub={fyR.charges ? `charges ${rs(fyR.charges)}` : null} />
+          <Stat label="Win rate (exits)" value={exits.length ? `${Math.round(wins.length / exits.length * 100)}%` : "—"}
+            color={exits.length && wins.length / exits.length >= 0.5 ? T.green : T.warn} sub={exits.length ? `${wins.length} of ${exits.length} exits` : "no exits yet"} />
+          <Stat label="Avg hold (exits)" value={avgDays != null ? `${avgDays} days` : "—"}
+            sub={exits.length ? `win ${avg(wins) != null ? sgnRs(avg(wins)) : "—"} · loss ${avg(losses) != null ? sgnRs(avg(losses)) : "—"}` : null} />
+        </div>
+        {(best || intraday.length > 0 || harvest.length > 0) && (
+          <div style={{ color: T.muted, fontSize: 10, marginTop: 10, lineHeight: 1.6 }}>
+            {best && <>Best exit {best.s} {sgnRs(best.pnl)} · worst {worst.s} {sgnRs(worst.pnl)}. </>}
+            {intraday.length > 0 && <>Intraday: {intraday.length} days, {sgnRs(intraday.reduce((a, s) => a + s.pnl, 0))}. </>}
+            {harvest.length > 0 && <>♻️ {harvest.length} tax-harvest sale(s) (sold and rebought) aren't counted as exits.</>}
+          </div>
+        )}
+      </div>
+
+      <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, padding: 14, marginBottom: 16 }}>
+        <div style={{ color: T.muted, fontSize: 11, letterSpacing: 1, marginBottom: 10 }}>BOOKED P&L BY MONTH · {fy}</div>
+        <div style={{ display: "flex", alignItems: "stretch", gap: 3, height: 110 }}>
+          {months.map(m => {
+            const v = byMonth[m], hpct = Math.abs(v) / maxAbs * 50;
+            return (
+              <div key={m} title={`${m}: ${sgnRs(v)}`} style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
+                <div style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "flex-end" }}>
+                  {v > 0 && <div style={{ height: `${hpct * 2}%`, background: T.green, borderRadius: "3px 3px 0 0", minHeight: 2 }} />}
+                </div>
+                <div style={{ height: 1, background: T.border }} />
+                <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
+                  {v < 0 && <div style={{ height: `${hpct * 2}%`, background: T.red, borderRadius: "0 0 3px 3px", minHeight: 2 }} />}
+                </div>
+                <div style={{ color: T.muted, fontSize: 8, textAlign: "center", marginTop: 3 }}>{MONTH_ABBR[Number(m.slice(5, 7)) - 1].slice(0, 1)}</div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      <div style={{ color: T.text, fontWeight: 700, marginBottom: 8, fontSize: 14 }}>Open positions ({H.length})</div>
+      {H.map(({ h, px, r, pnl, days, sig }) => (
+        <div key={h.symbol} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", background: T.card, borderLeft: `3px solid ${r == null ? T.border : r >= 0 ? T.green : T.red}`, borderRadius: 6, marginBottom: 6 }}>
+          <div style={{ minWidth: 0, flex: 1 }}>
+            <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+              <span style={{ fontFamily: "monospace", fontWeight: 700, fontSize: 13, color: T.text }}>{h.symbol}</span>
+              {sig && <Pill label={sig.label} color={sig.color} />}
+            </div>
+            <div style={{ color: T.muted, fontSize: 10, marginTop: 1 }}>
+              {h.qty} sh · {rs(h.effective_cost)} → {px != null ? rs(px) : "no price"}{days != null ? ` · ${days}d` : ""}
+            </div>
+          </div>
+          <div style={{ textAlign: "right", flexShrink: 0 }}>
+            <div style={{ color: r == null ? T.muted : r >= 0 ? T.green : T.red, fontWeight: 800, fontSize: 13 }}>{r != null ? pct(r) : "—"}</div>
+            <div style={{ color: T.muted, fontSize: 10 }}>{pnl != null ? sgnRs(pnl) : ""}</div>
+          </div>
+        </div>
+      ))}
+
+      <div style={{ color: T.text, fontWeight: 700, margin: "18px 0 8px", fontSize: 14 }}>Sales in {fy} ({sales.length})</div>
+      {sales.length === 0 && <div style={{ color: T.muted, fontSize: 12, padding: "6px 0" }}>No sales in this year.</div>}
+      {shown.map((s, i) => (
+        <div key={`${s.d}-${s.s}-${s.kind}-${i}`} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", background: T.card, borderLeft: `3px solid ${s.pnl >= 0 ? T.green : T.red}`, borderRadius: 6, marginBottom: 6 }}>
+          <div style={{ minWidth: 0, flex: 1 }}>
+            <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+              <span style={{ fontFamily: "monospace", fontWeight: 700, fontSize: 13, color: T.text }}>{s.s}</span>
+              {s.kind === "intraday" ? <Pill label="⚡ INTRADAY" color={T.warn} /> : <Pill label={s.term === "LT" ? "LONG-TERM" : "SHORT-TERM"} color={T.muted} />}
+              {s.rebought && <Pill label="♻️ REBOUGHT" color={T.accent} />}
+            </div>
+            <div style={{ color: T.muted, fontSize: 10, marginTop: 1 }}>
+              {s.d} · {s.q} sh · {rs(s.buy)} → {rs(s.sell)}{s.kind === "delivery" ? ` · held ${s.days}d` : ""}
+            </div>
+          </div>
+          <div style={{ textAlign: "right", flexShrink: 0 }}>
+            <div style={{ color: s.pnl >= 0 ? T.green : T.red, fontWeight: 800, fontSize: 13 }}>{sgnRs(s.pnl)}</div>
+            <div style={{ color: T.muted, fontSize: 10 }}>{s.buy ? pct((s.sell / s.buy - 1) * 100) : ""}</div>
+          </div>
+        </div>
+      ))}
+      {sales.length > 15 && (
+        <div onClick={() => setShowAll(v => !v)} style={{ color: T.accent, fontSize: 12, textAlign: "center", padding: 8, cursor: "pointer" }}>
+          {showAll ? "Show fewer" : `Show all ${sales.length} sales`}
+        </div>
+      )}
+      <div style={{ color: T.muted, fontSize: 10, marginTop: 12, lineHeight: 1.6 }}>
+        Built from your Zerodha tradebooks and the daily Kite capture (trades to {ledger.sources?.last_trade || "—"}). P&L is after all charges, using FIFO lots;
+        tax figures (STCG/LTCG) are in 📒 Ledger. Buy or sell in Kite as usual — it shows up here after the evening sync.
+      </div>
+    </div>
+  );
+}
+
+function AutoTrades({ ledger }) {
+  const [q, setQ] = useState("");
+  const [side, setSide] = useState("all");
+  const [fy, setFy] = useState("all");
+  const [limit, setLimit] = useState(80);
+
+  const saleKey = (d, s) => `${d}|${s}`;
+  const salePnl = {};
+  (ledger.sales || []).forEach(s => { const k = saleKey(s.d, s.s); salePnl[k] = (salePnl[k] || 0) + (s.pnl || 0); });
+  const EVENT_LABEL = { buyback: "Buyback (tendered)", "adjustment-in": "Shares credited", "adjustment-out": "Shares debited",
+    "left-demat": "Left the demat", "split/bonus": "Split / bonus", "demerger-in": "Demerger — shares received", "demerger-out": "Demerger" };
+  const events = [...(ledger.holdings || []), ...(ledger.closed || [])].flatMap(b =>
+    (b.events || []).filter(e => e.type !== "new-round").map(e => ({
+      d: e.date, s: b.symbol, side: "E", q: e.qty, p: e.price,
+      label: (EVENT_LABEL[e.type] || e.type) + (e.ratio ? ` ×${e.ratio}` : "") + (e.to ? ` → ${e.to}` : ""), note: e.note })));
+  const rows = [...(ledger.trades || []), ...events]
+    .filter(t => t.d && !String(t.s).endsWith("#RE"))
+    .sort((a, b) => b.d.localeCompare(a.d) || a.s.localeCompare(b.s));
+  const fys = [...new Set(rows.map(t => fyOfDate(t.d)))].sort().reverse();
+  const qq = q.trim().toUpperCase();
+  const filtered = rows.filter(t =>
+    (!qq || t.s.includes(qq)) &&
+    (fy === "all" || fyOfDate(t.d) === fy) &&
+    (side === "all" || (side === "B" && t.side === "B") || (side === "S" && t.side === "S") ||
+     (side === "I" && t.i > 0) || (side === "E" && t.side === "E")));
+  const buys = filtered.filter(t => t.side === "B").reduce((a, t) => a + t.q * t.p, 0);
+  const sells = filtered.filter(t => t.side === "S").reduce((a, t) => a + t.q * t.p, 0);
+  const shown = filtered.slice(0, limit);
+
+  let lastDate = null;
+  return (
+    <div>
+      <input value={q} onChange={e => { setQ(e.target.value); setLimit(80); }} placeholder="Search a symbol…"
+        style={{ width: "100%", background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: "10px 12px", color: T.text, fontSize: 13, marginBottom: 8, boxSizing: "border-box" }} />
+      <div style={{ display: "flex", gap: 6, overflowX: "auto", paddingBottom: 4, marginBottom: 6 }}>
+        {[["all", "All"], ["B", "Buys"], ["S", "Sells"], ["I", "⚡ Intraday"], ["E", "🏢 Corporate"]].map(([id, l]) =>
+          <span key={id} onClick={() => { setSide(id); setLimit(80); }} style={chipStyle(side === id)}>{l}</span>)}
+      </div>
+      <div style={{ display: "flex", gap: 6, overflowX: "auto", paddingBottom: 4, marginBottom: 10 }}>
+        {["all", ...fys].map(f => <span key={f} onClick={() => { setFy(f); setLimit(80); }} style={chipStyle(fy === f)}>{f === "all" ? "All years" : f}</span>)}
+      </div>
+      <div style={{ color: T.muted, fontSize: 11, marginBottom: 10 }}>
+        {filtered.length} entries · bought {rs(buys)} · sold {rs(sells)}
+      </div>
+      {shown.map((t, i) => {
+        const header = t.d !== lastDate ? (lastDate = t.d) : null;
+        const isB = t.side === "B", isE = t.side === "E";
+        const pnl = t.side === "S" ? salePnl[saleKey(t.d, t.s)] : null;
+        const col = isE ? T.warn : isB ? T.green : T.red;
+        return (
+          <React.Fragment key={`${t.d}-${t.s}-${t.side}-${i}`}>
+            {header && <div style={{ color: T.muted, fontSize: 10, letterSpacing: 0.6, margin: "10px 0 4px" }}>{t.d}</div>}
+            <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 10px", background: T.card, borderLeft: `3px solid ${col}`, borderRadius: 6, marginBottom: 4 }}>
+              <span style={{ color: col, fontWeight: 800, fontSize: 11, minWidth: 30 }}>{isE ? "🏢" : isB ? "BUY" : "SELL"}</span>
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <div style={{ fontFamily: "monospace", fontWeight: 700, fontSize: 13, color: T.text }}>
+                  {t.s}{t.i > 0 && <span style={{ color: T.warn, fontSize: 10, fontFamily: "inherit", marginLeft: 6 }}>⚡ {t.i} intraday</span>}
+                </div>
+                <div style={{ color: T.muted, fontSize: 10 }}>
+                  {isE ? `${t.label}${t.q ? ` · ${t.q} sh` : ""}${t.p ? ` @ ${rs(t.p)}` : ""}${t.note ? ` · ${t.note}` : ""}`
+                       : `${t.q} sh @ ${rs(t.p)} · ${t.x || "NSE"}`}
+                </div>
+              </div>
+              <div style={{ textAlign: "right", flexShrink: 0 }}>
+                {!isE && <div style={{ color: T.text, fontSize: 12, fontWeight: 700 }}>{rs(t.q * t.p)}</div>}
+                {pnl != null && <div style={{ color: pnl >= 0 ? T.green : T.red, fontSize: 10, fontWeight: 700 }}>{sgnRs(pnl)}</div>}
+              </div>
+            </div>
+          </React.Fragment>
+        );
+      })}
+      {filtered.length > limit && (
+        <div onClick={() => setLimit(l => l + 150)} style={{ color: T.accent, fontSize: 12, textAlign: "center", padding: 10, cursor: "pointer" }}>
+          Show more ({filtered.length - limit} left)
+        </div>
+      )}
+      {filtered.length === 0 && <div style={{ color: T.muted, textAlign: "center", padding: 30, fontSize: 12 }}>No trades match.</div>}
+      <div style={{ color: T.muted, fontSize: 10, marginTop: 12, lineHeight: 1.6 }}>
+        One line per stock per day per side (partial fills combined), from your tradebooks and the daily Kite capture.
+        Sell lines show the P&L booked that day, after charges.
+      </div>
+    </div>
+  );
 }
 
 function LedgerPanel({ livePrices }) {
@@ -3125,7 +3423,7 @@ function LedgerPanel({ livePrices }) {
     if (!pat) return;
     setLoading(true); setErr(null);
     fetchLedger(repo, pat).then(d => {
-      _ledgerCache = d;
+      setLedgerCache(d);
       setData(d);
       lsSet("ledger_symbols", JSON.stringify((d.holdings || []).map(h => h.symbol)));
     }).catch(e => setErr(e.message)).finally(() => setLoading(false));
@@ -3289,7 +3587,7 @@ function LedgerPanel({ livePrices }) {
             </div>
           )}
 
-          <button onClick={() => { if (confirm("Remove the saved ledger key from this phone?")) { lsSet("ledger_pat", null); setPat(""); setData(null); } }}
+          <button onClick={() => { if (confirm("Remove the saved ledger key from this phone?")) { lsSet("ledger_pat", null); setPat(""); setData(null); setLedgerCache(null); } }}
             style={{ background: "none", border: `1px solid ${T.border}`, color: T.muted, borderRadius: 8, padding: "8px 12px", fontSize: 11, cursor: "pointer", marginTop: 6 }}>Disconnect ledger key</button>
         </>
       )}
@@ -3638,7 +3936,8 @@ function App() {
   const [showAllBlast, setShowAllBlast] = useState(false);
   const [showAddHolding, setShowAddHolding] = useState(false);
   const [showAddDividend, setShowAddDividend] = useState(false);
-  const [portfolioTab, setPortfolioTab] = useState(() => (lsGet("ledger_pat", "") ? "ledger" : "swing"));
+  const [portfolioTab, setPortfolioTabRaw] = useState(() => (lsGet("ledger_pat", "") ? (lsGet("portfolio_tab", "ledger") || "ledger") : "ledger"));
+  const setPortfolioTab = t => { setPortfolioTabRaw(t); lsSet("portfolio_tab", t); };
   const [livePrices, setLivePrices] = useState({});   // symbol → live price
   const [priceDebug, setPriceDebug] = useState(null);  // last fetchBrowserPrices() diagnostics, for surfacing "no price" root cause in-app
   const [showPriceDebug, setShowPriceDebug] = useState(false);
@@ -3649,13 +3948,24 @@ function App() {
   const [kiteDelayed, setKiteDelayed] = useState(false); // true ONLY when it's genuinely market hours and Kite hasn't kept pace — the one case worth a real warning
 
   const BLAST_DISPLAY_CAP = 20;
-  const [holdings, setHoldings] = useState(() => {
+  const [manualHoldings, setHoldings] = useState(() => {
     try { return JSON.parse(localStorage.getItem("nse_lt_holdings") || "[]"); } catch { return []; }
   });
   const saveHoldings = hs => {
     setHoldings(hs);
     try { localStorage.setItem("nse_lt_holdings", JSON.stringify(hs)); } catch {}
   };
+  // With the ledger key saved, every holding comes from your trades (same on
+  // every device). The old phone-only list is used only when there's no key.
+  const ledgerState = useSharedLedgerState();
+  const appLedger = ledgerState.data;
+  const ledgerHoldings = React.useMemo(() => appLedger
+    ? (appLedger.holdings || []).map(h => ({
+        id: `ledger-${h.symbol}`, symbol: h.symbol, qty: h.qty, avgPrice: h.effective_cost,
+        firstBuy: h.first_buy || null, targetExit: null, reentryPrice: null, notes: "", addedDate: null, source: "ledger",
+      }))
+    : null, [appLedger]);
+  const holdings = ledgerHoldings || manualHoldings;
   const [positions, setPositions] = useState(() => {
     try { return JSON.parse(localStorage.getItem("nse_positions") || "[]"); } catch { return []; }
   });
@@ -3907,6 +4217,7 @@ function App() {
         const bySymbol = new Map(current.map(h => [h.symbol, h]));
         let added = 0, updated = 0, removed = 0;
         for (const [sym, z] of Object.entries(data.holdings)) {
+          if (z == null || z.qty == null) continue;   // symbols-only file (quantities are private now)
           const existing = bySymbol.get(sym);
           if (!existing) {
             bySymbol.set(sym, {
@@ -4447,10 +4758,10 @@ function App() {
           {tab === "portfolio" && (
             <div>
               {/* Sub-tab switcher */}
-              <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
-                {[["ledger", "📒 Ledger"], ["swing", "💼 Portfolio"], ["trades", "📜 Trades"], ["longterm", "📦 Long-Term"]].map(([id, label]) => (
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 6, marginBottom: 16 }}>
+                {[["ledger", "📒\nLedger"], ["swing", "💼\nPortfolio"], ["trades", "📜\nTrades"], ["longterm", "📦\nLong-Term"]].map(([id, label]) => (
                   <button key={id} onClick={() => setPortfolioTab(id)}
-                    style={{ flex: 1, padding: "10px 0", borderRadius: 10, border: `1px solid ${portfolioTab === id ? T.accent : T.border}`, background: portfolioTab === id ? T.accentDim : T.card, color: portfolioTab === id ? T.accent : T.muted, fontWeight: 700, fontSize: 12, cursor: "pointer" }}>
+                    style={{ minWidth: 0, whiteSpace: "pre-line", lineHeight: 1.35, padding: "8px 2px", borderRadius: 10, border: `1px solid ${portfolioTab === id ? T.accent : T.border}`, background: portfolioTab === id ? T.accentDim : T.card, color: portfolioTab === id ? T.accent : T.muted, fontWeight: 700, fontSize: 12, cursor: "pointer" }}>
                     {label}
                   </button>
                 ))}
@@ -4460,6 +4771,12 @@ function App() {
 
               {/* ── Portfolio (net positions) sub-tab ── */}
               {portfolioTab === "swing" && (
+                <LedgerGate state={ledgerState} what="Portfolio" onOpenLedger={() => setPortfolioTab("ledger")}>
+                  {d => <AutoPortfolio ledger={d} livePrices={livePrices} scanData={scanData} />}
+                </LedgerGate>
+              )}
+              {/* The old hand-entered portfolio is kept for reference but no longer shown. */}
+              {portfolioTab === "swing_manual" && (
                 <>
                   <PortfolioSummary positions={positions} livePrices={livePrices} tradingDividends={tradingDividends} holdingDividends={holdingDividends} />
 
@@ -4654,6 +4971,11 @@ function App() {
 
               {/* ── Trades (full individual-lot ledger) sub-tab ── */}
               {portfolioTab === "trades" && (
+                <LedgerGate state={ledgerState} what="Trades" onOpenLedger={() => setPortfolioTab("ledger")}>
+                  {d => <AutoTrades ledger={d} />}
+                </LedgerGate>
+              )}
+              {portfolioTab === "trades_manual" && (
                 <>
                   <div style={{ color: T.muted, fontSize: 11, marginBottom: 14 }}>
                     Every individual buy/sell event — the full detail behind the net positions shown on the Portfolio tab.
@@ -4680,14 +5002,17 @@ function App() {
               )}
 
               {/* ── Long-Term Holdings sub-tab ── */}
-              {portfolioTab === "longterm" && (
+              {portfolioTab === "longterm" && !appLedger && (
+                <LedgerGate state={ledgerState} what="Long-Term" onOpenLedger={() => setPortfolioTab("ledger")}>{() => null}</LedgerGate>
+              )}
+              {portfolioTab === "longterm" && appLedger && (
                 <>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
                     <div>
                       <div style={{ color: T.text, fontWeight: 700, fontSize: 14 }}>Long-Term Holdings</div>
-                      <div style={{ color: T.muted, fontSize: 11, marginTop: 2 }}>Scanner alerts you when to exit or re-enter</div>
+                      <div style={{ color: T.muted, fontSize: 11, marginTop: 2 }}>From your trades · the scanner flags when to exit or re-enter</div>
                     </div>
-                    <button onClick={() => setShowAddHolding(true)}
+                    <button onClick={() => setShowAddHolding(true)} hidden={!!appLedger}
                       style={{ background: T.accentDim, border: `1px solid ${T.accent}44`, color: T.accent, borderRadius: 20, padding: "8px 14px", fontSize: 13, fontWeight: 700, cursor: "pointer", flexShrink: 0 }}>
                       + Add
                     </button>
@@ -4709,7 +5034,7 @@ function App() {
                         <div style={{ color: T.muted, fontSize: 10, letterSpacing: 1, marginBottom: 10 }}>HOLDINGS SUMMARY</div>
                         <div style={{ display: "grid", gridTemplateColumns: "repeat(2,1fr)", gap: 10 }}>
                           <Stat label="Holdings" value={holdings.length} />
-                          <Stat label="Total Invested" value={curr(holdings.reduce((s,h) => s + h.avgPrice * h.qty, 0))} />
+                          <Stat label={appLedger ? "Invested (effective)" : "Total Invested"} value={curr(holdings.reduce((s,h) => s + h.avgPrice * h.qty, 0))} />
                           <Stat label="Exit Alerts" value={(scanData?.blast_stocks || []).filter(b => holdings.some(h => h.symbol === b.symbol)).length} color={T.blast} />
                           <Stat label="Re-entry Signals" value={(scanData?.squeeze_stocks || []).filter(sq => holdings.some(h => h.symbol === sq.symbol) && isLiveSignal(sq, livePrices[sq.symbol] || sq.price)).length} color={T.accent} />
                         </div>
@@ -4719,10 +5044,10 @@ function App() {
                           when it's actually needed. Content is always expanded (no tap-to-open
                           step) after tap-to-expand didn't reliably register on mobile — this
                           removes that whole class of failure rather than debugging it blind. */}
-                      {holdings.some(h => !(livePrices[h.symbol])
-                          && !(scanData?.blast_stocks||[]).some(b=>b.symbol===h.symbol)
-                          && !(scanData?.squeeze_stocks||[]).some(s=>s.symbol===h.symbol)
-                          && !(scanData?.watchlist_stocks||[]).some(s=>s.symbol===h.symbol)) && priceDebug && (
+                      {holdings.some(h => !(livePrices[h.symbol] || livePrices[`${h.symbol}-SM`])
+                          && !scanLookup(scanData?.blast_stocks, h.symbol)
+                          && !scanLookup(scanData?.squeeze_stocks, h.symbol)
+                          && !scanLookup(scanData?.watchlist_stocks, h.symbol)) && priceDebug && (
                         <div style={{ background: T.card, border: `1px solid ${T.warn}44`, borderRadius: 10, padding: 12, marginBottom: 14 }}>
                           <div style={{ color: T.warn, fontSize: 11, fontWeight: 700, marginBottom: 10 }}>
                             🔍 Price fetch diagnostics — some holdings have no price
@@ -4747,17 +5072,17 @@ function App() {
                         </div>
                       )}
                       {/* Exit alerts first */}
-                      {holdings.filter(h => (scanData?.blast_stocks || []).some(b => b.symbol === h.symbol)).map(h => (
+                      {holdings.filter(h => scanLookup(scanData?.blast_stocks, h.symbol)).map(h => (
                         <LongTermRow key={h.id} holding={h} onDelete={id => saveHoldings(holdings.filter(x => x.id !== id))} scanData={scanData} livePrices={livePrices} pricesStale={pricesStale} />
                       ))}
                       {/* Then re-entry signals */}
-                      {holdings.filter(h => (scanData?.squeeze_stocks || []).some(sq => sq.symbol === h.symbol)).map(h => (
+                      {holdings.filter(h => !scanLookup(scanData?.blast_stocks, h.symbol) && scanLookup(scanData?.squeeze_stocks, h.symbol)).map(h => (
                         <LongTermRow key={h.id} holding={h} onDelete={id => saveHoldings(holdings.filter(x => x.id !== id))} scanData={scanData} livePrices={livePrices} pricesStale={pricesStale} />
                       ))}
                       {/* Then the rest */}
                       {holdings.filter(h =>
-                        !(scanData?.blast_stocks || []).some(b => b.symbol === h.symbol) &&
-                        !(scanData?.squeeze_stocks || []).some(sq => sq.symbol === h.symbol)
+                        !scanLookup(scanData?.blast_stocks, h.symbol) &&
+                        !scanLookup(scanData?.squeeze_stocks, h.symbol)
                       ).map(h => (
                         <LongTermRow key={h.id} holding={h} onDelete={id => saveHoldings(holdings.filter(x => x.id !== id))} scanData={scanData} livePrices={livePrices} pricesStale={pricesStale} />
                       ))}
@@ -4782,6 +5107,7 @@ function App() {
                 { title: "🔴 What is End of Blast?", color: T.blast, body: "BB bands expand and Stochastic K exceeds 75 while price holds above EMA10. This is the EXIT signal — book profits before the next correction." },
                 { title: "👀 What is the Watchlist?", color: T.warn, body: "A looser, earlier tier for stocks that are visibly tightening (BB width under 9%) and turning up, but haven't yet cleared the strict 4.5% squeeze threshold or the 15% return target. Nothing here is a confirmed signal — it's a heads-up that a stock is forming. When a watchlist stock later earns a real squeeze signal, it's marked 'GRADUATED' with its full history." },
                 { title: "⛔ Below the −7% stop", color: T.red, body: "Every In Play card now measures its GTT target and −7% stop from the ENTRY price — the way the strategy was backtested. A stock that has fallen more than 7% below its entry stays on the scanner's list until a blast exit fires, but it is no longer a fresh entry: it is shown with a red banner and grouped under 'Below the −7% stop' at the bottom of the Long tab, and left out of the tab badges, 3%+ and H+S." },
+                { title: "💼 Portfolio, 📜 Trades, 📦 Long-Term — automatic", color: T.accent, body: "All three are built from your trade ledger (Zerodha tradebooks + the evening Kite capture), so there is nothing to add or remove by hand and every device with your read-only key shows the same thing.\nPortfolio: holdings value, unrealised P&L, booked P&L by month, win rate and hold time on exits (tax-harvest sell-and-rebuys aren't counted as exits), every sale in the year.\nTrades: every buy, sell and corporate action — search, filter by side or year; sells show the P&L booked that day.\nLong-Term: each holding with the scanner's exit / re-entry / forming read." },
                 { title: "🧭 Reading the Long tab order", color: T.accent, body: "Live cards are ranked best-first: validated signals (STRONG + weekly trend confirmed), then conviction and confidence, with a bonus for still being near entry. A card within 2% of its −7% stop shows an amber warning and drops to the bottom. If you already own the stock, the card shows your quantity and effective cost from the ledger.\nA scan that finishes after midnight belongs to the previous session — the header shows it as e.g. “scan 11-05 close (ran 11-06 00:57)”." },
                 { title: "🔻 Short tab", color: T.red, body: "Short Entries are bearish squeezes. Breaking Down lists stocks already falling — ranked by how much fall is left to the cover level. A short whose price has climbed back above its stop is marked STOP HIT (and hidden from Breaking Down), because the setup has failed." },
                 { title: "📒 Ledger — three costs", color: T.accent, body: "Original buy price: what you first paid, carried through tax-harvest sell-and-rebuys.\nEffective cost (all-in): your true break-even — every buy, sell, intraday trade and charge for the current holding, divided by shares held.\nTax cost (FIFO): the cost the tax rules use, so it resets when you harvest a loss or gain.\nThe ledger rebuilds itself every evening from Kite, and whenever you upload a tradebook or edit ledger/adjustments.csv (IPO allotments, rights, buybacks, splits, demergers)." },
