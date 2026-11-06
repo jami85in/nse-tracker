@@ -359,7 +359,7 @@ const RAW_BASE    = `https://raw.githubusercontent.com/${GITHUB_USER}/${GITHUB_R
 // instead of requiring a manual file diff to find out. This exists because
 // PWA/service-worker caching has repeatedly made "is this actually deployed
 // yet" the hardest part of diagnosing issues in this app.
-const BUILD_VERSION = "2026-11-06.7";
+const BUILD_VERSION = "2026-11-06.8";
 const GITHUB_APP_ACTIONS_URL = `https://github.com/${GITHUB_USER}/${GITHUB_REPO}/actions/workflows/scan.yml`;
 
 // ── Fetch strategy ────────────────────────────────────────────────────────────
@@ -2438,7 +2438,7 @@ function MonitorPage({ scanData, positions, holdings, livePrices, priceUpdated, 
                 const r = ledger.returns.since_first_trade, cur = (ledger.returns.by_fy || []).slice(-1)[0];
                 return (
                   <div style={{ color: T.muted, fontSize: 10, marginTop: 8, lineHeight: 1.6 }}>
-                    Return since {r.from}: <b style={{ color: pcCol(r.xirr_pct) }}>{pcTxt(r.xirr_pct)} a year</b> (Nifty {pcTxt(r.nifty_annual_pct)})
+                    Return since {r.from}: <b style={{ color: pcCol(r.xirr_pct) }}>{pcTxt(r.xirr_pct)} a year</b> (same money in Nifty {pcTxt(r.nifty_same_money_xirr_pct ?? r.nifty_annual_pct)})
                     {cur && <> · {cur.fy} so far <b style={{ color: pcCol(cur.return_pct) }}>{pcTxt(cur.return_pct)}</b> (Nifty {pcTxt(cur.nifty_pct)})</>}
                   </div>
                 );
@@ -3502,6 +3502,37 @@ function ReturnsCard({ r }) {
         <Stat label="Time-weighted, a year" value={pcTxt(s.twr_annual_pct)} color={pcCol(s.twr_annual_pct)} sub={`${pcTxt(s.twr_total_pct)} in total`} />
         <Stat label="Nifty 50, a year" value={pcTxt(s.nifty_annual_pct)} color={pcCol(s.nifty_annual_pct)} sub={`${pcTxt(s.nifty_total_pct)} in total`} />
       </div>
+      {s.nifty_same_money_value != null && (() => {
+        const dv = s.current_value - s.nifty_same_money_value;
+        const dx = s.xirr_pct != null && s.nifty_same_money_xirr_pct != null ? s.xirr_pct - s.nifty_same_money_xirr_pct : null;
+        const ahead = dv >= 0;
+        const cell = (label, you, nifty, fmtV) => (
+          <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr 1fr", gap: 6, fontSize: 12, padding: "5px 0", borderTop: `1px solid ${T.border}` }}>
+            <span style={{ color: T.muted }}>{label}</span>
+            <span style={{ textAlign: "right", fontWeight: 800, color: T.text }}>{fmtV(you)}</span>
+            <span style={{ textAlign: "right", color: T.text }}>{fmtV(nifty)}</span>
+          </div>
+        );
+        return (
+          <div style={{ marginTop: 12, background: (ahead ? T.green : T.red) + "12", border: `1px solid ${(ahead ? T.green : T.red)}44`, borderRadius: 10, padding: 10 }}>
+            <div style={{ color: ahead ? T.green : T.red, fontWeight: 800, fontSize: 13 }}>
+              {ahead ? "✅ Ahead of" : "⚠️ Behind"} the same money in Nifty 50 by {rs(Math.abs(dv))}{dx != null ? ` · ${Math.abs(dx).toFixed(1)}% a year ${dx >= 0 ? "ahead" : "behind"}` : ""}
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr 1fr", gap: 6, fontSize: 9, color: T.muted, letterSpacing: 0.5, marginTop: 8 }}>
+              <span></span><span style={{ textAlign: "right" }}>YOU</span><span style={{ textAlign: "right" }}>NIFTY 50</span>
+            </div>
+            {cell("Value today", s.current_value, s.nifty_same_money_value, rs)}
+            {cell("Gain", s.gain, s.nifty_same_money_gain, sgnRs)}
+            {cell("Return a year (XIRR)", s.xirr_pct, s.nifty_same_money_xirr_pct, pcTxt)}
+            <div style={{ color: T.muted, fontSize: 10, marginTop: 6, lineHeight: 1.5 }}>
+              Every rupee you put in or took out — and every dividend you received — moved in or out of Nifty 50 on the same day instead.
+              Nifty's own dividends are added at an estimated {((s.nifty_dividend_yield_assumed || 0) * 100).toFixed(1)}% a year
+              {s.nifty_same_money_xirr_pct_price_only != null ? ` (index alone: ${pcTxt(s.nifty_same_money_xirr_pct_price_only)} a year, ${sgnRs(s.nifty_same_money_gain_price_only)})` : ""}.
+              {s.nifty_mirror_went_negative ? " At times you'd taken out more than the Nifty copy held, so treat its figures as approximate." : ""}
+            </div>
+          </div>
+        );
+      })()}
       <div style={{ color: T.muted, fontSize: 11, marginTop: 10, lineHeight: 1.6 }}>
         Gain <b style={{ color: s.gain >= 0 ? T.green : T.red }}>{sgnRs(s.gain)}</b>: you put in {rs(s.money_in)}, took out {rs(s.money_out)},
         received {rs(s.dividends)} in dividends, and hold {rs(s.current_value)} now.
@@ -3519,14 +3550,16 @@ function ReturnsCard({ r }) {
               </span>
               <span style={{ textAlign: "right", fontWeight: 800, color: pcCol(x.return_pct) }}>{pcTxt(x.return_pct)}</span>
               <span style={{ textAlign: "right", color: pcCol(x.nifty_pct) }}>{pcTxt(x.nifty_pct)}</span>
-              <span style={{ textAlign: "right", color: x.gain >= 0 ? T.green : T.red }}>{sgnRs(x.gain)}</span>
+              <span style={{ textAlign: "right", color: x.gain >= 0 ? T.green : T.red }}>{sgnRs(x.gain)}
+                {x.nifty_same_money_gain != null && <span style={{ color: T.muted, fontSize: 9, display: "block" }}>Nifty {sgnRs(x.nifty_same_money_gain)}</span>}
+              </span>
             </div>
           ))}
         </div>
       )}
       <div style={{ color: T.muted, fontSize: 10, marginTop: 8, lineHeight: 1.5 }}>
         Each year values your holdings at NSE's closing prices on 31 March and counts buys, sales, buyback proceeds and dividends on the day they happened
-        (Modified Dietz). XIRR is the yearly rate your money grew at; time-weighted ignores when you added money, so it's the fair comparison with Nifty.
+        (Modified Dietz). XIRR is the yearly rate your money grew at; time-weighted ignores when you added money. "Nifty" under each year's gain is what the same money would have made in Nifty 50 that year.
         {approxN > 0 && ` ${approxN} stock(s) had no NSE price on a year-end and were valued at their last trade price.`}
         {r.share_log_mismatch ? ` ⚠ ${r.share_log_mismatch} stock(s) didn't reconcile — treat these figures as approximate.` : ""}
       </div>
