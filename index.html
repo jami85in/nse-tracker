@@ -359,7 +359,7 @@ const RAW_BASE    = `https://raw.githubusercontent.com/${GITHUB_USER}/${GITHUB_R
 // instead of requiring a manual file diff to find out. This exists because
 // PWA/service-worker caching has repeatedly made "is this actually deployed
 // yet" the hardest part of diagnosing issues in this app.
-const BUILD_VERSION = "2026-11-06.5";
+const BUILD_VERSION = "2026-11-06.6";
 const GITHUB_APP_ACTIONS_URL = `https://github.com/${GITHUB_USER}/${GITHUB_REPO}/actions/workflows/scan.yml`;
 
 // ── Fetch strategy ────────────────────────────────────────────────────────────
@@ -2398,6 +2398,7 @@ function MonitorPage({ scanData, positions, holdings, livePrices, priceUpdated, 
         )}
       </div>
 
+      {ledger && <ActionsCard actions={ledger.upcoming_actions} compact />}
       {/* Alerts — the most important section, shown first */}
       {alerts.length > 0 && (
         <Section title="⚠️ Alerts" count={alerts.length} color={T.red}>
@@ -2433,6 +2434,15 @@ function MonitorPage({ scanData, positions, holdings, livePrices, priceUpdated, 
                   Strongest: {movers.slice(-3).reverse().map(m => `${m.sym} ${m.r >= 0 ? "+" : ""}${m.r.toFixed(1)}%`).join(" · ")}
                 </div>
               )}
+              {ledger.returns?.since_first_trade && (() => {
+                const r = ledger.returns.since_first_trade, cur = (ledger.returns.by_fy || []).slice(-1)[0];
+                return (
+                  <div style={{ color: T.muted, fontSize: 10, marginTop: 8, lineHeight: 1.6 }}>
+                    Return since {r.from}: <b style={{ color: pcCol(r.xirr_pct) }}>{pcTxt(r.xirr_pct)} a year</b> (Nifty {pcTxt(r.nifty_annual_pct)})
+                    {cur && <> · {cur.fy} so far <b style={{ color: pcCol(cur.return_pct) }}>{pcTxt(cur.return_pct)}</b> (Nifty {pcTxt(cur.nifty_pct)})</>}
+                  </div>
+                );
+              })()}
               <div style={{ color: T.muted, fontSize: 9, marginTop: 8 }}>From your Zerodha trades · vs effective (all-in) cost · details in Portfolio → 📒 Ledger</div>
             </div>
           </Section>
@@ -3209,7 +3219,7 @@ function AutoPortfolio({ ledger, livePrices, scanData }) {
   const fyR = (ledger.realized_by_fy || {})[fy] || {};
   const sales = (ledger.sales || []).filter(s => s.fy === fy).sort((a, b) => b.d.localeCompare(a.d));
   const booked = sales.reduce((a, s) => a + (s.pnl || 0), 0);
-  const exits = sales.filter(s => s.kind === "delivery" && !s.rebought);
+  const exits = sales.filter(s => (s.kind === "delivery" && !s.rebought) || s.kind === "buyback");
   const wins = exits.filter(s => s.pnl > 0), losses = exits.filter(s => s.pnl <= 0);
   const avg = xs => (xs.length ? xs.reduce((a, s) => a + s.pnl, 0) / xs.length : null);
   const avgDays = exits.length ? Math.round(exits.reduce((a, s) => a + (s.days || 0), 0) / exits.length) : null;
@@ -3299,10 +3309,11 @@ function AutoPortfolio({ ledger, livePrices, scanData }) {
             <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
               <span style={{ fontFamily: "monospace", fontWeight: 700, fontSize: 13, color: T.text }}>{s.s}</span>
               {s.kind === "intraday" ? <Pill label="⚡ INTRADAY" color={T.warn} /> : <Pill label={s.term === "LT" ? "LONG-TERM" : "SHORT-TERM"} color={T.muted} />}
+              {s.kind === "buyback" && <Pill label="🏢 BUYBACK" color={T.warn} />}
               {s.rebought && <Pill label="♻️ REBOUGHT" color={T.accent} />}
             </div>
             <div style={{ color: T.muted, fontSize: 10, marginTop: 1 }}>
-              {s.d} · {s.q} sh · {rs(s.buy)} → {rs(s.sell)}{s.kind === "delivery" ? ` · held ${s.days}d` : ""}
+              {s.d} · {s.q} sh · {rs(s.buy)} → {rs(s.sell)}{s.kind !== "intraday" ? ` · held ${s.days}d` : ""}
             </div>
           </div>
           <div style={{ textAlign: "right", flexShrink: 0 }}>
@@ -3409,6 +3420,201 @@ function AutoTrades({ ledger }) {
   );
 }
 
+// ── Ledger cards: corporate actions, returns, tax estimate ──
+const pcTxt = v => (v == null ? "—" : `${v >= 0 ? "+" : ""}${v.toFixed(1)}%`);
+const pcCol = v => (v == null ? T.muted : v >= 0 ? T.green : T.red);
+const caKey = i => `${i.symbol}|${i.kind}|${i.record_date || ""}`;
+
+function ActionsCard({ actions, compact }) {
+  const [dismissed, setDismissed] = useState(() => { try { return JSON.parse(lsGet("ca_dismissed", "[]")) || []; } catch { return []; } });
+  if (!actions) return null;
+  const today = new Date().toISOString().slice(0, 10);
+  const items = actions.items || [];
+  const need = items.filter(i => i.needs_action && !dismissed.includes(caKey(i)));
+  const info = items.filter(i => !i.needs_action && (i.ex_date || i.record_date || "") >= today);
+  if (compact && need.length === 0) return null;
+  const dismiss = k => { const n = [...dismissed, k]; setDismissed(n); lsSet("ca_dismissed", JSON.stringify(n)); };
+  const failed = actions.status && actions.status.error;
+  return (
+    <div style={{ background: need.length ? T.warn + "14" : T.card, border: `1px solid ${need.length ? T.warn + "66" : T.border}`, borderRadius: 12, padding: 14, marginBottom: 12 }}>
+      <div style={{ color: need.length ? T.warn : T.muted, fontWeight: 800, fontSize: 13 }}>
+        {need.length ? `⚠️ ${need.length} corporate action${need.length > 1 ? "s" : ""} need${need.length > 1 ? "" : "s"} your input` : "✅ No corporate actions need your input"}
+      </div>
+      {need.map(i => (
+        <div key={caKey(i)} style={{ background: T.card, borderRadius: 8, padding: 10, marginTop: 8, border: `1px solid ${T.border}` }}>
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "baseline" }}>
+            <span style={{ fontFamily: "monospace", fontWeight: 800, color: T.text, fontSize: 13 }}>{i.symbol}</span>
+            <span style={{ color: T.warn, fontSize: 11, fontWeight: 700, whiteSpace: "nowrap" }}>
+              {i.record_date ? `${i.record_date < today ? "record date was" : "record date"} ${i.record_date}` : "now"}
+            </span>
+          </div>
+          <div style={{ color: T.text, fontSize: 12, marginTop: 3 }}>{i.purpose}{i.qty ? ` · you hold ${i.qty}` : ""}</div>
+          <div style={{ color: T.muted, fontSize: 11, marginTop: 4, lineHeight: 1.5 }}>{i.what_to_do}</div>
+          <div onClick={() => dismiss(caKey(i))} style={{ color: T.accent, fontSize: 11, marginTop: 6, cursor: "pointer", display: "inline-block" }}>✓ Done — hide on this device</div>
+        </div>
+      ))}
+      {!compact && info.length > 0 && (
+        <div style={{ marginTop: 10 }}>
+          <div style={{ color: T.muted, fontSize: 10, letterSpacing: 0.6, marginBottom: 2 }}>COMING UP · HAPPENS AUTOMATICALLY</div>
+          {info.slice(0, 10).map(i => (
+            <div key={caKey(i)} style={{ display: "flex", justifyContent: "space-between", fontSize: 11, padding: "3px 0", color: T.text, gap: 8 }}>
+              <span style={{ minWidth: 0 }}>{i.symbol} · {i.purpose}</span>
+              <span style={{ color: T.muted, whiteSpace: "nowrap" }}>ex {i.ex_date || i.record_date}</span>
+            </div>
+          ))}
+        </div>
+      )}
+      {!compact && (
+        <div style={{ color: failed ? T.red : T.muted, fontSize: 10, marginTop: 8, lineHeight: 1.5 }}>
+          {failed
+            ? `The last check couldn't reach BSE (${actions.status.error}); showing what was found before.`
+            : `Checked ${String(actions.fetched_at || "").slice(0, 10)} against BSE's corporate-action list (matched to your holdings by ISIN), plus rights entitlements in your demat.`}
+          {" "}NSE-only SME stocks and offers-for-sale aren't covered.
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ReturnsCard({ r }) {
+  const [open, setOpen] = useState(true);
+  if (!r || !r.since_first_trade) return null;
+  const s = r.since_first_trade;
+  const rows = [...(r.by_fy || [])].reverse();
+  const approxN = new Set(rows.flatMap(x => x.approx_prices || [])).size;
+  return (
+    <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, padding: 16, marginBottom: 12 }}>
+      <div style={{ color: T.muted, fontSize: 11, letterSpacing: 1 }}>📈 RETURNS SINCE YOUR FIRST TRADE · {s.from}</div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(2,1fr)", gap: 12, marginTop: 10 }}>
+        <Stat label="Your return a year (XIRR)" value={pcTxt(s.xirr_pct)} color={pcCol(s.xirr_pct)} sub="on the money you actually put in" />
+        <Stat label="Average yearly return" value={pcTxt(s.avg_fy_pct)} color={pcCol(s.avg_fy_pct)} sub={s.full_years ? `of ${s.full_years} full year${s.full_years > 1 ? "s" : ""}` : "no full year yet"} />
+        <Stat label="Time-weighted, a year" value={pcTxt(s.twr_annual_pct)} color={pcCol(s.twr_annual_pct)} sub={`${pcTxt(s.twr_total_pct)} in total`} />
+        <Stat label="Nifty 50, a year" value={pcTxt(s.nifty_annual_pct)} color={pcCol(s.nifty_annual_pct)} sub={`${pcTxt(s.nifty_total_pct)} in total`} />
+      </div>
+      <div style={{ color: T.muted, fontSize: 11, marginTop: 10, lineHeight: 1.6 }}>
+        Gain <b style={{ color: s.gain >= 0 ? T.green : T.red }}>{sgnRs(s.gain)}</b>: you put in {rs(s.money_in)}, took out {rs(s.money_out)},
+        received {rs(s.dividends)} in dividends, and hold {rs(s.current_value)} now.
+      </div>
+      <div onClick={() => setOpen(v => !v)} style={{ color: T.muted, fontSize: 10, letterSpacing: 0.6, margin: "12px 0 4px", cursor: "pointer" }}>YEAR BY YEAR {open ? "▲" : "▼"}</div>
+      {open && (
+        <div>
+          <div style={{ display: "grid", gridTemplateColumns: "1.3fr 0.9fr 0.9fr 1.2fr", gap: 6, color: T.muted, fontSize: 9, letterSpacing: 0.5, padding: "2px 0" }}>
+            <span>YEAR</span><span style={{ textAlign: "right" }}>YOU</span><span style={{ textAlign: "right" }}>NIFTY</span><span style={{ textAlign: "right" }}>GAIN</span>
+          </div>
+          {rows.map(x => (
+            <div key={x.fy} style={{ display: "grid", gridTemplateColumns: "1.3fr 0.9fr 0.9fr 1.2fr", gap: 6, fontSize: 12, padding: "5px 0", borderTop: `1px solid ${T.border}`, alignItems: "baseline" }}>
+              <span style={{ color: T.text }}>{x.fy}
+                <span style={{ color: T.muted, fontSize: 9, display: "block" }}>{!x.complete ? "so far" : x.partial ? `from ${x.from}` : "full year"}</span>
+              </span>
+              <span style={{ textAlign: "right", fontWeight: 800, color: pcCol(x.return_pct) }}>{pcTxt(x.return_pct)}</span>
+              <span style={{ textAlign: "right", color: pcCol(x.nifty_pct) }}>{pcTxt(x.nifty_pct)}</span>
+              <span style={{ textAlign: "right", color: x.gain >= 0 ? T.green : T.red }}>{sgnRs(x.gain)}</span>
+            </div>
+          ))}
+        </div>
+      )}
+      <div style={{ color: T.muted, fontSize: 10, marginTop: 8, lineHeight: 1.5 }}>
+        Each year values your holdings at NSE's closing prices on 31 March and counts buys, sales, buyback proceeds and dividends on the day they happened
+        (Modified Dietz). XIRR is the yearly rate your money grew at; time-weighted ignores when you added money, so it's the fair comparison with Nifty.
+        {approxN > 0 && ` ${approxN} stock(s) had no NSE price on a year-end and were valued at their last trade price.`}
+        {r.share_log_mismatch ? ` ⚠ ${r.share_log_mismatch} stock(s) didn't reconcile — treat these figures as approximate.` : ""}
+      </div>
+    </div>
+  );
+}
+
+// Capital-gains tax so far this year, and what booking unrealised losses would save.
+// Rates for FY2026-27 (Income-tax Act 2025): listed shares — short-term 20%,
+// long-term 12.5% above ₹1.25 lakh a year. Short-term losses can absorb
+// long-term gains; long-term losses only long-term gains.
+const LTCG_EXEMPT = 125000;
+function cgTax(st, lt) {
+  let s = st, l = lt;
+  if (s < 0) { l += s; s = 0; }
+  return 0.20 * Math.max(s, 0) + 0.125 * Math.max(l - LTCG_EXEMPT, 0);
+}
+function TaxCard({ data, H, fy }) {
+  const [open, setOpen] = useState(false);
+  const fyR = (data.realized_by_fy || {})[fy] || {};
+  const st = fyR.stcg || 0, lt = fyR.ltcg || 0;
+  const tax = cgTax(st, lt);
+  const today = new Date().toISOString().slice(0, 10);
+  let uSt = 0, uLt = 0;
+  const losers = [];
+  H.forEach(h => {
+    if (h.px == null) return;
+    let a = 0, b = 0;
+    (h.lots || []).forEach(l => {
+      const g = (h.px - l.cost_ps) * l.qty;
+      if (today > l.long_term_from) b += g; else a += g;
+    });
+    uSt += Math.min(a, 0); uLt += Math.min(b, 0);
+    if (a + b < -1) losers.push({ sym: h.symbol, loss: Math.min(a, 0) + Math.min(b, 0), st: a < 0 });
+  });
+  losers.sort((x, y) => x.loss - y.loss);
+  // lots in profit that turn long-term soon: selling first means 20% instead of 12.5%
+  const soon = [];
+  const in60 = new Date(Date.now() + 60 * 86400000).toISOString().slice(0, 10);
+  H.forEach(h => {
+    if (h.px == null) return;
+    (h.lots || []).forEach(l => {
+      const g = (h.px - l.cost_ps) * l.qty;
+      if (l.long_term_from > today && l.long_term_from <= in60 && g > 0) soon.push({ sym: h.symbol, on: l.long_term_from, g });
+    });
+  });
+  soon.sort((a, b) => a.on.localeCompare(b.on));
+  const after = cgTax(st + uSt, lt + uLt);
+  const saving = Math.max(0, tax - after);
+  const divs = (data.dividends || []).filter(d => fyOfDate(d.ex_date) === fy);
+  const tds = divs.reduce((a, d) => a + (d.tds || 0), 0);
+  const row = (label, v, tx, note) => (
+    <div style={{ display: "flex", justifyContent: "space-between", gap: 8, fontSize: 12, padding: "4px 0", borderTop: `1px solid ${T.border}` }}>
+      <span style={{ color: T.text }}>{label}{note && <span style={{ color: T.muted, fontSize: 10, display: "block" }}>{note}</span>}</span>
+      <span style={{ textAlign: "right", whiteSpace: "nowrap" }}>
+        <span style={{ color: v >= 0 ? T.text : T.red }}>{sgnRs(v)}</span>
+        {tx != null && <span style={{ color: T.warn, display: "block", fontSize: 10 }}>tax ≈ {rs(tx)}</span>}
+      </span>
+    </div>
+  );
+  return (
+    <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, padding: 16, marginBottom: 12 }}>
+      <div onClick={() => setOpen(v => !v)} style={{ display: "flex", justifyContent: "space-between", cursor: "pointer" }}>
+        <span style={{ color: T.muted, fontSize: 11, letterSpacing: 1 }}>🧾 TAX ESTIMATE · {fy} SO FAR</span>
+        <span style={{ color: T.warn, fontWeight: 800, fontSize: 13 }}>{rs(tax)} {open ? "▲" : "▼"}</span>
+      </div>
+      {saving > 1 && (
+        <div style={{ color: T.accent, fontSize: 11, marginTop: 6, lineHeight: 1.5 }}>
+          Booking your unrealised losses ({sgnRs(uSt + uLt)}) before 31 March would lower this by about {rs(saving)}.
+        </div>
+      )}
+      {open && (
+        <div style={{ marginTop: 8 }}>
+          {row("Short-term gains", st, 0.20 * Math.max(st < 0 ? 0 : st, 0), "listed shares, 20%")}
+          {row("Long-term gains", lt, 0.125 * Math.max(lt + Math.min(st, 0) - LTCG_EXEMPT, 0), `12.5% above ₹1.25 lakh${lt + Math.min(st, 0) > LTCG_EXEMPT ? " (exemption used up)" : ""}`)}
+          {row("Intraday", fyR.intraday || 0, null, "speculative business income — taxed at the HUF's slab rate")}
+          {row("Dividends", fyR.dividends_gross || 0, null, `taxed at the slab rate · TDS deducted ≈ ${rs(tds)} (check it against your AIS / 26AS)`)}
+          {losers.length > 0 && (
+            <div style={{ fontSize: 11, color: T.muted, marginTop: 8, lineHeight: 1.6 }}>
+              Unrealised losses on tax cost: {losers.slice(0, 6).map(x => `${x.sym} ${sgnRs(x.loss)}${x.st ? "" : " (LT)"}`).join(" · ")}
+              {losers.length > 6 ? ` · +${losers.length - 6} more` : ""}.
+              Short-term losses can absorb both short- and long-term gains; long-term losses only long-term gains.
+            </div>
+          )}
+          {soon.length > 0 && (
+            <div style={{ fontSize: 11, color: T.warn, marginTop: 8, lineHeight: 1.6 }}>
+              Turning long-term soon (wait to sell, 12.5% instead of 20%): {soon.slice(0, 6).map(x => `${x.sym} on ${x.on} (gain ${sgnRs(x.g)})`).join(" · ")}
+            </div>
+          )}
+          <div style={{ fontSize: 10, color: T.muted, marginTop: 8, lineHeight: 1.6 }}>
+            Advance tax: 45% of the year's tax by 15 Sep, 75% by 15 Dec, 100% by 15 Mar — tax on capital gains can be paid in the instalments after the gain arises.
+            Estimate only: 4% cess and any surcharge aren't included, and losses brought forward from earlier years aren't known here. Confirm with your tax return.
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function LedgerPanel({ livePrices }) {
   const [pat, setPat] = useState(() => lsGet("ledger_pat", ""));
   const [repo, setRepo] = useState(() => lsGet("ledger_repo", "jami85in/nse-tracker-secrets"));
@@ -3418,6 +3624,7 @@ function LedgerPanel({ livePrices }) {
   const [loading, setLoading] = useState(false);
   const [showWarn, setShowWarn] = useState(false);
   const [showClosed, setShowClosed] = useState(false);
+  const [showAllDiv, setShowAllDiv] = useState(false);
 
   const load = useCallback(() => {
     if (!pat) return;
@@ -3470,6 +3677,7 @@ function LedgerPanel({ livePrices }) {
       {loading && !data && <div style={{ color: T.muted, textAlign: "center", padding: 30 }}>Loading ledger…</div>}
       {data && (
         <>
+          <ActionsCard actions={data.upcoming_actions} />
           <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, padding: 16, marginBottom: 12 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
               <div style={{ color: T.muted, fontSize: 11, letterSpacing: 1 }}>FROM YOUR TRADES</div>
@@ -3487,7 +3695,8 @@ function LedgerPanel({ livePrices }) {
                 <Stat label="STCG" value={sgnRs(fyR.stcg || 0)} color={(fyR.stcg || 0) >= 0 ? T.green : T.red} />
                 <Stat label="LTCG" value={sgnRs(fyR.ltcg || 0)} color={(fyR.ltcg || 0) >= 0 ? T.green : T.red} />
                 <Stat label="Intraday" value={sgnRs(fyR.intraday || 0)} color={(fyR.intraday || 0) >= 0 ? T.green : T.red} />
-                <Stat label="Dividends" value={rs(fyR.dividends_gross || 0)} color={T.green} />
+                <Stat label="Dividends" value={rs(fyR.dividends_gross || 0)} color={T.green}
+                  sub={(() => { const bb = (data.dividends || []).filter(d => d.buyback && fyOfDate(d.ex_date) === fy).reduce((a, d) => a + d.gross, 0); return bb ? `incl. buyback ${rs(bb)}` : null; })()} />
                 <Stat label="Charges" value={rs(fyR.charges || 0)} color={T.red} />
                 <Stat label="of which STT" value={rs(fyR.stt || 0)} />
               </div>
@@ -3496,7 +3705,26 @@ function LedgerPanel({ livePrices }) {
               Trades to {data.sources?.last_trade || "—"} · Zerodha holdings as of {data.sources?.holdings_snapshot || "—"}{stale ? " (updates after today's close)" : ""} · {data.sources?.tradebooks?.length || 0} tradebook file(s) + {data.sources?.kite_days || 0} auto-captured day(s).
               {priced.length < H.length && <> {H.length - priced.length} holding(s) have no price yet and are left out of the totals.</>}
             </div>
+            {priced.length > 1 && value > 0 && (() => {
+              const w = priced.map(h => ({ s: h.symbol, p: h.value / value * 100 })).sort((a, b) => b.p - a.p);
+              const top5 = w.slice(0, 5).reduce((a, x) => a + x.p, 0);
+              const heavy = w[0].p > 25;
+              return (
+                <div style={{ marginTop: 10, paddingTop: 10, borderTop: `1px solid ${T.border}` }}>
+                  <div style={{ color: T.muted, fontSize: 10, letterSpacing: 0.6, marginBottom: 6 }}>WHERE THE MONEY IS</div>
+                  <div style={{ display: "flex", height: 10, borderRadius: 5, overflow: "hidden", background: T.surface }}>
+                    {w.slice(0, 6).map((x, i) => <div key={x.s} title={`${x.s} ${x.p.toFixed(1)}%`} style={{ width: `${x.p}%`, background: [T.accent, T.blast, T.warn, T.green, "#8B9CFF", "#C084FC"][i], opacity: 0.85 }} />)}
+                  </div>
+                  <div style={{ color: heavy ? T.warn : T.muted, fontSize: 10, marginTop: 6, lineHeight: 1.5 }}>
+                    {w.slice(0, 4).map(x => `${x.s} ${x.p.toFixed(0)}%`).join(" · ")} · top 5 = {top5.toFixed(0)}% of value
+                    {heavy && ` — ${w[0].s} alone is ${w[0].p.toFixed(0)}%, so one stock drives most of the result.`}
+                  </div>
+                </div>
+              );
+            })()}
           </div>
+          <ReturnsCard r={data.returns} />
+          <TaxCard data={data} H={H} fy={fy} />
 
           {(data.warnings || []).length > 0 && (
             <div style={{ background: T.warnDim, border: `1px solid ${T.warn}55`, borderRadius: 10, padding: 12, marginBottom: 12 }}>
@@ -3518,6 +3746,7 @@ function LedgerPanel({ livePrices }) {
                   <div>
                     <div style={{ color: T.text, fontWeight: 800, fontSize: 15, fontFamily: "monospace" }}>{h.symbol}</div>
                     <div style={{ color: T.muted, fontSize: 11 }}>{h.qty} sh · since {h.first_buy || "—"}</div>
+                    {pe != null && pe < 0 && h.px > 0 && <div style={{ color: T.warn, fontSize: 10 }}>needs +{((h.effective_cost / h.px - 1) * 100).toFixed(1)}% to break even</div>}
                   </div>
                   <div style={{ textAlign: "right" }}>
                     <div style={{ color: T.text, fontWeight: 700 }}>{h.px != null ? rs(h.px) : "no price"}</div>
@@ -3528,7 +3757,7 @@ function LedgerPanel({ livePrices }) {
                   <Stat label="Original buy price" value={h.original_cost != null ? rs(h.original_cost) : "—"} sub={pctTxt(po)} />
                   <Stat label="Effective cost (all-in)" value={rs(h.effective_cost)} sub={pctTxt(pe)} />
                   <Stat label="Tax cost (FIFO)" value={rs(h.tax_cost)} sub={pctTxt(pt)} />
-                  <Stat label="Value" value={rs(h.value)} />
+                  <Stat label="Value" value={rs(h.value)} sub={h.value != null ? `P&L ${sgnRs(h.value - h.net_invested)}` : null} />
                 </div>
                 <div style={{ color: T.muted, fontSize: 10, marginTop: 6, lineHeight: 1.5 }}>
                   {h.dividends_gross > 0 && <>After ₹{Math.round(h.dividends_gross).toLocaleString("en-IN")} dividends, break-even is {rs(h.breakeven_after_div)}. </>}
@@ -3567,12 +3796,40 @@ function LedgerPanel({ livePrices }) {
           {(data.dividends || []).length > 0 && (
             <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: 12, marginBottom: 8 }}>
               <div style={{ color: T.muted, fontSize: 11, letterSpacing: 1, marginBottom: 6 }}>DIVIDENDS (AUTO)</div>
-              {data.dividends.slice(0, 12).map((d, i) => (
-                <div key={i} style={{ display: "flex", justifyContent: "space-between", fontSize: 11, padding: "3px 0", color: T.text }}>
-                  <span>{d.symbol} · ex {d.ex_date} · {d.qty} × ₹{d.dps}</span>
-                  <span style={{ color: T.green }}>{rs(d.gross)}{d.tds ? <span style={{ color: T.muted }}> (TDS {rs(d.tds)})</span> : null}</span>
-                </div>
-              ))}
+              {(() => {
+                const groups = {};
+                data.dividends.forEach(d => { (groups[fyOfDate(d.ex_date)] = groups[fyOfDate(d.ex_date)] || []).push(d); });
+                const fys = Object.keys(groups).sort().reverse();
+                const shown = showAllDiv ? fys : fys.slice(0, 2);
+                return (
+                  <>
+                    {shown.map(f => {
+                      const g = groups[f], tot = g.reduce((a, d) => a + d.gross, 0), tds = g.reduce((a, d) => a + (d.tds || 0), 0);
+                      return (
+                        <div key={f} style={{ marginBottom: 6 }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: T.muted, padding: "4px 0", borderTop: `1px solid ${T.border}` }}>
+                            <b>{f}</b><span>{rs(tot)}{tds ? ` · TDS ${rs(tds)}` : ""}</span>
+                          </div>
+                          {g.map((d, i) => (
+                            <div key={i} style={{ display: "flex", justifyContent: "space-between", gap: 8, fontSize: 11, padding: "3px 0", color: T.text }}>
+                              <span style={{ minWidth: 0 }}>{d.symbol} · ex {d.ex_date} · {d.qty} × ₹{d.dps}
+                                {d.buyback && <span style={{ color: T.warn, display: "block", fontSize: 10 }}>
+                                  🏢 Buyback — taxed as dividend (rule for 1 Oct 2024 – 31 Mar 2026); the shares' cost {d.capital_loss != null ? rs(d.capital_loss) + " " : ""}became a {d.loss_term === "LT" ? "long" : "short"}-term capital loss
+                                </span>}
+                              </span>
+                              <span style={{ color: T.green, whiteSpace: "nowrap" }}>{rs(d.gross)}{d.tds ? <span style={{ color: T.muted }}> (TDS {rs(d.tds)})</span> : null}</span>
+                            </div>
+                          ))}
+                        </div>
+                      );
+                    })}
+                    {fys.length > 2 && <div onClick={() => setShowAllDiv(v => !v)} style={{ color: T.accent, fontSize: 11, cursor: "pointer", paddingTop: 4 }}>{showAllDiv ? "Show recent years only" : `Show all ${fys.length} years`}</div>}
+                    <div style={{ color: T.muted, fontSize: 10, marginTop: 6, lineHeight: 1.5 }}>
+                      TDS is estimated (10% once a company's dividends to you pass ₹10,000 in a year). From 1 Apr 2026 a buyback is a sale, so it appears under sales, not here.
+                    </div>
+                  </>
+                );
+              })()}
             </div>
           )}
 
@@ -5107,6 +5364,7 @@ function App() {
                 { title: "🔴 What is End of Blast?", color: T.blast, body: "BB bands expand and Stochastic K exceeds 75 while price holds above EMA10. This is the EXIT signal — book profits before the next correction." },
                 { title: "👀 What is the Watchlist?", color: T.warn, body: "A looser, earlier tier for stocks that are visibly tightening (BB width under 9%) and turning up, but haven't yet cleared the strict 4.5% squeeze threshold or the 15% return target. Nothing here is a confirmed signal — it's a heads-up that a stock is forming. When a watchlist stock later earns a real squeeze signal, it's marked 'GRADUATED' with its full history." },
                 { title: "⛔ Below the −7% stop", color: T.red, body: "Every In Play card now measures its GTT target and −7% stop from the ENTRY price — the way the strategy was backtested. A stock that has fallen more than 7% below its entry stays on the scanner's list until a blast exit fires, but it is no longer a fresh entry: it is shown with a red banner and grouped under 'Below the −7% stop' at the bottom of the Long tab, and left out of the tab badges, 3%+ and H+S." },
+                { title: "📈 Returns, 🧾 tax and ⚠️ corporate actions", color: T.accent, body: "Ledger → Returns: each financial year values your holdings at NSE's 31 March closing prices and counts every buy, sale, buyback and dividend on its date. 'Your return a year (XIRR)' is the yearly rate your money actually grew at since the first trade; 'time-weighted' ignores when money was added, so compare that with Nifty.\nTax estimate: capital gains so far this year at 20% (short-term) and 12.5% above ₹1.25 lakh (long-term), and how much booking unrealised losses before 31 March would save. Cess, surcharge and brought-forward losses aren't included.\nCorporate actions: rights issues, buybacks, call money, open offers and delisting offers for stocks you hold (from BSE, matched by ISIN), plus rights entitlements in your demat. They're shown on Monitor and Ledger until you mark them done." },
                 { title: "💼 Portfolio, 📜 Trades, 📦 Long-Term — automatic", color: T.accent, body: "All three are built from your trade ledger (Zerodha tradebooks + the evening Kite capture), so there is nothing to add or remove by hand and every device with your read-only key shows the same thing.\nPortfolio: holdings value, unrealised P&L, booked P&L by month, win rate and hold time on exits (tax-harvest sell-and-rebuys aren't counted as exits), every sale in the year.\nTrades: every buy, sell and corporate action — search, filter by side or year; sells show the P&L booked that day.\nLong-Term: each holding with the scanner's exit / re-entry / forming read." },
                 { title: "🧭 Reading the Long tab order", color: T.accent, body: "Live cards are ranked best-first: validated signals (STRONG + weekly trend confirmed), then conviction and confidence, with a bonus for still being near entry. A card within 2% of its −7% stop shows an amber warning and drops to the bottom. If you already own the stock, the card shows your quantity and effective cost from the ledger.\nA scan that finishes after midnight belongs to the previous session — the header shows it as e.g. “scan 11-05 close (ran 11-06 00:57)”." },
                 { title: "🔻 Short tab", color: T.red, body: "Short Entries are bearish squeezes. Breaking Down lists stocks already falling — ranked by how much fall is left to the cover level. A short whose price has climbed back above its stop is marked STOP HIT (and hidden from Breaking Down), because the setup has failed." },
