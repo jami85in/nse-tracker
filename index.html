@@ -359,7 +359,7 @@ const RAW_BASE    = `https://raw.githubusercontent.com/${GITHUB_USER}/${GITHUB_R
 // instead of requiring a manual file diff to find out. This exists because
 // PWA/service-worker caching has repeatedly made "is this actually deployed
 // yet" the hardest part of diagnosing issues in this app.
-const BUILD_VERSION = "2026-11-06.10";
+const BUILD_VERSION = "2026-11-06.11";
 const GITHUB_APP_ACTIONS_URL = `https://github.com/${GITHUB_USER}/${GITHUB_REPO}/actions/workflows/scan.yml`;
 
 // ── Fetch strategy ────────────────────────────────────────────────────────────
@@ -3423,7 +3423,7 @@ function AutoTrades({ ledger }) {
 // ── Dashboard picks: the stocks bought on the dashboard's signals, vs the same money in Nifty 50 ──
 // Built by ledger.py from your trades and the public scan history: a holding counts as a pick when
 // you bought it within a week of the stock showing on the long, countertrend or watch list, or when
-// ledger/picks.csv adds it by hand (DAVANGERE, AKASH).
+// ledger/picks.csv adds it by hand (DAVANGERE, AKASH), or you bought it in its buy window on the Cycles tab.
 function xirrPct(cfs) {
   // cfs: [[ISO date, amount]] from the investor's side (money in negative, money back positive)
   const f = cfs.filter(c => c[1] && isFinite(c[1])).map(([d, a]) => [Date.parse(d) / 86400000, a]).sort((a, b) => a[0] - b[0]);
@@ -3444,6 +3444,7 @@ function xirrPct(cfs) {
 const PICK_SRC = {
   signal: { label: "📡 Signal", color: T.accent },
   watchlist: { label: "👀 Watchlist", color: T.warn },
+  cycles: { label: "🔄 Cycles", color: "#38BDF8" },
   manual: { label: "✋ Added by you", color: "#A78BFA" },
 };
 const LIST_NAME = { long: "squeeze (long) list", countertrend: "countertrend list", watchlist: "watchlist" };
@@ -3488,7 +3489,8 @@ function PickCard({ p, added }) {
       <div style={{ color: T.muted, fontSize: 11, marginTop: 4, lineHeight: 1.5 }}>
         {p.start}{p.end ? ` → ${p.end}` : ""} · {p.days} day{p.days === 1 ? "" : "s"}
         {p.open && p.qty_now ? ` · ${p.qty_now} sh @ ${rs(p.price)}` : ""}
-        {s ? <><br />On the {LIST_NAME[s.list] || s.list} {s.seen}{s.entry_price ? ` · dashboard entry ${rs(s.entry_price)}` : ""}{p.first_buy_price ? ` · your first buy ${rs(p.first_buy_price)}` : ""}</>
+        {s && s.list === "cycles" ? <><br />Cycles: {s.grade ? `${s.grade.toLowerCase()} pattern · ` : ""}buy month {CY_MONTHS[(s.buy_month || 1) - 1]}{s.hold_months ? `, hold ~${s.hold_months} mo` : ""}{s.entry_price ? ` · usual low ${rs(s.entry_price)}` : ""}{p.first_buy_price ? ` · your first buy ${rs(p.first_buy_price)}` : ""}</>
+         : s ? <><br />On the {LIST_NAME[s.list] || s.list} {s.seen}{s.entry_price ? ` · dashboard entry ${rs(s.entry_price)}` : ""}{p.first_buy_price ? ` · your first buy ${rs(p.first_buy_price)}` : ""}</>
            : <><br />{p.note || "added by you"}{p.first_buy_price ? ` · first buy ${rs(p.first_buy_price)}` : ""}</>}
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6, marginTop: 8 }}>
@@ -3531,10 +3533,10 @@ function DashboardPicks({ ledger }) {
   return (
     <div>
       <div style={{ color: T.muted, fontSize: 11, marginBottom: 10, lineHeight: 1.5 }}>
-        Stocks you bought on the dashboard's signals since {P.since}, plus the ones you added — each compared with putting the same rupees, on the same days, into Nifty 50. Prices as of {asOf}.
+        Stocks you bought on the dashboard's signals since {P.since} or from 🔄 Cycles in their buy window, plus the ones you added — each compared with putting the same rupees, on the same days, into Nifty 50. Prices as of {asOf}.
       </div>
       <div style={{ display: "flex", gap: 6, overflowX: "auto", scrollbarWidth: "none", paddingBottom: 4, marginBottom: 6 }}>
-        {[["all", `All ${all.length}`], ["signal", `📡 Signals ${counts("signal")}`], ["watchlist", `👀 Watchlist ${counts("watchlist")}`], ["manual", `✋ Added ${counts("manual")}`]].map(([id, l]) =>
+        {[["all", `All ${all.length}`], ["signal", `📡 Signals ${counts("signal")}`], ["cycles", `🔄 Cycles ${counts("cycles")}`], ["watchlist", `👀 Watchlist ${counts("watchlist")}`], ["manual", `✋ Added ${counts("manual")}`]].map(([id, l]) =>
           <span key={id} onClick={() => setSrc(id)} style={chipStyle(src === id)}>{l}</span>)}
       </div>
       <div style={{ display: "flex", gap: 6, overflowX: "auto", scrollbarWidth: "none", paddingBottom: 4, marginBottom: 10 }}>
@@ -3576,7 +3578,7 @@ function DashboardPicks({ ledger }) {
       )}
       <div style={{ color: T.muted, fontSize: 10, marginTop: 12, lineHeight: 1.6 }}>
         How a pick is found: a buy on or after {P.since} within {P.window_days} days of the stock showing on the dashboard's squeeze, countertrend or watch list
-        (from the saved daily scans). A pick runs from the first buy until you've sold every share; selling out and buying back within 5 days (tax harvesting) doesn't end it.
+        (from the saved daily scans), or a buy from {P.cycles_since || "2026-11-03"} of a 🔄 Cycles stock in its buy window (the month before its buy month, the buy month, or the first 10 days after). A pick runs from the first buy until you've sold every share; selling out and buying back within 5 days (tax harvesting) doesn't end it.
         Added by hand: {(P.manual || []).join(", ") || "none"}{(P.excluded || []).length ? ` · left out: ${P.excluded.join(", ")}` : ""} — edit ledger/picks.csv in your private repo to add or drop a stock.
       </div>
     </div>
@@ -5586,7 +5588,7 @@ function App() {
                 { title: "👀 What is the Watchlist?", color: T.warn, body: "A looser, earlier tier for stocks that are visibly tightening (BB width under 9%) and turning up, but haven't yet cleared the strict 4.5% squeeze threshold or the 15% return target. Nothing here is a confirmed signal — it's a heads-up that a stock is forming. When a watchlist stock later earns a real squeeze signal, it's marked 'GRADUATED' with its full history." },
                 { title: "⛔ Below the −7% stop", color: T.red, body: "Every In Play card now measures its GTT target and −7% stop from the ENTRY price — the way the strategy was backtested. A stock that has fallen more than 7% below its entry stays on the scanner's list until a blast exit fires, but it is no longer a fresh entry: it is shown with a red banner and grouped under 'Below the −7% stop' at the bottom of the Long tab, and left out of the tab badges, 3%+ and H+S." },
                 { title: "📈 Returns, 🧾 tax and ⚠️ corporate actions", color: T.accent, body: "Ledger → Returns: each financial year values your holdings at NSE's 31 March closing prices and counts every buy, sale, buyback and dividend on its date. 'Your return a year (XIRR)' is the yearly rate your money actually grew at since the first trade; 'time-weighted' ignores when money was added, so compare that with Nifty.\nTax estimate: capital gains so far this year at 20% (short-term) and 12.5% above ₹1.25 lakh (long-term), and how much booking unrealised losses before 31 March would save. Cess, surcharge and brought-forward losses aren't included.\nCorporate actions: rights entitlements sitting in your demat are flagged on Monitor and Ledger automatically. Upcoming rights issues, buybacks, tender offers, OFS and call money aren't fetched (NSE and BSE block automated access) — Ledger links to Kite → Bids → Corporate actions, BSE's corporate-actions list and each holding's NSE page." },
-                { title: "💼 Portfolio, 🎯 Picks, 📦 Long-Term — automatic", color: T.accent, body: "All three are built from your trade ledger (Zerodha tradebooks + the evening Kite capture), so there is nothing to add or remove by hand and every device with your read-only key shows the same thing.\nPortfolio: holdings value, unrealised P&L, booked P&L by month, win rate and hold time on exits (tax-harvest sell-and-rebuys aren't counted as exits), every sale in the year. 📜 All trades at the bottom lists every buy, sell and corporate action — search, filter by side or year.\nPicks: only the stocks you bought on the dashboard's signals (a buy within a week of the stock showing on the squeeze, countertrend or watch list), plus the ones added in ledger/picks.csv (DAVANGERE, AKASH) — each against the same money put into Nifty 50 on the same days, with total P&L, XIRR, win rate and how many beat Nifty. Holdings from before the dashboard started aren't counted.\nLong-Term: each holding with the scanner's exit / re-entry / forming read." },
+                { title: "💼 Portfolio, 🎯 Picks, 📦 Long-Term — automatic", color: T.accent, body: "All three are built from your trade ledger (Zerodha tradebooks + the evening Kite capture), so there is nothing to add or remove by hand and every device with your read-only key shows the same thing.\nPortfolio: holdings value, unrealised P&L, booked P&L by month, win rate and hold time on exits (tax-harvest sell-and-rebuys aren't counted as exits), every sale in the year. 📜 All trades at the bottom lists every buy, sell and corporate action — search, filter by side or year.\nPicks: only the stocks you bought on the dashboard's signals (a buy within a week of the stock showing on the squeeze, countertrend or watch list, or a 🔄 Cycles stock bought in its buy window), plus the ones added in ledger/picks.csv (DAVANGERE, AKASH) — each against the same money put into Nifty 50 on the same days, with total P&L, XIRR, win rate and how many beat Nifty. Holdings from before the dashboard started aren't counted.\nLong-Term: each holding with the scanner's exit / re-entry / forming read." },
                 { title: "🧭 Reading the Long tab order", color: T.accent, body: "Live cards are ranked best-first: validated signals (STRONG + weekly trend confirmed), then conviction and confidence, with a bonus for still being near entry. A card within 2% of its −7% stop shows an amber warning and drops to the bottom. If you already own the stock, the card shows your quantity and effective cost from the ledger.\nA scan that finishes after midnight belongs to the previous session — the header shows it as e.g. “scan 11-05 close (ran 11-06 00:57)”." },
                 { title: "🔻 Short tab", color: T.red, body: "Short Entries are bearish squeezes. Breaking Down lists stocks already falling — ranked by how much fall is left to the cover level. A short whose price has climbed back above its stop is marked STOP HIT (and hidden from Breaking Down), because the setup has failed." },
                 { title: "📒 Ledger — three costs", color: T.accent, body: "Original buy price: what you first paid, carried through tax-harvest sell-and-rebuys.\nEffective cost (all-in): your true break-even — every buy, sell, intraday trade and charge for the current holding, divided by shares held.\nTax cost (FIFO): the cost the tax rules use, so it resets when you harvest a loss or gain.\nThe ledger rebuilds itself every evening from Kite, and whenever you upload a tradebook or edit ledger/adjustments.csv (IPO allotments, rights, buybacks, splits, demergers)." },
