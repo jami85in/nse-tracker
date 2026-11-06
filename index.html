@@ -359,7 +359,7 @@ const RAW_BASE    = `https://raw.githubusercontent.com/${GITHUB_USER}/${GITHUB_R
 // instead of requiring a manual file diff to find out. This exists because
 // PWA/service-worker caching has repeatedly made "is this actually deployed
 // yet" the hardest part of diagnosing issues in this app.
-const BUILD_VERSION = "2026-11-06.6";
+const BUILD_VERSION = "2026-11-06.7";
 const GITHUB_APP_ACTIONS_URL = `https://github.com/${GITHUB_USER}/${GITHUB_REPO}/actions/workflows/scan.yml`;
 
 // ── Fetch strategy ────────────────────────────────────────────────────────────
@@ -3425,20 +3425,20 @@ const pcTxt = v => (v == null ? "—" : `${v >= 0 ? "+" : ""}${v.toFixed(1)}%`);
 const pcCol = v => (v == null ? T.muted : v >= 0 ? T.green : T.red);
 const caKey = i => `${i.symbol}|${i.kind}|${i.record_date || ""}`;
 
-function ActionsCard({ actions, compact }) {
+function ActionsCard({ actions, compact, holdings }) {
   const [dismissed, setDismissed] = useState(() => { try { return JSON.parse(lsGet("ca_dismissed", "[]")) || []; } catch { return []; } });
-  if (!actions) return null;
+  if (!actions && compact) return null;
   const today = new Date().toISOString().slice(0, 10);
-  const items = actions.items || [];
+  const items = (actions && actions.items) || [];
   const need = items.filter(i => i.needs_action && !dismissed.includes(caKey(i)));
   const info = items.filter(i => !i.needs_action && (i.ex_date || i.record_date || "") >= today);
   if (compact && need.length === 0) return null;
   const dismiss = k => { const n = [...dismissed, k]; setDismissed(n); lsSet("ca_dismissed", JSON.stringify(n)); };
-  const failed = actions.status && actions.status.error;
+  const linkStyle = { color: T.accent, textDecoration: "none" };
   return (
     <div style={{ background: need.length ? T.warn + "14" : T.card, border: `1px solid ${need.length ? T.warn + "66" : T.border}`, borderRadius: 12, padding: 14, marginBottom: 12 }}>
       <div style={{ color: need.length ? T.warn : T.muted, fontWeight: 800, fontSize: 13 }}>
-        {need.length ? `⚠️ ${need.length} corporate action${need.length > 1 ? "s" : ""} need${need.length > 1 ? "" : "s"} your input` : "✅ No corporate actions need your input"}
+        {need.length ? `⚠️ ${need.length} corporate action${need.length > 1 ? "s" : ""} need${need.length > 1 ? "" : "s"} your input` : "🔎 Corporate actions — no rights entitlements waiting in your demat"}
       </div>
       {need.map(i => (
         <div key={caKey(i)} style={{ background: T.card, borderRadius: 8, padding: 10, marginTop: 8, border: `1px solid ${T.border}` }}>
@@ -3465,11 +3465,22 @@ function ActionsCard({ actions, compact }) {
         </div>
       )}
       {!compact && (
-        <div style={{ color: failed ? T.red : T.muted, fontSize: 10, marginTop: 8, lineHeight: 1.5 }}>
-          {failed
-            ? `The last check couldn't reach BSE (${actions.status.error}); showing what was found before.`
-            : `Checked ${String(actions.fetched_at || "").slice(0, 10)} against BSE's corporate-action list (matched to your holdings by ISIN), plus rights entitlements in your demat.`}
-          {" "}NSE-only SME stocks and offers-for-sale aren't covered.
+        <div style={{ color: T.muted, fontSize: 11, marginTop: 8, lineHeight: 1.6 }}>
+          Rights entitlements in your demat are flagged here automatically. Upcoming rights issues, buybacks, tender offers,
+          OFS and call money aren't fetched (NSE and BSE block automated access) — check them in{" "}
+          <a href="https://kite.zerodha.com/" target="_blank" rel="noopener noreferrer" style={linkStyle}>Kite → Bids → Corporate actions</a>,{" "}
+          <a href="https://www.bseindia.com/corporates/corporate_act.aspx" target="_blank" rel="noopener noreferrer" style={linkStyle}>BSE's corporate-actions list</a>,
+          {" "}or each stock's NSE page:
+          {(holdings || []).length > 0 && (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 6 }}>
+              {[...holdings].sort((a, b) => a.symbol.localeCompare(b.symbol)).map(h => (
+                <a key={h.symbol} href={`https://www.nseindia.com/get-quotes/equity?symbol=${encodeURIComponent(h.symbol)}`} target="_blank" rel="noopener noreferrer"
+                  style={{ ...linkStyle, fontFamily: "monospace", fontSize: 11, border: `1px solid ${T.border}`, borderRadius: 6, padding: "3px 7px", background: T.surface }}>
+                  {h.symbol} ↗
+                </a>
+              ))}
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -3677,7 +3688,7 @@ function LedgerPanel({ livePrices }) {
       {loading && !data && <div style={{ color: T.muted, textAlign: "center", padding: 30 }}>Loading ledger…</div>}
       {data && (
         <>
-          <ActionsCard actions={data.upcoming_actions} />
+          <ActionsCard actions={data.upcoming_actions} holdings={data.holdings} />
           <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, padding: 16, marginBottom: 12 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
               <div style={{ color: T.muted, fontSize: 11, letterSpacing: 1 }}>FROM YOUR TRADES</div>
@@ -5364,7 +5375,7 @@ function App() {
                 { title: "🔴 What is End of Blast?", color: T.blast, body: "BB bands expand and Stochastic K exceeds 75 while price holds above EMA10. This is the EXIT signal — book profits before the next correction." },
                 { title: "👀 What is the Watchlist?", color: T.warn, body: "A looser, earlier tier for stocks that are visibly tightening (BB width under 9%) and turning up, but haven't yet cleared the strict 4.5% squeeze threshold or the 15% return target. Nothing here is a confirmed signal — it's a heads-up that a stock is forming. When a watchlist stock later earns a real squeeze signal, it's marked 'GRADUATED' with its full history." },
                 { title: "⛔ Below the −7% stop", color: T.red, body: "Every In Play card now measures its GTT target and −7% stop from the ENTRY price — the way the strategy was backtested. A stock that has fallen more than 7% below its entry stays on the scanner's list until a blast exit fires, but it is no longer a fresh entry: it is shown with a red banner and grouped under 'Below the −7% stop' at the bottom of the Long tab, and left out of the tab badges, 3%+ and H+S." },
-                { title: "📈 Returns, 🧾 tax and ⚠️ corporate actions", color: T.accent, body: "Ledger → Returns: each financial year values your holdings at NSE's 31 March closing prices and counts every buy, sale, buyback and dividend on its date. 'Your return a year (XIRR)' is the yearly rate your money actually grew at since the first trade; 'time-weighted' ignores when money was added, so compare that with Nifty.\nTax estimate: capital gains so far this year at 20% (short-term) and 12.5% above ₹1.25 lakh (long-term), and how much booking unrealised losses before 31 March would save. Cess, surcharge and brought-forward losses aren't included.\nCorporate actions: rights issues, buybacks, call money, open offers and delisting offers for stocks you hold (from BSE, matched by ISIN), plus rights entitlements in your demat. They're shown on Monitor and Ledger until you mark them done." },
+                { title: "📈 Returns, 🧾 tax and ⚠️ corporate actions", color: T.accent, body: "Ledger → Returns: each financial year values your holdings at NSE's 31 March closing prices and counts every buy, sale, buyback and dividend on its date. 'Your return a year (XIRR)' is the yearly rate your money actually grew at since the first trade; 'time-weighted' ignores when money was added, so compare that with Nifty.\nTax estimate: capital gains so far this year at 20% (short-term) and 12.5% above ₹1.25 lakh (long-term), and how much booking unrealised losses before 31 March would save. Cess, surcharge and brought-forward losses aren't included.\nCorporate actions: rights entitlements sitting in your demat are flagged on Monitor and Ledger automatically. Upcoming rights issues, buybacks, tender offers, OFS and call money aren't fetched (NSE and BSE block automated access) — Ledger links to Kite → Bids → Corporate actions, BSE's corporate-actions list and each holding's NSE page." },
                 { title: "💼 Portfolio, 📜 Trades, 📦 Long-Term — automatic", color: T.accent, body: "All three are built from your trade ledger (Zerodha tradebooks + the evening Kite capture), so there is nothing to add or remove by hand and every device with your read-only key shows the same thing.\nPortfolio: holdings value, unrealised P&L, booked P&L by month, win rate and hold time on exits (tax-harvest sell-and-rebuys aren't counted as exits), every sale in the year.\nTrades: every buy, sell and corporate action — search, filter by side or year; sells show the P&L booked that day.\nLong-Term: each holding with the scanner's exit / re-entry / forming read." },
                 { title: "🧭 Reading the Long tab order", color: T.accent, body: "Live cards are ranked best-first: validated signals (STRONG + weekly trend confirmed), then conviction and confidence, with a bonus for still being near entry. A card within 2% of its −7% stop shows an amber warning and drops to the bottom. If you already own the stock, the card shows your quantity and effective cost from the ledger.\nA scan that finishes after midnight belongs to the previous session — the header shows it as e.g. “scan 11-05 close (ran 11-06 00:57)”." },
                 { title: "🔻 Short tab", color: T.red, body: "Short Entries are bearish squeezes. Breaking Down lists stocks already falling — ranked by how much fall is left to the cover level. A short whose price has climbed back above its stop is marked STOP HIT (and hidden from Breaking Down), because the setup has failed." },
