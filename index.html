@@ -359,7 +359,7 @@ const RAW_BASE    = `https://raw.githubusercontent.com/${GITHUB_USER}/${GITHUB_R
 // instead of requiring a manual file diff to find out. This exists because
 // PWA/service-worker caching has repeatedly made "is this actually deployed
 // yet" the hardest part of diagnosing issues in this app.
-const BUILD_VERSION = "2026-11-06.4";
+const BUILD_VERSION = "2026-11-06.5";
 const GITHUB_APP_ACTIONS_URL = `https://github.com/${GITHUB_USER}/${GITHUB_REPO}/actions/workflows/scan.yml`;
 
 // ── Fetch strategy ────────────────────────────────────────────────────────────
@@ -3225,7 +3225,7 @@ function AutoPortfolio({ ledger, livePrices, scanData }) {
   const shown = showAll ? sales : sales.slice(0, 15);
   return (
     <div>
-      <div style={{ display: "flex", gap: 6, overflowX: "auto", paddingBottom: 4, marginBottom: 10 }}>
+      <div style={{ display: "flex", gap: 6, overflowX: "auto", scrollbarWidth: "none", paddingBottom: 4, marginBottom: 10 }}>
         {fys.map(f => <span key={f} onClick={() => setFy(f)} style={chipStyle(f === fy)}>{f}</span>)}
       </div>
 
@@ -3358,11 +3358,11 @@ function AutoTrades({ ledger }) {
     <div>
       <input value={q} onChange={e => { setQ(e.target.value); setLimit(80); }} placeholder="Search a symbol…"
         style={{ width: "100%", background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: "10px 12px", color: T.text, fontSize: 13, marginBottom: 8, boxSizing: "border-box" }} />
-      <div style={{ display: "flex", gap: 6, overflowX: "auto", paddingBottom: 4, marginBottom: 6 }}>
+      <div style={{ display: "flex", gap: 6, overflowX: "auto", scrollbarWidth: "none", paddingBottom: 4, marginBottom: 6 }}>
         {[["all", "All"], ["B", "Buys"], ["S", "Sells"], ["I", "⚡ Intraday"], ["E", "🏢 Corporate"]].map(([id, l]) =>
           <span key={id} onClick={() => { setSide(id); setLimit(80); }} style={chipStyle(side === id)}>{l}</span>)}
       </div>
-      <div style={{ display: "flex", gap: 6, overflowX: "auto", paddingBottom: 4, marginBottom: 10 }}>
+      <div style={{ display: "flex", gap: 6, overflowX: "auto", scrollbarWidth: "none", paddingBottom: 4, marginBottom: 10 }}>
         {["all", ...fys].map(f => <span key={f} onClick={() => { setFy(f); setLimit(80); }} style={chipStyle(fy === f)}>{f === "all" ? "All years" : f}</span>)}
       </div>
       <div style={{ color: T.muted, fontSize: 11, marginBottom: 10 }}>
