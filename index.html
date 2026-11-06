@@ -359,7 +359,7 @@ const RAW_BASE    = `https://raw.githubusercontent.com/${GITHUB_USER}/${GITHUB_R
 // instead of requiring a manual file diff to find out. This exists because
 // PWA/service-worker caching has repeatedly made "is this actually deployed
 // yet" the hardest part of diagnosing issues in this app.
-const BUILD_VERSION = "2026-11-06.9";
+const BUILD_VERSION = "2026-11-06.10";
 const GITHUB_APP_ACTIONS_URL = `https://github.com/${GITHUB_USER}/${GITHUB_REPO}/actions/workflows/scan.yml`;
 
 // ── Fetch strategy ────────────────────────────────────────────────────────────
@@ -3472,7 +3472,7 @@ function picksSummary(list, asOf) {
   };
 }
 
-function PickCard({ p }) {
+function PickCard({ p, added }) {
   const src = PICK_SRC[p.source] || PICK_SRC.signal;
   const edge = p.nifty_pnl != null ? p.pnl - p.nifty_pnl : null;
   const s = p.signal;
@@ -3481,7 +3481,7 @@ function PickCard({ p }) {
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8 }}>
         <div style={{ minWidth: 0 }}>
           <span style={{ fontFamily: "monospace", fontWeight: 800, fontSize: 14, color: T.text }}>{p.symbol}</span>
-          <span style={{ marginLeft: 8, fontSize: 10, fontWeight: 700, color: src.color, border: `1px solid ${src.color}66`, borderRadius: 10, padding: "1px 7px", whiteSpace: "nowrap" }}>{src.label}</span>
+          <span style={{ marginLeft: 8, fontSize: 10, fontWeight: 700, color: src.color, border: `1px solid ${src.color}66`, borderRadius: 10, padding: "1px 7px", whiteSpace: "nowrap" }}>{src.label}{added && p.source !== "manual" ? " · ✋ added" : ""}</span>
         </div>
         <span style={{ fontSize: 10, color: p.open ? T.green : T.muted, fontWeight: 700, whiteSpace: "nowrap" }}>{p.open ? "● OPEN" : "CLOSED"}</span>
       </div>
@@ -3515,11 +3515,12 @@ function DashboardPicks({ ledger }) {
   }
   const all = P.picks || [];
   const asOf = P.as_of;
-  const list = all.filter(p => (src === "all" || p.source === src) && (st === "all" || (st === "open" ? p.open : !p.open)))
+  const isAdded = p => p.source === "manual" || (P.manual || []).includes(p.symbol);
+  const list = all.filter(p => (src === "all" || (src === "manual" ? isAdded(p) : p.source === src)) && (st === "all" || (st === "open" ? p.open : !p.open)))
     .sort((a, b) => (b.open - a.open) || b.start.localeCompare(a.start));
   const S = picksSummary(list, asOf);
   const ahead = S.npnl != null ? S.pnl - S.npnl : null;
-  const counts = k => all.filter(p => p.source === k).length;
+  const counts = k => all.filter(p => (k === "manual" ? isAdded(p) : p.source === k)).length;
   const row = (label, you, nifty, f) => (
     <div style={{ display: "grid", gridTemplateColumns: "1.3fr 1fr 1fr", gap: 6, fontSize: 12, padding: "5px 0", borderTop: `1px solid ${T.border}` }}>
       <span style={{ color: T.muted }}>{label}</span>
@@ -3564,7 +3565,7 @@ function DashboardPicks({ ledger }) {
         </div>
       )}
 
-      {list.map(p => <PickCard key={`${p.symbol}-${p.start}`} p={p} />)}
+      {list.map(p => <PickCard key={`${p.symbol}-${p.start}`} p={p} added={isAdded(p)} />)}
       {list.length === 0 && <div style={{ color: T.muted, textAlign: "center", padding: 30, fontSize: 12 }}>No picks match.</div>}
 
       {(P.not_counted || []).length > 0 && (
