@@ -359,7 +359,7 @@ const RAW_BASE    = `https://raw.githubusercontent.com/${GITHUB_USER}/${GITHUB_R
 // instead of requiring a manual file diff to find out. This exists because
 // PWA/service-worker caching has repeatedly made "is this actually deployed
 // yet" the hardest part of diagnosing issues in this app.
-const BUILD_VERSION = "2026-11-06.11";
+const BUILD_VERSION = "2026-11-06.12";
 const GITHUB_APP_ACTIONS_URL = `https://github.com/${GITHUB_USER}/${GITHUB_REPO}/actions/workflows/scan.yml`;
 
 // ── Fetch strategy ────────────────────────────────────────────────────────────
@@ -3429,7 +3429,7 @@ function xirrPct(cfs) {
   const f = cfs.filter(c => c[1] && isFinite(c[1])).map(([d, a]) => [Date.parse(d) / 86400000, a]).sort((a, b) => a[0] - b[0]);
   if (f.length < 2 || !f.some(c => c[1] > 0) || !f.some(c => c[1] < 0)) return null;
   const t0 = f[0][0], span = f[f.length - 1][0] - t0;
-  if (span < 1) return null;
+  if (span < 30) return null;          // a yearly rate from a few days of data is meaningless
   const npv = r => f.reduce((s, [t, a]) => s + a / Math.pow(1 + r, (t - t0) / 365.25), 0);
   let lo = -0.9999, hi = 100, flo = npv(lo), fhi = npv(hi);
   if (!isFinite(flo) || !isFinite(fhi) || flo * fhi > 0) return null;
@@ -3562,7 +3562,7 @@ function DashboardPicks({ ledger }) {
             <Stat label="Beat Nifty" value={`${S.beat} of ${S.compared}`} sub={`capital ${rs(S.capital)}`} />
           </div>
           <div style={{ color: T.muted, fontSize: 10, marginTop: 8, lineHeight: 1.5 }}>
-            P&L is after brokerage and charges and includes dividends; tax is not deducted. Capital is the most each pick had tied up. XIRR over a few weeks swings a lot — read it once picks have run for a few months.
+            P&L is after brokerage and charges and includes dividends; tax is not deducted. Capital is the most each pick had tied up. XIRR shows once the money has been in for a month, and still swings a lot until picks have run for a few months.
           </div>
         </div>
       )}
