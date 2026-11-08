@@ -19,18 +19,22 @@ per call).
 import json, os, sys, datetime
 from kiteconnect import KiteConnect
 from kite_token_reader import get_kite_token
+import market_session
 
 IST = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
 API_KEY = os.environ.get("KITE_API_KEY", "")
 
 
 def is_market_hours():
-    now = datetime.datetime.now(IST)
-    if now.weekday() >= 5:
-        return False
-    open_ = now.replace(hour=9, minute=15, second=0, microsecond=0)
-    close_ = now.replace(hour=15, minute=30, second=0, microsecond=0)
-    return open_ <= now <= close_
+    """NSE trading right now? Uses market_session.py, which knows weekday
+    holidays and special sessions such as Diwali Muhurat trading on a Sunday.
+    (Until 8 Nov 2026 this returned False for every Saturday and Sunday, so the
+    Muhurat session got no live prices even after the daily login.)
+    FORCE_SESSION=1 (the workflow's force input) skips the calendar for a
+    special session nobody added yet; quotes are still checked for freshness."""
+    if os.environ.get("FORCE_SESSION", "").strip().lower() in ("1", "true", "yes"):
+        return True
+    return market_session.is_open()
 
 
 def get_symbols():
@@ -163,5 +167,4 @@ def main():
 
 
 if __name__ == "__main__":
-    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     main()
