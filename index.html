@@ -359,7 +359,23 @@ const RAW_BASE    = `https://raw.githubusercontent.com/${GITHUB_USER}/${GITHUB_R
 // instead of requiring a manual file diff to find out. This exists because
 // PWA/service-worker caching has repeatedly made "is this actually deployed
 // yet" the hardest part of diagnosing issues in this app.
-const BUILD_VERSION = "2026-11-06.12";
+const BUILD_VERSION = "2026-11-09.1";
+
+// NSE trading calendar — keep in step with scripts/market_session.py.
+// Special sessions on a weekend (Diwali Muhurat) and weekday holidays.
+const NSE_SPECIAL_SESSIONS = { "2026-11-08": [14 * 60 + 20, 15 * 60 + 30, "Muhurat trading"] };
+const NSE_HOLIDAYS = { "2026-11-10": "Diwali Balipratipada", "2026-11-24": "Guru Nanak Jayanti", "2026-12-25": "Christmas" };
+function nseMarketOpenNow() {
+  const now = new Date();
+  const ist = new Date(now.getTime() + (now.getTimezoneOffset() * 60000) + (5.5 * 3600000));
+  const key = `${ist.getFullYear()}-${String(ist.getMonth() + 1).padStart(2, "0")}-${String(ist.getDate()).padStart(2, "0")}`;
+  const mins = ist.getHours() * 60 + ist.getMinutes();
+  const sp = NSE_SPECIAL_SESSIONS[key];
+  if (sp) return mins >= sp[0] && mins <= sp[1];
+  const day = ist.getDay();
+  if (day === 0 || day === 6 || NSE_HOLIDAYS[key]) return false;
+  return mins >= (9 * 60 + 15) && mins <= (15 * 60 + 30);
+}
 const GITHUB_APP_ACTIONS_URL = `https://github.com/${GITHUB_USER}/${GITHUB_REPO}/actions/workflows/scan.yml`;
 
 // ── Fetch strategy ────────────────────────────────────────────────────────────
@@ -507,12 +523,8 @@ async function fetchLivePrices() {
     // Computed fresh from the actual current moment — deliberately
     // independent of primary.market_open, which is exactly the flag that
     // was stale/frozen in the confirmed bug case.
-    const now = new Date();
-    const ist = new Date(now.getTime() + (now.getTimezoneOffset() * 60000) + (5.5 * 3600000));
-    const day = ist.getDay();
-    if (day === 0 || day === 6) return false;
-    const mins = ist.getHours() * 60 + ist.getMinutes();
-    return mins >= (9 * 60 + 15) && mins <= (15 * 60 + 30);
+    // Uses the NSE calendar, so Muhurat trading on a Sunday counts and holidays don't.
+    return nseMarketOpenNow();
   }
   try {
     const [live, baseline] = await Promise.all([
@@ -563,6 +575,19 @@ async function fetchLivePrices() {
     if (!primary) return { prices: {}, updatedAt: null, marketOpen: false, liveFeed: false, kiteDelayed: false };
 
     const prices = { ...((secondary && secondary.prices) || {}), ...(primary.prices || {}) };
+    // When each price is from: a Kite file's write time (an intraday snapshot), or
+    // the scan baseline's trading day at the close. Kept as a hidden property so
+    // ledgerPrice() can prefer the ledger's evening Kite holdings price when the
+    // only live price is an older intraday snapshot — e.g. SME stocks (FLYSBS)
+    // aren't in the scan baseline, so after Friday's feed stopped at 13:20 they
+    // showed the 13:20 price all weekend instead of the close.
+    const asOfOf = (f) => !f ? "" : isKite(f) ? String(f.updated_at || "").slice(0, 16) : (dataDate(f) ? `${dataDate(f)} 15:30` : String(f.updated_at || "").slice(0, 16));
+    const asof = {};
+    for (const [f, keys] of [[secondary, Object.keys((secondary && secondary.prices) || {})], [primary, Object.keys(primary.prices || {})]]) {
+      const a = asOfOf(f);
+      for (const k of keys) asof[k] = a;
+    }
+    Object.defineProperty(prices, "__asof", { value: asof, enumerable: false });
     const primaryIsKite = isKite(primary);
     const kiteAge = primaryIsKite ? minutesAgo(primary.updated_at) : null;
 
@@ -2257,13 +2282,7 @@ function BottomNav({ tab, setTab, scanCount, posCount, shortCount, hsCount, newC
 // modify any data — purely for monitoring everything in one place.
 // Is the NSE market open right now, based on IST clock? (9:15am-3:30pm, Mon-Fri)
 function isMarketOpenNow() {
-  const now = new Date();
-  // Convert to IST regardless of device timezone
-  const ist = new Date(now.getTime() + (now.getTimezoneOffset() * 60000) + (5.5 * 3600000));
-  const day = ist.getDay(); // 0=Sun, 6=Sat
-  if (day === 0 || day === 6) return false;
-  const mins = ist.getHours() * 60 + ist.getMinutes();
-  return mins >= (9 * 60 + 15) && mins <= (15 * 60 + 30);
+  return nseMarketOpenNow();     // weekday hours, weekday holidays and special sessions such as Muhurat trading
 }
 
 function MonitorPage({ scanData, positions, holdings, livePrices, priceUpdated, pricesStale }) {
@@ -2413,7 +2432,7 @@ function MonitorPage({ scanData, positions, holdings, livePrices, priceUpdated, 
 
       {/* Holdings from the trade ledger (when a ledger key is saved) */}
       {ledger && (ledger.holdings || []).length > 0 && (() => {
-        const H = ledger.holdings.map(h => ({ h, p: ledgerPrice(h, livePrices) })).filter(x => x.p != null);
+        const H = ledger.holdings.map(h => ({ h, p: ledgerPrice(h, livePrices, ledger) })).filter(x => x.p != null);
         const value = H.reduce((a, x) => a + x.p * x.h.qty, 0);
         const eff = H.reduce((a, x) => a + x.h.net_invested, 0);
         const fyR = (ledger.realized_by_fy || {})[currentFY()] || {};
@@ -3135,7 +3154,18 @@ function useSharedLedgerState() {
   return st;
 }
 function useSharedLedger() { return useSharedLedgerState().data; }
-const ledgerPrice = (h, livePrices) => livePrices[h.symbol] ?? livePrices[`${h.symbol}-SM`] ?? h.last_price ?? null;
+// Live price, unless the ledger's own price is newer. The ledger's last_price comes
+// from the evening Kite holdings snapshot (the day's close), so it beats a live
+// price that is only a mid-session snapshot from that day or an earlier one.
+const ledgerPrice = (h, livePrices, ledger) => {
+  const key = livePrices[h.symbol] != null ? h.symbol : `${h.symbol}-SM`;
+  const live = livePrices[key];
+  if (live == null) return h.last_price ?? null;
+  const liveAsOf = livePrices.__asof && livePrices.__asof[key];
+  const snap = ledger && ledger.sources && ledger.sources.holdings_snapshot;
+  if (h.last_price != null && snap && liveAsOf && liveAsOf < `${snap} 15:30`) return h.last_price;
+  return live;
+};
 const rs = v => (typeof v === "number" ? (v < 0 ? "-" : "") + "₹" + Math.abs(v).toLocaleString("en-IN", { maximumFractionDigits: Math.abs(v) >= 1000 ? 0 : 2 }) : "—");
 const sgnRs = v => (typeof v === "number" ? (v >= 0 ? "+" : "-") + "₹" + Math.abs(v).toLocaleString("en-IN", { maximumFractionDigits: 0 }) : "—");
 const pctOf = (a, b) => (typeof a === "number" && b ? ((a / b - 1) * 100) : null);
@@ -3204,7 +3234,7 @@ function AutoPortfolio({ ledger, livePrices, scanData }) {
   const today = new Date().toISOString().slice(0, 10);
 
   const H = (ledger.holdings || []).map(h => {
-    const px = ledgerPrice(h, livePrices);
+    const px = ledgerPrice(h, livePrices, ledger);
     return {
       h, px, value: px != null ? px * h.qty : null, r: pctOf(px, h.effective_cost),
       pnl: px != null ? px * h.qty - h.net_invested : null,
@@ -3881,7 +3911,7 @@ function LedgerPanel({ livePrices }) {
 
   const fy = currentFY();
   const H = (data?.holdings || []).map(h => {
-    const px = ledgerPrice(h, livePrices);
+    const px = ledgerPrice(h, livePrices, data);
     const value = px != null ? px * h.qty : null;
     return { ...h, px, value };
   }).sort((a, b) => (b.value || 0) - (a.value || 0));
