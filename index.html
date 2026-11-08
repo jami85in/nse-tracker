@@ -359,7 +359,7 @@ const RAW_BASE    = `https://raw.githubusercontent.com/${GITHUB_USER}/${GITHUB_R
 // instead of requiring a manual file diff to find out. This exists because
 // PWA/service-worker caching has repeatedly made "is this actually deployed
 // yet" the hardest part of diagnosing issues in this app.
-const BUILD_VERSION = "2026-11-09.1";
+const BUILD_VERSION = "2026-11-09.2";
 
 // NSE trading calendar — keep in step with scripts/market_session.py.
 // Special sessions on a weekend (Diwali Muhurat) and weekday holidays.
@@ -484,6 +484,7 @@ async function fetchZerodhaHoldings() {
 
 // workflow (prices.yml) that runs every 15 min during NSE market hours using
 // yfinance. This avoids all browser CORS/cookie issues with Yahoo Finance.
+let LIVE_PRICE_ASOF = {};      // symbol -> "YYYY-MM-DD HH:MM" IST that its live price is from (set by fetchLivePrices)
 async function fetchLivePrices() {
   // VALUE SELECTION is pure "latest timestamp wins", full stop — whichever
   // of prices_live.json (Kite) or prices_scan_baseline.json (scan EOD) has
@@ -587,7 +588,7 @@ async function fetchLivePrices() {
       const a = asOfOf(f);
       for (const k of keys) asof[k] = a;
     }
-    Object.defineProperty(prices, "__asof", { value: asof, enumerable: false });
+    LIVE_PRICE_ASOF = asof;     // module-level: the app copies the prices object, which would drop a hidden property
     const primaryIsKite = isKite(primary);
     const kiteAge = primaryIsKite ? minutesAgo(primary.updated_at) : null;
 
@@ -3161,7 +3162,7 @@ const ledgerPrice = (h, livePrices, ledger) => {
   const key = livePrices[h.symbol] != null ? h.symbol : `${h.symbol}-SM`;
   const live = livePrices[key];
   if (live == null) return h.last_price ?? null;
-  const liveAsOf = livePrices.__asof && livePrices.__asof[key];
+  const liveAsOf = LIVE_PRICE_ASOF[key];
   const snap = ledger && ledger.sources && ledger.sources.holdings_snapshot;
   if (h.last_price != null && snap && liveAsOf && liveAsOf < `${snap} 15:30`) return h.last_price;
   return live;
