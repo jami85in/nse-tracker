@@ -63,9 +63,11 @@ jobs:
         run: |
           # workflow_dispatch from GITHUB_TOKEN is one of the two event types
           # GitHub allows to start another workflow run.
-          IST_HM=$(TZ=Asia/Kolkata date +%H%M)
-          if [ "$IST_HM" -ge "1535" ]; then
-            echo "After 15:35 IST — not starting the price loop."
+          END=$(python3 scripts/market_session.py end)
+          if [ "$END" = "0" ]; then
+            echo "No NSE session today — not starting the price loop."
+          elif [ "$(date +%s)" -ge "$END" ]; then
+            echo "After today's close — not starting the price loop."
           elif gh run list --workflow prices_kite.yml --status in_progress --limit 1 --json databaseId -q '.[0].databaseId' | grep -q .; then
             echo "Price loop already running — it will pick up the new token by itself."
           else

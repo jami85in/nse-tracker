@@ -12,7 +12,18 @@ name: NSE Live Price Update (Kite Connect)
 #   - every INTERVAL_SECONDS (default 10 min) it fetches prices and commits;
 #   - if today's Kite token isn't refreshed yet it simply waits and re-checks,
 #     so prices start flowing within minutes of your daily login, unattended;
-#   - it stops at 15:35 IST (or before GitHub's 6-hour job limit).
+#   - it stops 5 minutes after today's close (or before GitHub's 6-hour job
+#     limit). The close comes from scripts/market_session.py, which also knows
+#     special sessions such as Diwali Muhurat trading on a Sunday and weekday
+#     holidays — before 9 Nov 2026 the loop assumed 15:35 and prices_kite.py
+#     treated every weekend as closed, so the Muhurat session got no prices.
+#   - it first syncs your Zerodha holdings, so a login also refreshes which
+#     stocks you hold (not only the 19:30 evening sync).
+#   - if it reaches GitHub's 6-hour cap while the market is still open, it
+#     starts its own successor run (workflow_dispatch, which GitHub doesn't
+#     drop). On Fri 6 Nov 2026 the login at 07:38 started the loop early, it
+#     hit the cap at ~13:28, and the scheduled backups were delayed until the
+#     evening — so prices froze at 13:20 for the rest of the day.
 # Only one scheduled start has to fire per day; the later cron times are
 # backups in case the morning one is dropped. If a loop is already running, a
 # later start queues behind it and simply continues the session when the first
@@ -35,9 +46,16 @@ on:
         description: "Seconds between price fetches (default 600 = 10 min)"
         required: false
         default: "600"
+      force:
+        description: "Fetch even if the calendar says NSE is closed (an unlisted special session)"
+        required: false
+        default: "false"
+        type: choice
+        options: ["false", "true"]
 
 permissions:
   contents: write
+  actions: write     # to hand over to a fresh run when this one reaches GitHub's 6-hour cap
 
 concurrency:
   group: nse-prices-kite
@@ -57,24 +75,52 @@ jobs:
       - name: Install dependencies
         run: pip install kiteconnect
 
-      - name: Price loop (until 15:35 IST)
+      - name: Sync Zerodha holdings first
+        continue-on-error: true
+        env:
+          KITE_API_KEY: ${{ secrets.KITE_API_KEY }}
+          SECRETS_REPO_PAT: ${{ secrets.SECRETS_REPO_PAT }}
+          SECRETS_REPO: ${{ secrets.SECRETS_REPO }}
+        run: |
+          python scripts/market_session.py info
+          python scripts/fetch_zerodha_holdings.py
+          git config user.name "nse-tracker-bot"
+          git config user.email "actions@github.com"
+          git add data/zerodha_holdings.json
+          if ! git diff --staged --quiet; then
+            git commit -q -m "holdings: sync at $(TZ=Asia/Kolkata date +'%H:%M IST')"
+            for try in 1 2 3; do git pull -q --rebase --autostash origin main && git push -q && break; sleep 10; done
+          fi
+
+      - name: Price loop (until 5 min after today's close)
         env:
           KITE_API_KEY: ${{ secrets.KITE_API_KEY }}
           SECRETS_REPO_PAT: ${{ secrets.SECRETS_REPO_PAT }}
           SECRETS_REPO: ${{ secrets.SECRETS_REPO }}
           INTERVAL_SECONDS: ${{ github.event.inputs.interval_seconds || '600' }}
+          FORCE_SESSION: ${{ github.event.inputs.force || 'false' }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           git config user.name "nse-tracker-bot"
           git config user.email "actions@github.com"
 
           now()   { date +%s; }
           ist()   { TZ=Asia/Kolkata date +'%H:%M IST'; }
-          END=$(TZ=Asia/Kolkata date -d "today 15:35" +%s)
+          END=$(python scripts/market_session.py end)
+          if [ "$END" = "0" ]; then
+            if [ "$FORCE_SESSION" = "true" ]; then
+              END=$(TZ=Asia/Kolkata date -d "today 23:30" +%s)
+              echo "::notice::No session in the calendar today — forced run until 23:30 IST or the 6-hour cap."
+            else
+              echo "No NSE session today ($(ist)) — nothing to do. Add it to scripts/market_session.py or run with force=true."
+              exit 0
+            fi
+          fi
           LIMIT=$(( $(now) + 350*60 ))          # stay inside GitHub's 6-hour cap
           [ "$LIMIT" -lt "$END" ] && END=$LIMIT
 
           if [ "$(now)" -ge "$END" ]; then
-            echo "Started after the close ($(ist)) — nothing to do."
+            echo "Started after today's close ($(ist)) — nothing to do."
             exit 0
           fi
 
@@ -116,4 +162,10 @@ jobs:
             fi
             sleep "$INTERVAL_SECONDS"
           done
-          echo "Session done at $(ist): $fetched price updates committed."
+          echo "Loop done at $(ist): $fetched price updates committed."
+          SESSION_END=$(python scripts/market_session.py end)
+          if [ "$SESSION_END" != "0" ] && [ "$(now)" -lt "$((SESSION_END - 300))" ]; then
+            echo "Hit the 6-hour cap before the close — starting a successor run."
+            gh workflow run prices_kite.yml --ref "${GITHUB_REF_NAME:-main}" -f interval_seconds="$INTERVAL_SECONDS" \
+              || echo "::warning::Could not start the successor run — prices may stop until the next scheduled start."
+          fi
