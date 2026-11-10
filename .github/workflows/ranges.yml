@@ -10,7 +10,9 @@ name: Price Ranges (daily and weekly trading ranges)
 
 on:
   workflow_run:
-    workflows: ["NSE Daily OHLC Refresh"]
+    # Also after the morning Kite login, so SME holdings (from Kite) are
+    # filled in the same day; without a fresh token that run changes nothing.
+    workflows: ["NSE Daily OHLC Refresh", "Kite Daily Token Refresh"]
     types: [completed]
   workflow_dispatch:
 
