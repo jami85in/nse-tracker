@@ -1,0 +1,4 @@
+# Extra stocks for the dashboard's Portfolio -> Ranges tab, one NSE symbol per
+# line (your holdings, the scan's lists and the Cycles stocks are included
+# automatically). Lines starting with # are ignored. Example:
+# TATASTEEL
