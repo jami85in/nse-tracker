@@ -359,7 +359,7 @@ const RAW_BASE    = `https://raw.githubusercontent.com/${GITHUB_USER}/${GITHUB_R
 // instead of requiring a manual file diff to find out. This exists because
 // PWA/service-worker caching has repeatedly made "is this actually deployed
 // yet" the hardest part of diagnosing issues in this app.
-const BUILD_VERSION = "2026-11-09.2";
+const BUILD_VERSION = "2026-11-11.1";
 
 // NSE trading calendar — keep in step with scripts/market_session.py.
 // Special sessions on a weekend (Diwali Muhurat) and weekday holidays.
@@ -3630,6 +3630,218 @@ function AllTradesSection({ ledger }) {
   );
 }
 
+// ── Ranges: how far each holding moves in a day / a week, and tested plans to trade around it ──
+// Data: data/ranges/summary.json (holdings + watch.txt) and data/ranges/more.json (scan / Cycles
+// stocks), rebuilt by scripts/ranges.py after every evening OHLC refresh.
+async function fetchRangesFile(name) {
+  const v = await fetchVersion();
+  // the scan and the ranges job both run after the OHLC refresh; add the hour so a copy cached
+  // between the two commits can't stick for the rest of the day
+  const url = `${RAW_BASE}/ranges/${name}?v=${encodeURIComponent(v)}-${new Date().getHours()}`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(res.status === 404 ? "not built yet" : `HTTP ${res.status}`);
+  return res.json();
+}
+
+const RANGE_MODES = {
+  short: { label: "⚡ 1–3 days", buy: "short_buy", sell: "short_sell", recent: "last250", recentLabel: "last year" },
+  week: { label: "📅 Weekly", buy: "buy_dip", sell: "sell_rise", recent: "last52", recentLabel: "last 52 weeks" },
+};
+const pc1 = v => (v == null ? "—" : `${(v * 100).toFixed(1)}%`);
+const pcS = v => (v == null ? "—" : `${v >= 0 ? "+" : ""}${(v * 100).toFixed(2)}%`);
+
+function rangePlan(stock, mode, side) {
+  const key = RANGE_MODES[mode][side === "buy" ? "buy" : "sell"];
+  const plans = (stock && stock[key]) || [];
+  return { best: plans.find(p => p.score > 0) || null, others: plans.filter(p => p.score > 0).slice(1), tested: plans.length };
+}
+
+function RangePlanText({ p, mode, side, wref }) {
+  const short = mode === "short";
+  const when = short ? "next session" : (wref ? `for ${wref.for}` : "for the week");
+  const dShort = d => new Date(d + "T00:00:00").toLocaleDateString("en-IN", { day: "numeric", month: "short" });
+  const base = short ? "the latest close" : (wref ? `the ${dShort(wref.date)} close of ${rs(wref.close)}` : "last week's close");
+  const out = short ? `within ${p.hold} session${p.hold > 1 ? "s" : ""} after the fill, else at that day's close` : "by Friday, else at Friday's close";
+  return side === "buy"
+    ? <>Buy at <b>{rs(p.order)}</b> ({pc1(p.entry)} below {base}) {when} → sell at <b>{rs(p.exit)}</b> (+{pc1(p.target)}) {out}.</>
+    : <>Sell at <b>{rs(p.order)}</b> ({pc1(p.entry)} above {base}) {when} → buy back at <b>{rs(p.exit)}</b> (−{pc1(p.target)}) {out}.</>;
+}
+
+function RangeCard({ s, stock, mode, side, sizePct, missingWhy }) {
+  const [more, setMore] = useState(false);
+  const M = RANGE_MODES[mode];
+  if (!stock) {
+    return (
+      <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: 12, marginBottom: 8 }}>
+        <span style={{ fontFamily: "monospace", fontWeight: 800, color: T.text }}>{s.symbol}</span>
+        <div style={{ color: T.muted, fontSize: 11, marginTop: 4 }}>{missingWhy || "No price history to test (SME or recently listed stocks aren't in the price archive)."}</div>
+      </div>
+    );
+  }
+  const { best, others } = rangePlan(stock, mode, side);
+  const price = s.px ?? stock.close;
+  const qty = s.qty ? Math.max(1, Math.floor(s.qty * sizePct / 100)) : null;
+  const perWeekRs = best && qty ? qty * price * best.all.per_week : null;
+  const loss = s.unreal != null && s.unreal < 0 ? -s.unreal : null;
+  const weeks = perWeekRs > 0 && loss ? Math.ceil(loss / perWeekRs) : null;
+  const coverTxt = weeks == null ? (loss ? "" : "no loss to cover") : weeks > 104 ? "covers the loss in 2+ years" : `loss covered in ~${weeks} wk`;
+  const wk = stock.weekly && (stock.weekly.last52 || stock.weekly.all);
+  const dy = stock.daily && (stock.daily.last250 || stock.daily.all);
+  const fillTxt = p => (mode === "short" ? `${(p.all.fills_per_week || 0).toFixed(1)}× a week` : `${Math.round(p.all.fill_rate * 100)}% of weeks`);
+  return (
+    <div style={{ background: T.card, border: `1px solid ${T.border}`, borderLeft: `3px solid ${best ? T.green : T.border}`, borderRadius: 10, padding: 12, marginBottom: 8 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8 }}>
+        <span style={{ fontFamily: "monospace", fontWeight: 800, fontSize: 14, color: T.text }}>{s.symbol}</span>
+        <span style={{ color: T.muted, fontSize: 11, whiteSpace: "nowrap" }}>
+          {rs(stock.close)} · {stock.as_of}
+        </span>
+      </div>
+      {s.qty != null && (
+        <div style={{ color: T.muted, fontSize: 11, marginTop: 2 }}>
+          {s.qty} sh · cost {rs(s.cost)} · {s.unreal != null ? <span style={{ color: s.unreal >= 0 ? T.green : T.red }}>{sgnRs(s.unreal)} unrealised</span> : "—"}
+        </div>
+      )}
+      <div style={{ color: T.muted, fontSize: 11, marginTop: 6, lineHeight: 1.5 }}>
+        Typical day: range {pc1(dy && dy.range && dy.range.p50)} · dips {pc1(dy && dy.down && dy.down.p50)} / rises {pc1(dy && dy.up && dy.up.p50)} below/above the previous close (median).
+        {wk && <><br />Typical week: low {pc1(wk.down.p50)} below last week's close (1 in 4 weeks {pc1(wk.down.p75)}+), high {pc1(wk.up.p50)} above.</>}
+      </div>
+      {best ? (
+        <div style={{ marginTop: 8, background: T.green + "10", border: `1px solid ${T.green}33`, borderRadius: 8, padding: 10 }}>
+          <div style={{ color: T.text, fontSize: 12, lineHeight: 1.5 }}><RangePlanText p={best} mode={mode} side={side} wref={stock.week_ref} /></div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 6, marginTop: 8 }}>
+            <Stat label="Fills" value={fillTxt(best)} sub={`${best.all.fills} trades tested`} />
+            <Stat label="Won" value={`${Math.round(best.all.win_rate * 100)}%`} sub={`${M.recentLabel} ${Math.round((best[M.recent].win_rate || 0) * 100)}%`} />
+            <Stat label="Per week" value={pcS(best.all.per_week)} color={T.green} sub={`${M.recentLabel} ${pcS(best[M.recent].per_week)}`} />
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 6, marginTop: 8 }}>
+            <Stat label="Avg trade" value={pcS(best.all.avg)} sub="after charges" />
+            <Stat label="Worst trade" value={pcS(best.all.worst)} color={T.red} sub={`target hit ${Math.round(best.all.target_hit * 100)}% of trades`} />
+            {qty ? <Stat label={`On ${qty} sh`} value={perWeekRs != null ? `${sgnRs(perWeekRs)}/wk` : "—"} sub={coverTxt} />
+                 : <Stat label="On ₹1 lakh" value={`${sgnRs(100000 * best.all.per_week)}/wk`} />}
+          </div>
+          {others.length > 0 && (
+            <div style={{ marginTop: 6 }}>
+              <span onClick={() => setMore(m => !m)} style={{ color: T.accent, fontSize: 11, cursor: "pointer" }}>{more ? "▾ fewer levels" : `▸ ${others.length} other tested level${others.length > 1 ? "s" : ""}`}</span>
+              {more && others.map((p, i) => (
+                <div key={i} style={{ color: T.muted, fontSize: 11, marginTop: 6, lineHeight: 1.5, borderTop: `1px solid ${T.border}`, paddingTop: 6 }}>
+                  <RangePlanText p={p} mode={mode} side={side} wref={stock.week_ref} /> Fills {fillTxt(p)}, won {Math.round(p.all.win_rate * 100)}%, {pcS(p.all.per_week)} a week ({M.recentLabel} {pcS(p[M.recent].per_week)}), worst {pcS(p.all.worst)}.
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      ) : (
+        <div style={{ marginTop: 8, color: T.muted, fontSize: 11, background: T.bg, borderRadius: 8, padding: 10 }}>
+          {stock.note || `No level paid after charges over both the full history and the ${M.recentLabel} — better not to trade this one ${side === "buy" ? "on dips" : "on rises"}.`}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function RangesPanel({ ledger, livePrices }) {
+  const [mode, setMode] = useState(() => lsGet("ranges_mode", "short") || "short");
+  const [side, setSide] = useState(() => lsGet("ranges_side", "sell") || "sell");
+  const [size, setSize] = useState(() => Number(lsGet("ranges_size", "25")) || 25);
+  const [data, setData] = useState(null);
+  const [err, setErr] = useState(null);
+  const [extra, setExtra] = useState(null);
+  const [q, setQ] = useState("");
+  useEffect(() => { lsSet("ranges_mode", mode); lsSet("ranges_side", side); lsSet("ranges_size", String(size)); }, [mode, side, size]);
+  useEffect(() => {
+    let live = true;
+    fetchRangesFile("summary.json").then(d => live && setData(d)).catch(e => live && setErr(e.message));
+    return () => { live = false; };
+  }, []);
+  const findOther = () => {
+    if (extra) return;
+    fetchRangesFile("more.json").then(setExtra).catch(() => setExtra({ stocks: {} }));
+  };
+  if (err) {
+    return <div style={{ color: T.muted, textAlign: "center", padding: 30, fontSize: 12, lineHeight: 1.6 }}>📏 Ranges aren't available yet ({err}). They're built after the evening price refresh — or run "Price Ranges" from GitHub → Actions.</div>;
+  }
+  if (!data) return <div style={{ color: T.muted, textAlign: "center", padding: 30, fontSize: 12 }}>Loading ranges…</div>;
+
+  const stocks = data.stocks || {};
+  const missing = Object.fromEntries((data.missing || []).map(m => [m.symbol, m]));
+  const rows = (ledger.holdings || []).map(h => {
+    const px = ledgerPrice(h, livePrices, ledger);
+    const cost = h.effective_cost ?? h.original_cost;
+    return { symbol: h.symbol, qty: h.qty, cost, px, unreal: px != null && cost != null ? (px - cost) * h.qty : null };
+  });
+  const scored = rows.map(s => {
+    const st = stocks[s.symbol];
+    const { best } = rangePlan(st, mode, side);
+    const qty = s.qty ? Math.max(1, Math.floor(s.qty * size / 100)) : 0;
+    const wk = best ? qty * (s.px ?? st.close) * best.all.per_week : null;
+    return { s, st, best, wk };
+  }).sort((a, b) => (b.wk ?? -1e18) - (a.wk ?? -1e18));
+  const withPlan = scored.filter(x => x.best && x.wk > 0);
+  const totalWk = withPlan.reduce((a, x) => a + x.wk, 0);
+  const totalLoss = rows.reduce((a, s) => a + (s.unreal != null && s.unreal < 0 ? -s.unreal : 0), 0);
+  const capital = side === "buy" ? withPlan.reduce((a, x) => a + Math.max(1, Math.floor(x.s.qty * size / 100)) * (x.s.px ?? x.st.close), 0) : null;
+  const sym = q.trim().toUpperCase();
+  const other = sym && !rows.some(r => r.symbol === sym) ? (stocks[sym] || (extra && extra.stocks && extra.stocks[sym])) : null;
+
+  return (
+    <div>
+      <div style={{ color: T.muted, fontSize: 11, marginBottom: 10, lineHeight: 1.5 }}>
+        Levels to trade around your holdings, tested on every {mode === "short" ? "session" : "week"} since {Object.values(stocks)[0]?.history_from?.slice(0, 4) || "2020"} with charges. Prices from the close of {data.as_of}; refreshed every evening.
+      </div>
+      <div style={{ display: "flex", gap: 6, marginBottom: 6, flexWrap: "wrap" }}>
+        {Object.entries(RANGE_MODES).map(([id, m]) => <span key={id} onClick={() => setMode(id)} style={chipStyle(mode === id)}>{m.label}</span>)}
+      </div>
+      <div style={{ display: "flex", gap: 6, marginBottom: 6, flexWrap: "wrap" }}>
+        <span onClick={() => setSide("sell")} style={chipStyle(side === "sell")}>🔼 Sell the rise · uses your shares</span>
+        <span onClick={() => setSide("buy")} style={chipStyle(side === "buy")}>🔽 Buy the dip · needs cash</span>
+      </div>
+      <div style={{ display: "flex", gap: 6, marginBottom: 12, alignItems: "center", flexWrap: "wrap" }}>
+        <span style={{ color: T.muted, fontSize: 11 }}>Trade size:</span>
+        {[10, 25, 50, 100].map(p => <span key={p} onClick={() => setSize(p)} style={chipStyle(size === p)}>{p}%</span>)}
+        <span style={{ color: T.muted, fontSize: 11 }}>of each holding</span>
+      </div>
+
+      <div style={{ background: totalWk > 0 ? T.green + "12" : T.card, border: `1px solid ${totalWk > 0 ? T.green + "44" : T.border}`, borderRadius: 12, padding: 14, marginBottom: 12 }}>
+        <div style={{ color: T.text, fontWeight: 800, fontSize: 14 }}>
+          {totalWk > 0 ? `≈ ${sgnRs(totalWk)} a week from ${withPlan.length} of ${rows.length} holdings` : "No holding has a level that paid in this setting"}
+        </div>
+        <div style={{ color: T.muted, fontSize: 11, marginTop: 6, lineHeight: 1.5 }}>
+          {totalWk > 0 && totalLoss > 0 && (totalLoss / totalWk <= 104
+            ? <>Your unrealised loss is {rs(totalLoss)}; at this pace that's ≈ {Math.ceil(totalLoss / totalWk)} weeks of trading. </>
+            : <>Your unrealised loss is {rs(totalLoss)} — at this size the trades alone would take more than two years to cover it. </>)}
+          {capital != null && totalWk > 0 && <>Needs about {rs(capital)} of cash for the buy orders. </>}
+          This is the average from the past, not a promise: some weeks lose, and the worst trade for each stock is shown below.
+        </div>
+      </div>
+
+      {scored.map(({ s, st }) => <RangeCard key={s.symbol} s={s} stock={st} mode={mode} side={side} sizePct={size}
+        missingWhy={st || missing[s.symbol] ? undefined : "Not in the ranges file yet — it's added at the next evening refresh."} />)}
+
+      <div style={{ marginTop: 14, background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: 12 }}>
+        <div style={{ color: T.text, fontWeight: 700, fontSize: 13 }}>Look up another stock</div>
+        <input value={q} onChange={e => setQ(e.target.value)} onFocus={findOther} placeholder="Symbol, e.g. TATASTEEL"
+          style={{ width: "100%", boxSizing: "border-box", marginTop: 8, background: T.bg, border: `1px solid ${T.border}`, borderRadius: 8, padding: "8px 10px", color: T.text, fontSize: 13 }} />
+        <div style={{ color: T.muted, fontSize: 10, marginTop: 6 }}>
+          Covers the current scan's squeeze, countertrend and watchlist stocks and the Cycles stocks ({data.more_count || 0}). Add any other symbol to data/ranges/watch.txt in the repo.
+        </div>
+        {sym.length >= 2 && (other
+          ? <div style={{ marginTop: 10 }}><RangeCard s={{ symbol: sym }} stock={other} mode={mode} side={side} sizePct={size} /></div>
+          : <div style={{ color: T.muted, fontSize: 11, marginTop: 8 }}>{extra || stocks[sym] ? `${sym} isn't in the list.` : "Loading…"}</div>)}
+      </div>
+
+      <div style={{ color: T.muted, fontSize: 10, marginTop: 12, lineHeight: 1.6 }}>
+        <b>How this is tested.</b> {mode === "short"
+          ? "Each session a limit order is placed relative to the previous close; if it fills, the opposite order goes in at the target and is checked from the next session on (daily bars can't show which came first within a day). If the target isn't reached within the hold, the trade closes at that session's close. One trade at a time."
+          : "Before each week a limit order is placed relative to last week's close; if it fills, the opposite order goes in at the target from the next day. Anything still open is closed at Friday's close, so a trade never runs into the next week."}
+        {" "}Every trade pays 0.3% in charges (STT, exchange, stamp duty, GST, DP); tax on gains (20% short-term) isn't deducted.
+        {" "}A level counts only if it made money both over the whole history and over the {RANGE_MODES[mode].recentLabel}, so it isn't something that worked only years ago.
+        {" "}<b>Sell the rise</b> keeps your share count: if the buy-back price isn't reached, you buy back at the close — sometimes higher than you sold (see "worst trade"). <b>Buy the dip</b> adds to a holding that may already be falling; keep the size small.
+        {" "}Gaps in the price history (suspensions, trade-to-trade weeks) are left out. Small, thinly traded stocks often show the biggest numbers here, but their limit orders fill less reliably than a test on daily highs and lows assumes. Not investment advice.
+      </div>
+    </div>
+  );
+}
+
 // ── Ledger cards: corporate actions, returns, tax estimate ──
 const pcTxt = v => (v == null ? "—" : `${v >= 0 ? "+" : ""}${v.toFixed(1)}%`);
 const pcCol = v => (v == null ? T.muted : v >= 0 ? T.green : T.red);
@@ -5269,10 +5481,10 @@ function App() {
           {tab === "portfolio" && (
             <div>
               {/* Sub-tab switcher */}
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 6, marginBottom: 16 }}>
-                {[["ledger", "📒\nLedger"], ["swing", "💼\nPortfolio"], ["picks", "🎯\nPicks"], ["longterm", "📦\nLong-Term"]].map(([id, label]) => (
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: 5, marginBottom: 16 }}>
+                {[["ledger", "📒\nLedger"], ["swing", "💼\nPortfolio"], ["picks", "🎯\nPicks"], ["ranges", "📏\nRanges"], ["longterm", "📦\nLong-term"]].map(([id, label]) => (
                   <button key={id} onClick={() => setPortfolioTab(id)}
-                    style={{ minWidth: 0, whiteSpace: "pre-line", lineHeight: 1.35, padding: "8px 2px", borderRadius: 10, border: `1px solid ${portfolioTab === id ? T.accent : T.border}`, background: portfolioTab === id ? T.accentDim : T.card, color: portfolioTab === id ? T.accent : T.muted, fontWeight: 700, fontSize: 12, cursor: "pointer" }}>
+                    style={{ minWidth: 0, whiteSpace: "pre-line", lineHeight: 1.35, padding: "8px 2px", borderRadius: 10, border: `1px solid ${portfolioTab === id ? T.accent : T.border}`, background: portfolioTab === id ? T.accentDim : T.card, color: portfolioTab === id ? T.accent : T.muted, fontWeight: 700, fontSize: "clamp(10px, 3vw, 12px)", overflow: "hidden", cursor: "pointer" }}>
                     {label}
                   </button>
                 ))}
@@ -5480,6 +5692,13 @@ function App() {
                 </>
               )}
 
+              {/* ── Ranges: daily / weekly ranges and tested plans to trade around each holding ── */}
+              {portfolioTab === "ranges" && (
+                <LedgerGate state={ledgerState} what="Ranges" onOpenLedger={() => setPortfolioTab("ledger")}>
+                  {d => <RangesPanel ledger={d} livePrices={livePrices} />}
+                </LedgerGate>
+              )}
+
               {/* ── Dashboard picks vs Nifty 50 (the full trade list now sits at the bottom of Portfolio) ── */}
               {portfolioTab === "picks" && (
                 <LedgerGate state={ledgerState} what="Dashboard picks" onOpenLedger={() => setPortfolioTab("ledger")}>
@@ -5619,7 +5838,7 @@ function App() {
                 { title: "👀 What is the Watchlist?", color: T.warn, body: "A looser, earlier tier for stocks that are visibly tightening (BB width under 9%) and turning up, but haven't yet cleared the strict 4.5% squeeze threshold or the 15% return target. Nothing here is a confirmed signal — it's a heads-up that a stock is forming. When a watchlist stock later earns a real squeeze signal, it's marked 'GRADUATED' with its full history." },
                 { title: "⛔ Below the −7% stop", color: T.red, body: "Every In Play card now measures its GTT target and −7% stop from the ENTRY price — the way the strategy was backtested. A stock that has fallen more than 7% below its entry stays on the scanner's list until a blast exit fires, but it is no longer a fresh entry: it is shown with a red banner and grouped under 'Below the −7% stop' at the bottom of the Long tab, and left out of the tab badges, 3%+ and H+S." },
                 { title: "📈 Returns, 🧾 tax and ⚠️ corporate actions", color: T.accent, body: "Ledger → Returns: each financial year values your holdings at NSE's 31 March closing prices and counts every buy, sale, buyback and dividend on its date. 'Your return a year (XIRR)' is the yearly rate your money actually grew at since the first trade; 'time-weighted' ignores when money was added, so compare that with Nifty.\nTax estimate: capital gains so far this year at 20% (short-term) and 12.5% above ₹1.25 lakh (long-term), and how much booking unrealised losses before 31 March would save. Cess, surcharge and brought-forward losses aren't included.\nCorporate actions: rights entitlements sitting in your demat are flagged on Monitor and Ledger automatically. Upcoming rights issues, buybacks, tender offers, OFS and call money aren't fetched (NSE and BSE block automated access) — Ledger links to Kite → Bids → Corporate actions, BSE's corporate-actions list and each holding's NSE page." },
-                { title: "💼 Portfolio, 🎯 Picks, 📦 Long-Term — automatic", color: T.accent, body: "All three are built from your trade ledger (Zerodha tradebooks + the evening Kite capture), so there is nothing to add or remove by hand and every device with your read-only key shows the same thing.\nPortfolio: holdings value, unrealised P&L, booked P&L by month, win rate and hold time on exits (tax-harvest sell-and-rebuys aren't counted as exits), every sale in the year. 📜 All trades at the bottom lists every buy, sell and corporate action — search, filter by side or year.\nPicks: only the stocks you bought on the dashboard's signals (a buy within a week of the stock showing on the squeeze, countertrend or watch list, or a 🔄 Cycles stock bought in its buy window), plus the ones added in ledger/picks.csv (DAVANGERE, AKASH) — each against the same money put into Nifty 50 on the same days, with total P&L, XIRR, win rate and how many beat Nifty. Holdings from before the dashboard started aren't counted.\nLong-Term: each holding with the scanner's exit / re-entry / forming read." },
+                { title: "💼 Portfolio, 🎯 Picks, 📦 Long-Term — automatic", color: T.accent, body: "All three are built from your trade ledger (Zerodha tradebooks + the evening Kite capture), so there is nothing to add or remove by hand and every device with your read-only key shows the same thing.\nPortfolio: holdings value, unrealised P&L, booked P&L by month, win rate and hold time on exits (tax-harvest sell-and-rebuys aren't counted as exits), every sale in the year. 📜 All trades at the bottom lists every buy, sell and corporate action — search, filter by side or year.\nPicks: only the stocks you bought on the dashboard's signals (a buy within a week of the stock showing on the squeeze, countertrend or watch list, or a 🔄 Cycles stock bought in its buy window), plus the ones added in ledger/picks.csv (DAVANGERE, AKASH) — each against the same money put into Nifty 50 on the same days, with total P&L, XIRR, win rate and how many beat Nifty. Holdings from before the dashboard started aren't counted.\nRanges: how far each holding typically moves in a day and a week, and tested levels to trade around it to bring the cost down — ⚡ 1–3 day orders (fresh every evening) or 📅 weekly ones; 🔼 sell the rise and buy back lower (uses your shares) or 🔽 buy the dip and sell higher (needs cash). Each level is shown only if it made money after charges over the whole history AND lately, with its fill rate, win rate, average, worst trade and the rupees a week on your chosen trade size.\nLong-Term: each holding with the scanner's exit / re-entry / forming read." },
                 { title: "🧭 Reading the Long tab order", color: T.accent, body: "Live cards are ranked best-first: validated signals (STRONG + weekly trend confirmed), then conviction and confidence, with a bonus for still being near entry. A card within 2% of its −7% stop shows an amber warning and drops to the bottom. If you already own the stock, the card shows your quantity and effective cost from the ledger.\nA scan that finishes after midnight belongs to the previous session — the header shows it as e.g. “scan 11-05 close (ran 11-06 00:57)”." },
                 { title: "🔻 Short tab", color: T.red, body: "Short Entries are bearish squeezes. Breaking Down lists stocks already falling — ranked by how much fall is left to the cover level. A short whose price has climbed back above its stop is marked STOP HIT (and hidden from Breaking Down), because the setup has failed." },
                 { title: "📒 Ledger — three costs", color: T.accent, body: "Original buy price: what you first paid, carried through tax-harvest sell-and-rebuys.\nEffective cost (all-in): your true break-even — every buy, sell, intraday trade and charge for the current holding, divided by shares held.\nTax cost (FIFO): the cost the tax rules use, so it resets when you harvest a loss or gain.\nThe ledger rebuilds itself every evening from Kite, and whenever you upload a tradebook or edit ledger/adjustments.csv (IPO allotments, rights, buybacks, splits, demergers)." },
