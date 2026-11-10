@@ -5,8 +5,8 @@ name: Price Ranges (daily and weekly trading ranges)
 # 1-3 day and weekly "trade around your holding" plans with the next orders'
 # prices. Runs right after every "NSE Daily OHLC Refresh" (so the short-term
 # levels refresh each evening on that day's close), plus a manual run.
-# Pure computation on the OHLC files already in the repo — no Kite token,
-# no outside calls.
+# Uses the OHLC files already in the repo, plus Kite (read-only market data,
+# with that day's login) for SME holdings the NSE archive doesn't cover.
 
 on:
   workflow_run:
@@ -37,6 +37,20 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+
+      # Holdings the NSE archive doesn't cover (SME "-SM" stocks like FLYSBS):
+      # fetch their daily history, lot size and volume from Kite. Needs that
+      # day's Kite login; without it this step changes nothing and the ranges
+      # are built from what's already saved.
+      - name: Price history from Kite for SME holdings
+        continue-on-error: true
+        env:
+          KITE_API_KEY: ${{ secrets.KITE_API_KEY }}
+          SECRETS_REPO_PAT: ${{ secrets.SECRETS_REPO_PAT }}
+          SECRETS_REPO: ${{ secrets.SECRETS_REPO }}
+        run: |
+          pip install -q kiteconnect
+          python scripts/kite_history.py
 
       - name: Compute ranges
         run: python scripts/ranges.py
