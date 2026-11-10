@@ -1,0 +1,56 @@
+name: Price Ranges (daily and weekly trading ranges)
+
+# Rebuilds data/ranges/ behind the dashboard's Portfolio → 📏 Ranges tab:
+# how far each holding typically moves in a day and a week, and the tested
+# 1-3 day and weekly "trade around your holding" plans with the next orders'
+# prices. Runs right after every "NSE Daily OHLC Refresh" (so the short-term
+# levels refresh each evening on that day's close), plus a manual run.
+# Pure computation on the OHLC files already in the repo — no Kite token,
+# no outside calls.
+
+on:
+  workflow_run:
+    workflows: ["NSE Daily OHLC Refresh"]
+    types: [completed]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: nse-ranges
+  cancel-in-progress: false
+
+jobs:
+  ranges:
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      # workflow_run can start a few seconds before main shows the OHLC
+      # refresh's commit — pull so today's bar is always included.
+      - name: Get the latest OHLC
+        run: git pull -q --rebase origin main || true
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Compute ranges
+        run: python scripts/ranges.py
+
+      - name: Commit results
+        run: |
+          git config user.name "nse-tracker-bot"
+          git config user.email "actions@github.com"
+          git add -A data/ranges
+          git diff --staged --quiet && { echo "No changes."; exit 0; }
+          git commit -q -m "ranges: $(TZ=Asia/Kolkata date +'%Y-%m-%d %H:%M IST')"
+          for try in 1 2 3; do
+            git pull -q --rebase --autostash origin main && git push -q && { echo "Saved."; exit 0; }
+            sleep 10
+          done
+          echo "::error::Could not save the ranges after 3 attempts."
+          exit 1
