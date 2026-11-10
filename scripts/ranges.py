@@ -42,6 +42,15 @@ THE TWO WEEKLY PLANS (both tested on every week of the stock's history)
 DATA
   data/backtest/raw_ohlc/<SYMBOL>.json (from Sep 2020), cleaned and adjusted
   for splits/bonuses with the same code as the Cycles tab (cycles.py).
+  Holdings that archive doesn't cover (NSE SME "-SM" stocks such as FLYSBS)
+  come from data/ranges/extra_ohlc/, filled from Kite by kite_history.py,
+  with the lot size and traded volume in data/ranges/extra_meta.json.
+
+RECENTLY LISTED STOCKS
+  The first 20 sessions after a listing (IPO-day circuits) are left out. A
+  stock with one to two years of trading gets plans tested on what it has,
+  with the "lately" check on its last 6 months (26 weeks) instead of a year,
+  and a note saying the numbers rest on fewer trades.
 
 UNIVERSE
   Your holdings (data/zerodha_holdings.json), data/ranges/watch.txt (one
@@ -58,6 +67,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from cycles import clean_bars, adjust_corporate_actions, load_history, load_json  # noqa: E402
 
 RAW_DIR = os.environ.get("RANGES_RAW_DIR", "data/backtest/raw_ohlc")
+EXTRA_DIR = os.environ.get("RANGES_EXTRA_DIR", "data/ranges/extra_ohlc")
+EXTRA_META = os.environ.get("RANGES_EXTRA_META", "data/ranges/extra_meta.json")
 OUT = os.environ.get("RANGES_OUT", "data/ranges/summary.json")
 OUT_MORE = os.environ.get("RANGES_OUT_MORE", "data/ranges/more.json")
 WATCH = os.environ.get("RANGES_WATCH", "data/ranges/watch.txt")
@@ -197,8 +208,8 @@ def _brief(sc):
     return {k: sc.get(k) for k in ("fills", "win_rate", "avg", "per_week", "worst")}
 
 
-def best_plan(weeks, sim):
-    recent = weeks[-RECENT:]
+def best_plan(weeks, sim, recent_n=RECENT):
+    recent = weeks[-recent_n:]
     rows = []
     for e in ENTRY_GRID:
         for t in TARGET_GRID:
@@ -220,6 +231,12 @@ D_TARGET_GRID = [0.005, 0.01, 0.015, 0.02, 0.03]
 D_HOLD_GRID = [1, 2, 3]
 D_RECENT = 250                  # about a year of sessions
 D_MIN_FILLS, D_MIN_FILLS_RECENT = 30, 10
+
+# Recently listed stocks: tested on what they have, with a shorter "lately" window.
+ARCHIVE_START = "2020-10-15"    # history starting after this means the stock listed later
+LISTING_SKIP = 20               # IPO-day circuits and the first weeks' frenzy are left out
+SHORT_MIN_SESSIONS, SHORT_RECENT_YOUNG = 250, 125
+WEEK_MIN_YOUNG, WEEK_RECENT_YOUNG = 52, 26
 
 
 MAX_SESSION_GAP = 5             # calendar days; a longer gap is a data hole (suspension,
@@ -295,8 +312,8 @@ def score_short(res, sessions):
     }
 
 
-def best_short(bars, side):
-    recent = bars[-(D_RECENT + 1):]
+def best_short(bars, side, recent_n=D_RECENT):
+    recent = bars[-(recent_n + 1):]
     rows = []
     for e in D_ENTRY_GRID:
         for t in D_TARGET_GRID:
@@ -316,12 +333,17 @@ def best_short(bars, side):
 # ── per stock ──────────────────────────────────────────────────────────────
 def analyse(sym, raw):
     bars = clean_bars(raw)
+    listed = bars[0]["date"] if bars and bars[0]["date"] > ARCHIVE_START else None
+    if listed:
+        bars = bars[LISTING_SKIP:]
     if len(bars) < 60:
         return None
     bars, events, warnings = adjust_corporate_actions(bars)
     last = bars[-1]
     out = {"symbol": sym, "as_of": last["date"], "close": round(last["c"], 2),
            "history_from": bars[0]["date"], "days": len(bars)}
+    if listed:
+        out["listed"] = listed
 
     # daily ranges vs the previous close
     dd = [(b["l"], b["h"], a["c"]) for a, b in zip(bars, bars[1:]) if _gap(a, b) <= MAX_SESSION_GAP]
@@ -358,9 +380,13 @@ def analyse(sym, raw):
         wref = {"close": round(prev[-1]["c"], 2), "date": prev[-1]["date"], "for": "this week"} if prev else None
     out["week_ref"] = wref
     wc = wref["close"] if wref else c
-    if len(weeks) >= MIN_WEEKS:
-        out["buy_dip"] = best_plan(weeks, sim_buy_dip)
-        out["sell_rise"] = best_plan(weeks, sim_sell_rise)
+    young = None
+    if len(weeks) >= MIN_WEEKS or (listed and len(weeks) >= WEEK_MIN_YOUNG):
+        wrec = RECENT if len(weeks) >= MIN_WEEKS else WEEK_RECENT_YOUNG
+        if wrec != RECENT:
+            out["week_recent_label"], young = f"last {wrec} weeks", True
+        out["buy_dip"] = best_plan(weeks, sim_buy_dip, wrec)
+        out["sell_rise"] = best_plan(weeks, sim_sell_rise, wrec)
         for key in ("buy_dip", "sell_rise"):
             for p in out[key]:
                 if key == "buy_dip":
@@ -370,18 +396,46 @@ def analyse(sym, raw):
                     p["order"] = round(wc * (1 + p["entry"]), 2)
                     p["exit"] = round(p["order"] * (1 - p["target"]), 2)
     else:
-        out["note"] = f"only {len(weeks)} weeks of history — at least {MIN_WEEKS} needed to test a weekly plan"
-    if len(bars) >= 2 * D_RECENT:
-        out["short_buy"] = best_short(bars, "buy")
-        out["short_sell"] = best_short(bars, "sell")
+        need = WEEK_MIN_YOUNG if listed else MIN_WEEKS
+        out["note"] = f"only {len(weeks)} weeks of history — at least {need} needed to test a weekly plan"
+    if len(bars) >= 2 * D_RECENT or (listed and len(bars) >= SHORT_MIN_SESSIONS):
+        drec = D_RECENT if len(bars) >= 2 * D_RECENT else SHORT_RECENT_YOUNG
+        if drec != D_RECENT:
+            out["short_recent_label"], young = "last 6 months", True
+        out["short_buy"] = best_short(bars, "buy", drec)
+        out["short_sell"] = best_short(bars, "sell", drec)
         for key, sign in (("short_buy", -1), ("short_sell", 1)):
             for p in out[key]:
                 p["order"] = round(c * (1 + sign * p["entry"]), 2)
                 p["exit"] = round(p["order"] * (1 - sign * p["target"]), 2)
+    if young:
+        out["young_note"] = (f"Price history starts {listed} (listing or move to the main board); the first "
+                             f"{LISTING_SKIP} sessions are left out, leaving about {len(bars)} to test on. These numbers "
+                             "rest on fewer trades than for older stocks — a rough guide, not a track record.")
     out["warnings"] = warnings[:3]
     if events:
         out["adjusted_for"] = events[-3:]
     return out
+
+
+def add_kite_details(out, raw, m):
+    """Lot size, tick and liquidity for a stock whose history came from Kite."""
+    out["source"] = "kite"
+    if m.get("tradingsymbol"):
+        out["exchange_symbol"] = f'{m.get("exchange", "NSE")}:{m["tradingsymbol"]}'
+    lot = int(m.get("lot_size") or 1)
+    if lot > 1:
+        out["lot"] = lot
+    if m.get("tick_size"):
+        out["tick"] = float(m["tick_size"])
+    tail = [b for b in raw if b.get("close")][-60:]
+    if tail and any("volume" in b for b in tail):
+        turnover = sorted(b["close"] * (b.get("volume") or 0) for b in tail)
+        out["liquidity"] = {"median_turnover": round(pct(turnover, 50)), "sessions": len(tail),
+                            "no_trade_days": sum(1 for b in tail if not b.get("volume"))}
+    if lot > 1 or str(m.get("tradingsymbol", "")).endswith(("-SM", "-ST")):
+        out["warnings"] = ([f"SME stock: it trades only in lots of {lot} shares, and with fewer buyers and sellers "
+                            "a limit order can sit unfilled even when the price touches it."] + out.get("warnings", []))[:3]
 
 
 def universe():
@@ -420,13 +474,20 @@ def universe():
 def main():
     syms, why = universe()
     stocks, missing = {}, []
+    meta = load_json(EXTRA_META, {}) or {}
     for s in syms:
         path = os.path.join(RAW_DIR, f"{s}.json")
+        extra = not os.path.exists(path)
+        if extra:
+            path = os.path.join(EXTRA_DIR, f"{s}.json")
         if not os.path.exists(path):
             missing.append(s)
             continue
         try:
-            r = analyse(s, load_history(s, path))
+            raw = load_json(path, []) if extra else load_history(s, path)
+            r = analyse(s, raw)
+            if r and extra:
+                add_kite_details(r, raw, meta.get(s) or {})
         except Exception as e:                      # one bad file must not stop the rest
             print(f"  {s}: skipped ({type(e).__name__}: {e})")
             continue
