@@ -359,7 +359,7 @@ const RAW_BASE    = `https://raw.githubusercontent.com/${GITHUB_USER}/${GITHUB_R
 // instead of requiring a manual file diff to find out. This exists because
 // PWA/service-worker caching has repeatedly made "is this actually deployed
 // yet" the hardest part of diagnosing issues in this app.
-const BUILD_VERSION = "2026-11-11.2";
+const BUILD_VERSION = "2026-11-11.3";
 
 // NSE trading calendar — keep in step with scripts/market_session.py.
 // Special sessions on a weekend (Diwali Muhurat) and weekday holidays.
@@ -3656,7 +3656,7 @@ function rangePlan(stock, mode, side) {
   return { best: plans.find(p => p.score > 0) || null, others: plans.filter(p => p.score > 0).slice(1), tested: plans.length };
 }
 
-function RangePlanText({ p, mode, side, wref }) {
+function RangePlanText({ p, mode, side, wref, tick: tick0 }) {
   const short = mode === "short";
   const when = short ? "next session" : (wref ? `for ${wref.for}` : "for the week");
   const dShort = d => new Date(d + "T00:00:00").toLocaleDateString("en-IN", { day: "numeric", month: "short" });
@@ -3664,7 +3664,7 @@ function RangePlanText({ p, mode, side, wref }) {
   const out = short ? `within ${p.hold} session${p.hold > 1 ? "s" : ""} after the fill, else at that day's close` : "by Friday, else at Friday's close";
   // Prices are rounded to the NSE tick so they can be typed straight into an order: buys down,
   // sells up (each a hair further away, never closer than the tested level).
-  const tick = Math.max(nseTick(p.order * 1.1), nseTick(p.exit * 1.1));
+  const tick = Math.max(nseTick(p.order * 1.1), nseTick(p.exit * 1.1), tick0 || 0);
   const buyPx = v => rsTick(Math.floor(v / tick + 1e-9) * tick, tick);
   const sellPx = v => rsTick(Math.ceil(v / tick - 1e-9) * tick, tick);
   return side === "buy"
@@ -3682,6 +3682,17 @@ function rsTick(v, tick) {
   return "₹" + v.toLocaleString("en-IN", { minimumFractionDigits: d, maximumFractionDigits: d });
 }
 
+// Shares per trade: the chosen % of the holding, in whole lots for SME stocks (which trade
+// only in lots); at least one lot when the holding has one.
+function tradeQty(held, pct, lot) {
+  if (!held) return null;
+  const raw = Math.floor(held * pct / 100);
+  if (!lot || lot <= 1) return Math.max(1, raw);
+  const q = Math.floor(raw / lot) * lot;
+  return q > 0 ? q : held >= lot ? lot : 0;
+}
+const lakhs = v => (v >= 1e7 ? `₹${(v / 1e7).toFixed(1)} cr` : v >= 1e5 ? `₹${(v / 1e5).toFixed(1)} lakh` : rs(v));
+
 function RangeCard({ s, stock, mode, side, sizePct, missingWhy }) {
   const [more, setMore] = useState(false);
   const M = RANGE_MODES[mode];
@@ -3689,20 +3700,24 @@ function RangeCard({ s, stock, mode, side, sizePct, missingWhy }) {
     return (
       <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: 12, marginBottom: 8 }}>
         <span style={{ fontFamily: "monospace", fontWeight: 800, color: T.text }}>{s.symbol}</span>
-        <div style={{ color: T.muted, fontSize: 11, marginTop: 4 }}>{missingWhy || "No price history to test (SME or recently listed stocks aren't in the price archive)."}</div>
+        <div style={{ color: T.muted, fontSize: 11, marginTop: 4 }}>{missingWhy || "No price history to test yet. Stocks outside NSE's main-board archive (like SME \"-SM\" shares) are fetched from Kite in the evening refresh, on days you've done the Kite login."}</div>
       </div>
     );
   }
   const { best, others } = rangePlan(stock, mode, side);
   const price = s.px ?? stock.close;
-  const qty = s.qty ? Math.max(1, Math.floor(s.qty * sizePct / 100)) : null;
+  const qty = tradeQty(s.qty, sizePct, stock.lot);
+  const recentLabel = (mode === "short" ? stock.short_recent_label : stock.week_recent_label) || M.recentLabel;
+  const liq = stock.liquidity;
+  const orderValue = qty && best ? qty * price : null;
+  const heavy = liq && liq.median_turnover > 0 && orderValue ? orderValue / liq.median_turnover : null;
   const perWeekRs = best && qty ? qty * price * best.all.per_week : null;
   const loss = s.unreal != null && s.unreal < 0 ? -s.unreal : null;
   const weeks = perWeekRs > 0 && loss ? Math.ceil(loss / perWeekRs) : null;
   const coverTxt = weeks == null ? (loss ? "" : "no loss to cover") : weeks > 104 ? "covers the loss in 2+ years" : `loss covered in ~${weeks} wk`;
   const wk = stock.weekly && (stock.weekly.last52 || stock.weekly.all);
   const dy = stock.daily && (stock.daily.last250 || stock.daily.all);
-  const fillTxt = p => (mode === "short" ? `${(p.all.fills_per_week || 0).toFixed(1)}× a week` : `${Math.round(p.all.fill_rate * 100)}% of weeks`);
+  const fillTxt = p => (mode === "short" ? `${(p.all.fills_per_week || 0).toFixed(1)}×/wk` : `${Math.round(p.all.fill_rate * 100)}% of wks`);
   return (
     <div style={{ background: T.card, border: `1px solid ${T.border}`, borderLeft: `3px solid ${best ? T.green : T.border}`, borderRadius: 10, padding: 12, marginBottom: 8 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8 }}>
@@ -3711,6 +3726,12 @@ function RangeCard({ s, stock, mode, side, sizePct, missingWhy }) {
           {rs(stock.close)} · {stock.as_of}
         </span>
       </div>
+      {stock.source === "kite" && (
+        <div style={{ color: T.warn, fontSize: 11, marginTop: 2, lineHeight: 1.5 }}>
+          {stock.lot ? `SME · trades in lots of ${stock.lot} sh` : "Price history from Kite"}
+          {liq && <> · a typical day trades {lakhs(liq.median_turnover)} (median of the last {liq.sessions} sessions{liq.no_trade_days ? `, ${liq.no_trade_days} with no trades` : ""})</>}
+        </div>
+      )}
       {s.qty != null && (
         <div style={{ color: T.muted, fontSize: 11, marginTop: 2 }}>
           {s.qty} sh · cost {rs(s.cost)} · {s.unreal != null ? <span style={{ color: s.unreal >= 0 ? T.green : T.red }}>{sgnRs(s.unreal)} unrealised</span> : "—"}
@@ -3720,26 +3741,33 @@ function RangeCard({ s, stock, mode, side, sizePct, missingWhy }) {
         Typical day: range {pc1(dy && dy.range && dy.range.p50)} · dips {pc1(dy && dy.down && dy.down.p50)} / rises {pc1(dy && dy.up && dy.up.p50)} below/above the previous close (median).
         {wk && <><br />Typical week: low {pc1(wk.down.p50)} below last week's close (1 in 4 weeks {pc1(wk.down.p75)}+), high {pc1(wk.up.p50)} above.</>}
       </div>
+      {stock.young_note && <div style={{ color: T.warn, fontSize: 11, marginTop: 6, lineHeight: 1.5 }}>⚠️ {stock.young_note}</div>}
       {best ? (
         <div style={{ marginTop: 8, background: T.green + "10", border: `1px solid ${T.green}33`, borderRadius: 8, padding: 10 }}>
-          <div style={{ color: T.text, fontSize: 12, lineHeight: 1.5 }}><RangePlanText p={best} mode={mode} side={side} wref={stock.week_ref} /></div>
+          <div style={{ color: T.text, fontSize: 12, lineHeight: 1.5 }}><RangePlanText p={best} mode={mode} side={side} wref={stock.week_ref} tick={stock.tick} /></div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 6, marginTop: 8 }}>
             <Stat label="Fills" value={fillTxt(best)} sub={`${best.all.fills} trades tested`} />
-            <Stat label="Won" value={`${Math.round(best.all.win_rate * 100)}%`} sub={`${M.recentLabel} ${Math.round((best[M.recent].win_rate || 0) * 100)}%`} />
-            <Stat label="Per week" value={pcS(best.all.per_week)} color={T.green} sub={`${M.recentLabel} ${pcS(best[M.recent].per_week)}`} />
+            <Stat label="Won" value={`${Math.round(best.all.win_rate * 100)}%`} sub={`${recentLabel} ${Math.round((best[M.recent].win_rate || 0) * 100)}%`} />
+            <Stat label="Per week" value={pcS(best.all.per_week)} color={T.green} sub={`${recentLabel} ${pcS(best[M.recent].per_week)}`} />
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 6, marginTop: 8 }}>
             <Stat label="Avg trade" value={pcS(best.all.avg)} sub="after charges" />
             <Stat label="Worst trade" value={pcS(best.all.worst)} color={T.red} sub={`target hit ${Math.round(best.all.target_hit * 100)}% of trades`} />
-            {qty ? <Stat label={`On ${qty} sh`} value={perWeekRs != null ? `${sgnRs(perWeekRs)}/wk` : "—"} sub={coverTxt} />
-                 : <Stat label="On ₹1 lakh" value={`${sgnRs(100000 * best.all.per_week)}/wk`} />}
+            {qty ? <Stat label={`${qty} sh, a week`} value={perWeekRs != null ? sgnRs(perWeekRs) : "—"} sub={coverTxt} />
+                 : qty === 0 ? <Stat label="Size" value="under 1 lot" sub={`you hold ${s.qty}; the smallest order is ${stock.lot} sh`} />
+                 : <Stat label="₹1 lakh, a week" value={sgnRs(100000 * best.all.per_week)} />}
           </div>
+          {heavy != null && heavy > 0.2 && (
+            <div style={{ color: heavy > 0.5 ? T.red : T.warn, fontSize: 11, marginTop: 8, lineHeight: 1.5 }}>
+              Your order ({lakhs(orderValue)}) is {Math.round(heavy * 100)}% of a typical day's trading in this stock — expect it to fill only in part, or to move the price against you. A smaller size is more realistic.
+            </div>
+          )}
           {others.length > 0 && (
             <div style={{ marginTop: 6 }}>
               <span onClick={() => setMore(m => !m)} style={{ color: T.accent, fontSize: 11, cursor: "pointer" }}>{more ? "▾ fewer levels" : `▸ ${others.length} other tested level${others.length > 1 ? "s" : ""}`}</span>
               {more && others.map((p, i) => (
                 <div key={i} style={{ color: T.muted, fontSize: 11, marginTop: 6, lineHeight: 1.5, borderTop: `1px solid ${T.border}`, paddingTop: 6 }}>
-                  <RangePlanText p={p} mode={mode} side={side} wref={stock.week_ref} /> Fills {fillTxt(p)}, won {Math.round(p.all.win_rate * 100)}%, {pcS(p.all.per_week)} a week ({M.recentLabel} {pcS(p[M.recent].per_week)}), worst {pcS(p.all.worst)}.
+                  <RangePlanText p={p} mode={mode} side={side} wref={stock.week_ref} tick={stock.tick} /> Fills {fillTxt(p)}, won {Math.round(p.all.win_rate * 100)}%, {pcS(p.all.per_week)} a week ({recentLabel} {pcS(p[M.recent].per_week)}), worst {pcS(p.all.worst)}.
                 </div>
               ))}
             </div>
@@ -3747,7 +3775,7 @@ function RangeCard({ s, stock, mode, side, sizePct, missingWhy }) {
         </div>
       ) : (
         <div style={{ marginTop: 8, color: T.muted, fontSize: 11, background: T.bg, borderRadius: 8, padding: 10 }}>
-          {stock.note || `No level paid after charges over both the full history and the ${M.recentLabel} — better not to trade this one ${side === "buy" ? "on dips" : "on rises"}.`}
+          {stock.note || `No level paid after charges over both the full history and the ${recentLabel} — better not to trade this one ${side === "buy" ? "on dips" : "on rises"}.`}
         </div>
       )}
     </div>
@@ -3787,14 +3815,14 @@ function RangesPanel({ ledger, livePrices }) {
   const scored = rows.map(s => {
     const st = stocks[s.symbol];
     const { best } = rangePlan(st, mode, side);
-    const qty = s.qty ? Math.max(1, Math.floor(s.qty * size / 100)) : 0;
+    const qty = tradeQty(s.qty, size, st && st.lot) || 0;
     const wk = best ? qty * (s.px ?? st.close) * best.all.per_week : null;
     return { s, st, best, wk };
   }).sort((a, b) => (b.wk ?? -1e18) - (a.wk ?? -1e18));
   const withPlan = scored.filter(x => x.best && x.wk > 0);
   const totalWk = withPlan.reduce((a, x) => a + x.wk, 0);
   const totalLoss = rows.reduce((a, s) => a + (s.unreal != null && s.unreal < 0 ? -s.unreal : 0), 0);
-  const capital = side === "buy" ? withPlan.reduce((a, x) => a + Math.max(1, Math.floor(x.s.qty * size / 100)) * (x.s.px ?? x.st.close), 0) : null;
+  const capital = side === "buy" ? withPlan.reduce((a, x) => a + (tradeQty(x.s.qty, size, x.st.lot) || 0) * (x.s.px ?? x.st.close), 0) : null;
   const sym = q.trim().toUpperCase();
   const other = sym && !rows.some(r => r.symbol === sym) ? (stocks[sym] || (extra && extra.stocks && extra.stocks[sym])) : null;
 
@@ -3849,7 +3877,7 @@ function RangesPanel({ ledger, livePrices }) {
           ? "Each session a limit order is placed relative to the previous close; if it fills, the opposite order goes in at the target and is checked from the next session on (daily bars can't show which came first within a day). If the target isn't reached within the hold, the trade closes at that session's close. One trade at a time."
           : "Before each week a limit order is placed relative to last week's close; if it fills, the opposite order goes in at the target from the next day. Anything still open is closed at Friday's close, so a trade never runs into the next week."}
         {" "}Every trade pays 0.3% in charges (STT, exchange, stamp duty, GST, DP); tax on gains (20% short-term) isn't deducted. Order prices are rounded to NSE's tick size (buys down, sells up), so they can be typed straight into Kite.
-        {" "}A level counts only if it made money both over the whole history and over the {RANGE_MODES[mode].recentLabel}, so it isn't something that worked only years ago.
+        {" "}A level counts only if it made money both over the whole history and over the {RANGE_MODES[mode].recentLabel} (the last {mode === "short" ? "6 months" : "26 weeks"} for stocks listed within two years), so it isn't something that worked only years ago.
         {" "}<b>Sell the rise</b> keeps your share count: if the buy-back price isn't reached, you buy back at the close — sometimes higher than you sold (see "worst trade"). <b>Buy the dip</b> adds to a holding that may already be falling; keep the size small.
         {" "}Gaps in the price history (suspensions, trade-to-trade weeks) are left out. Small, thinly traded stocks often show the biggest numbers here, but their limit orders fill less reliably than a test on daily highs and lows assumes. Not investment advice.
       </div>
