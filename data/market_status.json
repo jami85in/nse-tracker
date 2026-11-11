@@ -1,6 +1,6 @@
 {
-  "date": "2026-11-10",
-  "market_open": false,
-  "reason": "NSE holiday (live NSE calendar): Diwali-Balipratipada",
-  "checked_at": "2026-11-11 02:03 IST"
+  "date": "2026-11-11",
+  "market_open": true,
+  "reason": "Regular trading day (live NSE calendar)",
+  "checked_at": "2026-11-12 02:30 IST"
 }
