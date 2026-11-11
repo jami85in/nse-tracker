@@ -359,7 +359,7 @@ const RAW_BASE    = `https://raw.githubusercontent.com/${GITHUB_USER}/${GITHUB_R
 // instead of requiring a manual file diff to find out. This exists because
 // PWA/service-worker caching has repeatedly made "is this actually deployed
 // yet" the hardest part of diagnosing issues in this app.
-const BUILD_VERSION = "2026-11-11.3";
+const BUILD_VERSION = "2026-11-11.4";
 
 // NSE trading calendar — keep in step with scripts/market_session.py.
 // Special sessions on a weekend (Diwali Muhurat) and weekday holidays.
@@ -3158,13 +3158,22 @@ function useSharedLedger() { return useSharedLedgerState().data; }
 // Live price, unless the ledger's own price is newer. The ledger's last_price comes
 // from the evening Kite holdings snapshot (the day's close), so it beats a live
 // price that is only a mid-session snapshot from that day or an earlier one.
+// But only once that day's session is actually over: on 11 Nov 2026 a capture
+// made at 2 AM was filed under that date, and the old rule showed its (Monday)
+// prices all day instead of the live ones.
+const istNowStamp = () => {
+  const n = new Date(Date.now() + new Date().getTimezoneOffset() * 60000 + 5.5 * 3600000);
+  const p = v => String(v).padStart(2, "0");
+  return `${n.getFullYear()}-${p(n.getMonth() + 1)}-${p(n.getDate())} ${p(n.getHours())}:${p(n.getMinutes())}`;
+};
 const ledgerPrice = (h, livePrices, ledger) => {
   const key = livePrices[h.symbol] != null ? h.symbol : `${h.symbol}-SM`;
   const live = livePrices[key];
   if (live == null) return h.last_price ?? null;
   const liveAsOf = LIVE_PRICE_ASOF[key];
   const snap = ledger && ledger.sources && ledger.sources.holdings_snapshot;
-  if (h.last_price != null && snap && liveAsOf && liveAsOf < `${snap} 15:30`) return h.last_price;
+  const snapClose = snap ? `${snap} 15:30` : null;
+  if (h.last_price != null && snapClose && liveAsOf && liveAsOf < snapClose && istNowStamp() >= snapClose) return h.last_price;
   return live;
 };
 const rs = v => (typeof v === "number" ? (v < 0 ? "-" : "") + "₹" + Math.abs(v).toLocaleString("en-IN", { maximumFractionDigits: Math.abs(v) >= 1000 ? 0 : 2 }) : "—");
