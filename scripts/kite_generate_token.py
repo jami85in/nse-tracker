@@ -144,6 +144,9 @@ def main():
 
     commit_token_to_private_repo(token_data)
     print(f"SUCCESS. Logged in as: {data.get('user_name')} ({data.get('user_id')})")
+    if now_ist.hour < 6:
+        print("::warning::Logged in before 06:00 IST. Zerodha resets every Kite token at about "
+              "6 AM, so this one stops working then — log in again after 6 AM for today's prices.")
     print("This token is valid until it expires per SEBI rules (typically ~market")
     print("close or early the next morning) — repeat this process tomorrow.")
 

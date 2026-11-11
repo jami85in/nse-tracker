@@ -18,7 +18,8 @@ def get_kite_token():
     """
     Returns (access_token, is_stale) or (None, None) if unavailable.
     is_stale=True if the token was generated on a date earlier than today
-    (IST) — a signal that the daily manual refresh hasn't happened yet.
+    (IST), or before Zerodha's ~06:00 IST daily reset when it is now past it —
+    a signal that today's login hasn't happened yet.
     """
     secrets_repo = os.environ.get("SECRETS_REPO", "")
     pat = os.environ.get("SECRETS_REPO_PAT", "")
@@ -40,13 +41,29 @@ def get_kite_token():
         return None, None
 
     access_token = token_data.get("access_token")
-    generated_date = token_data.get("generated_date")
+    return access_token, token_is_stale(token_data)
 
+
+# Zerodha cancels every Kite access token in its daily reset at about 06:00 IST,
+# so a token from a login between midnight and 06:00 carries today's date but
+# stops working that morning (11 Nov 2026: a 02:10 login looked "fresh" all day
+# while every price request was refused).
+KITE_RESET = datetime.time(6, 0)
+
+
+def token_is_stale(token_data, now=None):
+    """True if the token can't be today's working token: generated on an earlier
+    date, or before today's ~06:00 IST reset when it is now past it."""
     ist = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
-    today_ist = datetime.datetime.now(ist).date().isoformat()
-    is_stale = (generated_date != today_ist)
-
-    return access_token, is_stale
+    now = now or datetime.datetime.now(ist)
+    if token_data.get("generated_date") != now.date().isoformat():
+        return True
+    try:
+        hm = str(token_data.get("generated_at", ""))[11:16]          # "YYYY-MM-DD HH:MM IST"
+        made = datetime.time(int(hm[:2]), int(hm[3:5]))
+    except (ValueError, IndexError):
+        return False                                                # older files: date check only
+    return made < KITE_RESET <= now.time()
 
 
 if __name__ == "__main__":
