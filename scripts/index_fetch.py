@@ -9,7 +9,11 @@ a stock's return over N days against its sector index's return over the
 same N days. A stock beating its sector is showing real relative strength;
 a stock merely riding a rising sector isn't necessarily special.
 
-Same resumable multi-chunk design as the other collectors.
+Same resumable multi-chunk design as the other collectors. Once the backfill
+is done, every run is a DAILY refresh: it re-fetches from a week before the
+newest stored day through today and merges. (Until 12 Nov 2026 a finished
+backfill simply stopped — the index files froze at 7 Jul 2026 and the
+dashboard's "vs Nifty (20d)" figures were four months old.)
 """
 import json, os, sys, time, datetime, urllib.request, urllib.error, urllib.parse
 
@@ -35,17 +39,24 @@ TRACKED_INDICES = [
 
 
 def load_json(path, default):
+    """Missing file -> default. A file that exists but won't parse is an error:
+    defaulting to [] there would let the next merge overwrite years of history."""
     try:
         with open(path) as f:
             return json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError):
+    except FileNotFoundError:
         return default
+    except json.JSONDecodeError as e:
+        print(f"::error::{path} is unreadable ({e}) — fix or restore it from git; not overwriting it.")
+        sys.exit(1)
 
 
 def save_json(path, data):
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
-    with open(path, "w") as f:
+    tmp = path + ".tmp"
+    with open(tmp, "w") as f:
         json.dump(data, f)
+    os.replace(tmp, path)          # a killed run never leaves a half-written file
 
 
 def fetch_chunk(start_str, end_str):
@@ -120,6 +131,66 @@ def process_one_chunk(progress):
     return "advanced"
 
 
+def _newest_nifty():
+    series = load_json(os.path.join(INDEX_DIR, "Nifty_50.json"), [])
+    return series[-1].get("date", "") if series else ""
+
+
+def daily_refresh(progress):
+    """Bring every index up to today, in CHUNK_DAYS pieces, from a week before
+    the contiguous frontier: the end of the last chunk that arrived with every
+    chunk before it. A chunk that fails stops the run there, so a gap is
+    retried next time instead of being jumped over. merge_indices dedupes by
+    date, so overlap is harmless. Exits 1 when a chunk failed or Nifty 50 is
+    still more than 4 weekdays old, so a stalled feed shows up as a failed run."""
+    today = datetime.date.today()
+    frontier = progress.get("daily_frontier") or _newest_nifty() or progress.get("next_chunk_start") or START_DATE
+    lookback = int(os.environ.get("INDEX_DAILY_LOOKBACK_DAYS", "12"))
+    start = min(today - datetime.timedelta(days=lookback),
+                datetime.date.fromisoformat(frontier) - datetime.timedelta(days=7))
+    budget_end = time.time() + int(os.environ.get("INDEX_TIME_BUDGET_SECONDS", "300"))
+    print(f"Daily index refresh: {start} -> {today} (frontier {frontier})")
+    s, merged, failed = start, set(), None
+    while s <= today:
+        if time.time() > budget_end:
+            failed = f"time budget reached at {s}"
+            break
+        e = min(s + datetime.timedelta(days=CHUNK_DAYS - 1), today)
+        ok = False
+        for attempt in range(1, 4):
+            try:
+                result = fetch_chunk(s.isoformat(), e.isoformat())
+            except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError) as ex:
+                print(f"  {s}..{e} attempt {attempt}: fetch failed ({ex})")
+                time.sleep(6)
+                continue
+            if result.get("error"):
+                print(f"  {s}..{e} attempt {attempt}: worker error ({result['error']})")
+                time.sleep(6)
+                continue
+            merged |= merge_indices(result.get("indices", {}))
+            print(f"  {s}..{e}: {result.get('trading_days_fetched', 0)} day(s)")
+            ok = True
+            break
+        if not ok:
+            failed = f"chunk {s}..{e} failed 3 times"
+            break
+        # frontier = newest day actually stored, so an empty answer is retried next run
+        progress["daily_frontier"] = _newest_nifty() or frontier
+        s = e + datetime.timedelta(days=1)
+        time.sleep(2)
+    progress["last_daily_refresh"] = datetime.datetime.now().isoformat()
+    progress["last_daily_range"] = f"{start}..{today}"
+    print(f"Daily index refresh merged {len(merged)} indices.")
+    newest = _newest_nifty()
+    stale = not newest or sum(1 for k in range(1, (today - datetime.date.fromisoformat(newest)).days + 1)
+                              if (today - datetime.timedelta(days=k)).weekday() < 5) > 4
+    if failed or stale:
+        print(f"::error::Index data not current — {failed or 'no new days'}; newest Nifty 50 bar {newest or 'none'}.")
+        return False
+    return True
+
+
 def main():
     if not WORKER_URL:
         print("ERROR: BACKTEST_WORKER_URL not set.")
@@ -134,7 +205,10 @@ def main():
     })
 
     if progress.get("done"):
-        print("Index collection already complete. Nothing to do.")
+        ok = daily_refresh(progress)
+        save_json(PROGRESS_PATH, progress)
+        if not ok:
+            sys.exit(1)               # the commit step still runs (if: always()) and saves what arrived
         return
 
     TIME_BUDGET_SECONDS = int(os.environ.get("INDEX_TIME_BUDGET_SECONDS", "300"))
