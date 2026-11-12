@@ -11,8 +11,10 @@ name: SME OHLC Collection (EMERGE)
 # Runs daily after the main OHLC refresh so the two never contend for a push.
 
 on:
-  schedule:
-    - cron: "0 15 * * 1-5"    # 20:30 IST weekdays, after the 19:00 IST main refresh
+  # Schedule retired 12 Nov 2026: the deployed worker ignores ?series=SM,ST,
+  # so this has been saving main-board (EQ) copies into data/sme/, not SME
+  # data. SME holdings (FLYSBS) now come from Kite via scripts/kite_history.py.
+  # Re-enable after redeploying worker.js (which supports ?series).
   workflow_dispatch:
     inputs:
       chunk_days:
@@ -31,12 +33,12 @@ jobs:
   collect:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Ensure latest commit
         run: git pull --ff-only origin main || true
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.11"
 

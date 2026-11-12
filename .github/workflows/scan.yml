@@ -51,7 +51,7 @@ jobs:
   scan:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       # Explicit pull, even right after checkout. workflow_run fires based on
       # the OTHER workflow's completion EVENT, which can have a few seconds
@@ -65,7 +65,7 @@ jobs:
       - name: Ensure absolute latest commit (workflow_run timing safety)
         run: git pull --ff-only origin main
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.11"
 

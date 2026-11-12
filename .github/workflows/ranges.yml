@@ -29,14 +29,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       # workflow_run can start a few seconds before main shows the OHLC
       # refresh's commit — pull so today's bar is always included.
       - name: Get the latest OHLC
         run: git pull -q --rebase origin main || true
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.11"
 

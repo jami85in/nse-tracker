@@ -17,8 +17,9 @@ name: NSE Shares Outstanding (market cap source)
 # manual CSV route (data/market_cap_cr.csv) described in build_symbols_meta.py.
 
 on:
-  schedule:
-    - cron: "0 3 * * 0"   # 08:30 IST Sunday — quiet day, well clear of trading hours
+  # Schedule retired 12 Nov 2026: NSE's live quote API blocks the worker, so
+  # this never produced data/shares_outstanding.json and every weekly run
+  # failed at "git add". Market caps come from fetch_market_caps.py instead.
   workflow_dispatch:
     inputs:
       refresh_all:
@@ -40,8 +41,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 12
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.11"
 

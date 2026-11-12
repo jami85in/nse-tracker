@@ -13,8 +13,10 @@ name: NSE OHLC History Extension (2014-2020)
 # file (or remove the schedule) — after that it only does no-op runs.
 
 on:
-  schedule:
-    - cron: "*/15 * * * *"
+  # Schedule retired 12 Nov 2026: the worker can't read NSE's pre-2020
+  # bhavcopy format, so in months of 15-minute runs no 2014-2020 chunk ever
+  # landed (progress_ohlc_extend.json: 0 completed). Run by hand after fixing
+  # the worker.
   workflow_dispatch:
 
 permissions:
@@ -29,8 +31,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 12
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.11"
 
