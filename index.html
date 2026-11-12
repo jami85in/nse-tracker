@@ -359,7 +359,7 @@ const RAW_BASE    = `https://raw.githubusercontent.com/${GITHUB_USER}/${GITHUB_R
 // instead of requiring a manual file diff to find out. This exists because
 // PWA/service-worker caching has repeatedly made "is this actually deployed
 // yet" the hardest part of diagnosing issues in this app.
-const BUILD_VERSION = "2026-11-11.4";
+const BUILD_VERSION = "2026-11-12.1";
 
 // NSE trading calendar — keep in step with scripts/market_session.py.
 // Special sessions on a weekend (Diwali Muhurat) and weekday holidays.
@@ -2460,6 +2460,7 @@ function MonitorPage({ scanData, positions, holdings, livePrices, priceUpdated, 
                   <div style={{ color: T.muted, fontSize: 10, marginTop: 8, lineHeight: 1.6 }}>
                     Return since {r.from}: <b style={{ color: pcCol(r.xirr_pct) }}>{pcTxt(r.xirr_pct)} a year</b> (same money in Nifty {pcTxt(r.nifty_same_money_xirr_pct ?? r.nifty_annual_pct)})
                     {cur && <> · {cur.fy} so far <b style={{ color: pcCol(cur.return_pct) }}>{pcTxt(cur.return_pct)}</b> (Nifty {pcTxt(cur.nifty_pct)})</>}
+                    {r.bank && <> · <b style={{ color: r.bank.vs_bank >= 0 ? T.green : T.red }}>{bankTxt(r.bank)}</b></>}
                   </div>
                 );
               })()}
@@ -3179,6 +3180,18 @@ const ledgerPrice = (h, livePrices, ledger) => {
 const rs = v => (typeof v === "number" ? (v < 0 ? "-" : "") + "₹" + Math.abs(v).toLocaleString("en-IN", { maximumFractionDigits: Math.abs(v) >= 1000 ? 0 : 2 }) : "—");
 const sgnRs = v => (typeof v === "number" ? (v >= 0 ? "+" : "-") + "₹" + Math.abs(v).toLocaleString("en-IN", { maximumFractionDigits: 0 }) : "—");
 const pctOf = (a, b) => (typeof a === "number" && b ? ((a / b - 1) * 100) : null);
+// Same money in a bank deposit (ledger "bank" block): short text, and the yearly
+// return only once the holding is 3+ months old (a few weeks' XIRR is noise).
+const bankTxt = b => (b && b.vs_bank != null ? `${b.vs_bank >= 0 ? "ahead of" : "behind"} a ${b.rate_pct}% bank deposit by ${sgnRs(Math.abs(b.vs_bank)).slice(1)}` : null);
+// Re-value the bank comparison at the live price (the ledger's figure uses the evening snapshot).
+const liveBank = (b, px, qty) => {
+  if (!b || px == null || !qty) return b;
+  const vs = px * qty - b.bank_value;
+  // the yearly rate is from the snapshot; drop it if today's price has flipped the verdict
+  const x = b.xirr_pct != null && (b.xirr_pct >= b.rate_pct) !== (vs >= 0) ? null : b.xirr_pct;
+  return { ...b, value: px * qty, vs_bank: vs, xirr_pct: x };
+};
+const bankRate = b => (b && b.xirr_pct != null && b.days >= 90 ? `${b.xirr_pct >= 0 ? "+" : ""}${b.xirr_pct.toFixed(1)}% a year vs ${b.rate_pct}%` : null);
 function currentFY(now = new Date()) {
   const y = now.getFullYear(), m = now.getMonth();
   const s = m >= 3 ? y : y - 1;
@@ -3333,6 +3346,7 @@ function AutoPortfolio({ ledger, livePrices, scanData }) {
             <div style={{ color: T.muted, fontSize: 10, marginTop: 1 }}>
               {h.qty} sh · {rs(h.effective_cost)} → {px != null ? rs(px) : "no price"}{days != null ? ` · ${days}d` : ""}
             </div>
+            {h.bank && (() => { const b = liveBank(h.bank, px, h.qty); return <div style={{ color: b.vs_bank >= 0 ? T.green : T.red, fontSize: 10, marginTop: 1 }}>{b.vs_bank >= 0 ? "▲" : "▼"} {bankTxt(b)}{bankRate(b) ? ` · ${bankRate(b)}` : ""}</div>; })()}
           </div>
           <div style={{ textAlign: "right", flexShrink: 0 }}>
             <div style={{ color: r == null ? T.muted : r >= 0 ? T.green : T.red, fontWeight: 800, fontSize: 13 }}>{r != null ? pct(r) : "—"}</div>
@@ -4007,6 +4021,19 @@ function ReturnsCard({ r }) {
           </div>
         );
       })()}
+      {s.bank && (() => {
+        const b = s.bank, ahead = b.vs_bank >= 0;
+        return (
+          <div style={{ marginTop: 10, background: (ahead ? T.green : T.red) + "12", border: `1px solid ${(ahead ? T.green : T.red)}44`, borderRadius: 10, padding: 10 }}>
+            <div style={{ color: ahead ? T.green : T.red, fontWeight: 800, fontSize: 13 }}>
+              {ahead ? "✅ Ahead of" : "⚠️ Behind"} a {b.rate_pct}% bank deposit by {rs(Math.abs(b.vs_bank))}{s.xirr_pct != null ? ` · ${pcTxt(s.xirr_pct)} a year vs ${b.rate_pct}%` : ""}
+            </div>
+            <div style={{ color: T.muted, fontSize: 10, marginTop: 4, lineHeight: 1.5 }}>
+              The same money in a deposit at {b.rate_pct}% a year, on the same days you put it in and took it out (dividends taken out too), would hold {rs(b.bank_value)} today; your holdings are worth {rs(b.value)}.
+            </div>
+          </div>
+        );
+      })()}
       <div style={{ color: T.muted, fontSize: 11, marginTop: 10, lineHeight: 1.6 }}>
         Gain <b style={{ color: s.gain >= 0 ? T.green : T.red }}>{sgnRs(s.gain)}</b>: you put in {rs(s.money_in)}, took out {rs(s.money_out)},
         received {rs(s.dividends)} in dividends, and hold {rs(s.current_value)} now.
@@ -4023,7 +4050,9 @@ function ReturnsCard({ r }) {
                 <span style={{ color: T.muted, fontSize: 9, display: "block" }}>{!x.complete ? "so far" : x.partial ? `from ${x.from}` : "full year"}</span>
               </span>
               <span style={{ textAlign: "right", fontWeight: 800, color: pcCol(x.return_pct) }}>{pcTxt(x.return_pct)}</span>
-              <span style={{ textAlign: "right", color: pcCol(x.nifty_pct) }}>{pcTxt(x.nifty_pct)}</span>
+              <span style={{ textAlign: "right", color: pcCol(x.nifty_pct) }}>{pcTxt(x.nifty_pct)}
+                {x.bank_pct != null && <span style={{ color: T.muted, fontSize: 9, display: "block" }}>bank {pcTxt(x.bank_pct)}</span>}
+              </span>
               <span style={{ textAlign: "right", color: x.gain >= 0 ? T.green : T.red }}>{sgnRs(x.gain)}
                 {x.nifty_same_money_gain != null && <span style={{ color: T.muted, fontSize: 9, display: "block" }}>Nifty {sgnRs(x.nifty_same_money_gain)}</span>}
               </span>
@@ -4032,7 +4061,7 @@ function ReturnsCard({ r }) {
         </div>
       )}
       <div style={{ color: T.muted, fontSize: 10, marginTop: 8, lineHeight: 1.5 }}>
-        Each year values your holdings at NSE's closing prices on 31 March and counts buys, sales, buyback proceeds and dividends on the day they happened
+        "bank" under Nifty is what a 7% deposit earns over the same stretch. Each year values your holdings at NSE's closing prices on 31 March and counts buys, sales, buyback proceeds and dividends on the day they happened
         (Modified Dietz). XIRR is the yearly rate your money grew at; time-weighted ignores when you added money. "Nifty" under each year's gain is what the same money would have made in Nifty 50 that year.
         {approxN > 0 && ` ${approxN} stock(s) had no NSE price on a year-end and were valued at their last trade price.`}
         {r.share_log_mismatch ? ` ⚠ ${r.share_log_mismatch} stock(s) didn't reconcile — treat these figures as approximate.` : ""}
@@ -4277,11 +4306,20 @@ function LedgerPanel({ livePrices }) {
                   <Stat label="Tax cost (FIFO)" value={rs(h.tax_cost)} sub={pctTxt(pt)} />
                   <Stat label="Value" value={rs(h.value)} sub={h.value != null ? `P&L ${sgnRs(h.value - h.net_invested)}` : null} />
                 </div>
+                {h.bank && (() => { const b = liveBank(h.bank, h.px, h.qty); return (
+                  <div style={{ marginTop: 8, padding: "6px 8px", borderRadius: 6, background: (b.vs_bank >= 0 ? T.green : T.red) + "12", color: b.vs_bank >= 0 ? T.green : T.red, fontSize: 11, lineHeight: 1.5 }}>
+                    <b>{b.vs_bank >= 0 ? "Ahead of" : "Behind"} a {b.rate_pct}% bank deposit by {rs(Math.abs(b.vs_bank))}</b>
+                    {bankRate(b) ? ` · ${bankRate(b)}` : ""}
+                    <span style={{ color: T.muted }}> — same money, same days, since {b.since}{b.scope === "all rounds" ? " (all rounds, as earlier losses count)" : b.scope === "current round" ? " (current round)" : ""}: a deposit would hold {rs(b.bank_value)}.</span>
+                  </div>
+                ); })()}
                 <div style={{ color: T.muted, fontSize: 10, marginTop: 6, lineHeight: 1.5 }}>
                   {h.dividends_gross > 0 && <>After ₹{Math.round(h.dividends_gross).toLocaleString("en-IN")} dividends, break-even is {rs(h.breakeven_after_div)}. </>}
                   {h.original_cost != null && Math.abs(h.original_cost - h.tax_cost) > Math.max(0.5, 0.003 * h.tax_cost) && <>Tax cost is lower/higher than the original price because of tax-harvest sales. </>}
-                  {h.original_cost != null && Math.abs(h.effective_cost - h.original_cost) > Math.max(0.5, 0.003 * h.original_cost) && <>Effective cost folds in {h.effective_cost < h.original_cost ? "profits" : "losses"} from partial sales, intraday trades and charges. </>}
-                  {h.rounds > 1 && h.earlier_rounds_pnl ? <>Earlier, closed-out rounds in this stock: {sgnRs(h.earlier_rounds_pnl)}. </> : null}
+                  {h.original_cost != null && Math.abs((h.round_cost ?? h.effective_cost) - h.original_cost) > Math.max(0.5, 0.003 * h.original_cost) && <>Effective cost folds in {(h.round_cost ?? h.effective_cost) < h.original_cost ? "profits" : "losses"} from partial sales, intraday trades and charges. </>}
+                  {h.earlier_loss_in_cost > 0
+                    ? <>Effective cost includes {rs(h.earlier_loss_in_cost)} lost in earlier, closed-out rounds — it's what this stock still has to make back (this round alone: {rs(h.round_cost)}). </>
+                    : h.rounds > 1 && h.earlier_rounds_pnl ? <>Earlier, closed-out rounds made {sgnRs(h.earlier_rounds_pnl)} — kept out of the break-even, which counts only this round. </> : null}
                   {lt && <>Next lot turns long-term on {lt}. </>}
                   Charges paid {rs(h.charges)}.
                 </div>
@@ -5893,7 +5931,7 @@ function App() {
                 { title: "💼 Portfolio, 🎯 Picks, 📦 Long-Term — automatic", color: T.accent, body: "All three are built from your trade ledger (Zerodha tradebooks + the evening Kite capture), so there is nothing to add or remove by hand and every device with your read-only key shows the same thing.\nPortfolio: holdings value, unrealised P&L, booked P&L by month, win rate and hold time on exits (tax-harvest sell-and-rebuys aren't counted as exits), every sale in the year. 📜 All trades at the bottom lists every buy, sell and corporate action — search, filter by side or year.\nPicks: only the stocks you bought on the dashboard's signals (a buy within a week of the stock showing on the squeeze, countertrend or watch list, or a 🔄 Cycles stock bought in its buy window), plus the ones added in ledger/picks.csv (DAVANGERE, AKASH) — each against the same money put into Nifty 50 on the same days, with total P&L, XIRR, win rate and how many beat Nifty. Holdings from before the dashboard started aren't counted.\nRanges: how far each holding typically moves in a day and a week, and tested levels to trade around it to bring the cost down — ⚡ 1–3 day orders (fresh every evening) or 📅 weekly ones; 🔼 sell the rise and buy back lower (uses your shares) or 🔽 buy the dip and sell higher (needs cash). Each level is shown only if it made money after charges over the whole history AND lately, with its fill rate, win rate, average, worst trade and the rupees a week on your chosen trade size.\nLong-Term: each holding with the scanner's exit / re-entry / forming read." },
                 { title: "🧭 Reading the Long tab order", color: T.accent, body: "Live cards are ranked best-first: validated signals (STRONG + weekly trend confirmed), then conviction and confidence, with a bonus for still being near entry. A card within 2% of its −7% stop shows an amber warning and drops to the bottom. If you already own the stock, the card shows your quantity and effective cost from the ledger.\nA scan that finishes after midnight belongs to the previous session — the header shows it as e.g. “scan 11-05 close (ran 11-06 00:57)”." },
                 { title: "🔻 Short tab", color: T.red, body: "Short Entries are bearish squeezes. Breaking Down lists stocks already falling — ranked by how much fall is left to the cover level. A short whose price has climbed back above its stop is marked STOP HIT (and hidden from Breaking Down), because the setup has failed." },
-                { title: "📒 Ledger — three costs", color: T.accent, body: "Original buy price: what you first paid, carried through tax-harvest sell-and-rebuys.\nEffective cost (all-in): your true break-even — every buy, sell, intraday trade and charge for the current holding, divided by shares held.\nTax cost (FIFO): the cost the tax rules use, so it resets when you harvest a loss or gain.\nThe ledger rebuilds itself every evening from Kite, and whenever you upload a tradebook or edit ledger/adjustments.csv (IPO allotments, rights, buybacks, splits, demergers)." },
+                { title: "📒 Ledger — three costs", color: T.accent, body: "Original buy price: what you first paid, carried through tax-harvest sell-and-rebuys.\nEffective cost (all-in): your true break-even — every buy, sell, intraday trade and charge for the current holding, plus any loss from earlier, closed-out rounds in the stock (earlier profits don't lower it), divided by shares held.\nTax cost (FIFO): the cost the tax rules use, so it resets when you harvest a loss or gain.\nThe ledger rebuilds itself every evening from Kite, and whenever you upload a tradebook or edit ledger/adjustments.csv (IPO allotments, rights, buybacks, splits, demergers)." },
                 { title: "🔄 What is the Cycles tab?", color: T.accent, body: "Stocks that repeat a yearly pattern — e.g. bottoming around March and rallying into September. Each card shows the buy/sell months, how many years it worked, and whether it beat the market. 'Buy now / soon' lists stocks whose usual buy month is now or next month. Tap any stock for its year-by-year cycle history. The list defaults to companies over ₹10,000 cr; the ₹5k+ / ₹3k+ chips widen it, but smaller companies' patterns held up noticeably less often in testing, so those cards carry a warning. Rebuilt weekly (Saturday)." },
                 { title: "📊 Indicators used", color: T.warn, body: "Bollinger Bands: 20, 2 SD | EMA: 10 & 30 | RSI(14) → Stochastic 3/3 smoothing | Pivots: Traditional (prior day H/L/C) | Timeframe: Daily, for 5–10 day holds" },
                 { title: "⚠️ Disclaimer", color: T.red, body: "Educational and informational only — not investment advice. All trading decisions are your responsibility. Past patterns don't guarantee future returns." },
