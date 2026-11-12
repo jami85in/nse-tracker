@@ -1,0 +1,67 @@
+name: NSE OHLC Trade-to-Trade Gap Fill
+
+# One-off repair. Until 12 Nov 2026 the price archive was built from NSE's
+# EQ series only, so whenever a stock was moved to trade-to-trade (BE/BZ,
+# delivery only — common for small caps under surveillance) its file stopped
+# until it came back to EQ. 227 stocks had gaps of more than two weeks in the
+# last year (SILGO, WALCHANNAG ...). The daily refresh now asks for EQ,BE,BZ;
+# this backfills the old gaps from Sep 2020.
+#
+# Safe by construction: fill mode only ADDS dates a stock doesn't have, and
+# only real trading days — it never changes an existing bar.
+# Resumable: each run works for up to ~40 minutes and commits; run it again
+# until the log says "OHLC collection already complete", then this file can
+# be deleted.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: nse-ohlc-daily        # same group as the daily refresh: never both at once
+  cancel-in-progress: false
+
+jobs:
+  fill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Fill trade-to-trade gaps
+        env:
+          BACKTEST_WORKER_URL: ${{ secrets.BACKTEST_WORKER_URL }}
+          BACKTEST_UNIVERSE: "all"
+          BACKTEST_SERIES: "BE,BZ"
+          BACKTEST_MERGE: "fill"
+          BACKTEST_START_DATE: "2020-09-01"
+          BACKTEST_PROGRESS_PATH: "data/backtest/progress_t2t_gapfill.json"
+          BACKTEST_CHUNK_DAYS: "28"
+          BACKTEST_TIME_BUDGET_SECONDS: "2400"
+          BACKTEST_PAUSE_SECONDS: "3"
+        run: python scripts/backtest_fetch_ohlc.py
+
+      - name: Remove holiday copies
+        if: always()
+        run: python scripts/purge_holiday_bars.py
+
+      - name: Commit
+        if: always()
+        run: |
+          git config user.name "nse-tracker-bot"
+          git config user.email "actions@github.com"
+          git add data/backtest/raw_ohlc/ data/backtest/progress_t2t_gapfill.json 2>/dev/null || true
+          if git diff --staged --quiet; then echo "Nothing new."; exit 0; fi
+          git commit -q -m "ohlc: fill trade-to-trade gaps $(date -u +'%Y-%m-%d %H:%M UTC')"
+          for try in 1 2 3; do
+            git pull -q --rebase --autostash origin main && git push -q && exit 0
+            git rebase --abort 2>/dev/null || true
+            sleep 10
+          done
+          echo "::error::Could not push after 3 attempts."
+          exit 1

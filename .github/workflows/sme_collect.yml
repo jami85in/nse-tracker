@@ -6,21 +6,32 @@ name: SME OHLC Collection (EMERGE)
 # Nothing in the live scan reads this yet — deliberately. The main strategy's
 # numbers were earned on ~1,800 main-board stocks over ~6 years; SME has zero
 # validation behind it. This exists to accumulate enough history to backtest
-# SME on its own terms first.
+# SME on its own terms first. (SME holdings such as FLYSBS get their Ranges
+# history from Kite instead — scripts/kite_history.py.)
+#
+# 12 Nov 2026: the worker now honours ?series=SM,ST. Before that this job was
+# saving main-board copies into data/sme/; those were removed with a "reset"
+# run and the schedule restored.
 #
 # Runs daily after the main OHLC refresh so the two never contend for a push.
 
 on:
-  # Schedule retired 12 Nov 2026: the deployed worker ignores ?series=SM,ST,
-  # so this has been saving main-board (EQ) copies into data/sme/, not SME
-  # data. SME holdings (FLYSBS) now come from Kite via scripts/kite_history.py.
-  # Re-enable after redeploying worker.js (which supports ?series).
+  schedule:
+    - cron: "0 15 * * 1-5"    # 20:30 IST, Mon-Fri
   workflow_dispatch:
     inputs:
-      chunk_days:
-        description: "Calendar days to fetch in this run"
+      reset:
+        description: "Delete data/sme and start the collection again"
+        type: boolean
+        default: false
+      start_date:
+        description: "First date for a reset collection"
         required: false
-        default: "30"
+        default: "2023-01-01"
+      time_budget:
+        description: "Seconds this run may keep fetching"
+        required: false
+        default: "1500"
 
 permissions:
   contents: write
@@ -32,26 +43,48 @@ concurrency:
 jobs:
   collect:
     runs-on: ubuntu-latest
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v5
-
-      - name: Ensure latest commit
-        run: git pull --ff-only origin main || true
 
       - uses: actions/setup-python@v6
         with:
           python-version: "3.11"
 
+      - name: Remove the old SME folder
+        if: ${{ github.event.inputs.reset == 'true' }}
+        run: |
+          if [ -d data/sme ]; then
+            echo "Removing $(find data/sme -type f | wc -l) files from data/sme"
+            git rm -r -q data/sme
+          fi
+
       - name: Collect SME OHLC
         env:
-          SME_CHUNK_DAYS: ${{ github.event.inputs.chunk_days || '30' }}
+          SME_CHUNK_DAYS: "30"
+          SME_START_DATE: ${{ github.event.inputs.start_date || '2023-01-01' }}
+          SME_TIME_BUDGET_SECONDS: ${{ github.event.inputs.time_budget || '300' }}
         run: python scripts/sme_fetch_ohlc.py
 
+      - name: Remove holiday copies
+        if: always()
+        env:
+          PURGE_DIRS: data/sme/raw_ohlc
+          PURGE_MIN_SYMBOLS: "50"
+        run: python scripts/purge_holiday_bars.py
+
       - name: Commit SME data
+        if: always()
         run: |
           git config user.name "nse-tracker-bot"
           git config user.email "actions@github.com"
-          git add data/sme
-          git diff --staged --quiet || git commit -m "sme: collect OHLC $(TZ='Asia/Kolkata' date +'%Y-%m-%d %H:%M IST')"
-          git pull --rebase --autostash origin main || true
-          git push
+          git add -A data/sme 2>/dev/null || true
+          if git diff --staged --quiet; then echo "Nothing new."; exit 0; fi
+          git commit -q -m "sme: collect OHLC $(TZ='Asia/Kolkata' date +'%Y-%m-%d %H:%M IST')"
+          for try in 1 2 3; do
+            git pull -q --rebase --autostash origin main && git push -q && exit 0
+            git rebase --abort 2>/dev/null || true
+            sleep 10
+          done
+          echo "::error::Could not push after 3 attempts."
+          exit 1
