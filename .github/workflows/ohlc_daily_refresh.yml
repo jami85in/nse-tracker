@@ -45,6 +45,9 @@ jobs:
           BACKTEST_WORKER_URL: ${{ secrets.BACKTEST_WORKER_URL }}
           BACKTEST_MODE: "daily"
           BACKTEST_UNIVERSE: "all"
+          # EQ plus trade-to-trade (BE/BZ), so a stock NSE moves to T2T under
+          # surveillance keeps getting daily bars instead of going stale.
+          BACKTEST_SERIES: "EQ,BE,BZ"
           BACKTEST_DAILY_LOOKBACK_DAYS: ${{ github.event.inputs.lookback_days || '12' }}
         run: python scripts/backtest_fetch_ohlc.py
 
