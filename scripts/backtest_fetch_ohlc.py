@@ -41,6 +41,23 @@ PROGRESS_PATH = os.environ.get("BACKTEST_PROGRESS_PATH", os.path.join(DATA_DIR, 
 END_DATE = os.environ.get("BACKTEST_END_DATE", "")
 SYMBOLS_PATH = os.path.join(DATA_DIR, "symbols_all.json" if UNIVERSE == "all" else "symbols.json")
 
+# Which bhavcopy series to ask the worker for. Empty = the worker's default
+# (EQ only). The daily refresh asks for "EQ,BE,BZ": when NSE moves a small cap
+# to trade-to-trade (BE/BZ, delivery only) while it is under surveillance, the
+# stock leaves the EQ list, and with EQ alone its price file simply stopped —
+# 227 stocks had gaps of more than two weeks in the last year (SILGO,
+# WALCHANNAG ...). Bars come back in exactly the same format whatever the
+# series, and if a stock shows up in two series on one day the EQ row wins.
+SERIES = os.environ.get("BACKTEST_SERIES", "").replace(" ", "")
+
+# "replace" (default): fetched bars overwrite stored ones for the same date.
+# "fill": only dates a stock doesn't have yet are added, and only real trading
+# days (dates present in the reference large caps below) — used by the one-off
+# trade-to-trade gap fill, so it can never alter an existing bar or bring back
+# a holiday copy.
+MERGE_MODE = os.environ.get("BACKTEST_MERGE", "replace").lower()
+CALENDAR_SYMBOLS = ("RELIANCE", "HDFCBANK", "TCS", "INFY")
+
 
 def load_json(path, default):
     try:
@@ -106,22 +123,56 @@ def fetch_chunk(start_str, end_str, symbols):
     symbols_param = ",".join(symbols)
     url = (f"{WORKER_URL}/backtest?start={start_str}&end={end_str}"
            f"&symbols={urllib.parse.quote(symbols_param)}")
+    if SERIES:
+        url += f"&series={urllib.parse.quote(SERIES)}"
     req = urllib.request.Request(url, headers={"User-Agent": "nse-tracker-backtest/1.0"})
     with urllib.request.urlopen(req, timeout=90) as resp:
         return json.loads(resp.read().decode())
 
 
+_calendar = None
+
+
+def trading_calendar():
+    """Dates on which the reference large caps traded (holiday copies are
+    already purged from their files). Used only in fill mode."""
+    global _calendar
+    if _calendar is None:
+        days = set()
+        for sym in CALENDAR_SYMBOLS:
+            days.update(pt.get("date") for pt in load_json(os.path.join(OHLC_DIR, f"{sym}.json"), []))
+        days.discard(None)
+        _calendar = days
+    return _calendar
+
+
 def merge_ohlc(chunk_ohlc):
     updated = set()
+    added = 0
+    fill = MERGE_MODE == "fill"
+    calendar = trading_calendar() if fill else None
     for sym, series in chunk_ohlc.items():
         path = os.path.join(OHLC_DIR, f"{sym}.json")
         existing = load_json(path, [])
         by_date = {pt["date"]: pt for pt in existing}
+        changed = False
         for pt in series:
-            by_date[pt["date"]] = pt
+            d = pt.get("date")
+            if not d:
+                continue
+            if fill:
+                if d in by_date or d not in calendar:
+                    continue
+                added += 1
+            by_date[d] = pt
+            changed = True
+        if fill and not changed:
+            continue
         merged = [by_date[d] for d in sorted(by_date.keys())]
         save_json(path, merged)
         updated.add(sym)
+    if fill:
+        print(f"  fill mode: added {added} missing bars across {len(updated)} symbols")
     return updated
 
 
@@ -236,7 +287,10 @@ def main():
     if not symbols:
         print("ERROR: no symbol universe found.")
         sys.exit(1)
-    print(f"Tracking {len(symbols)} symbols (universe={UNIVERSE}).")
+    print(f"Tracking {len(symbols)} symbols (universe={UNIVERSE}, series={SERIES or 'EQ'}, merge={MERGE_MODE}).")
+    if MERGE_MODE == "fill" and not trading_calendar():
+        print("ERROR: fill mode needs the reference price files to build a trading calendar.")
+        sys.exit(1)
 
     # Daily keep-current pass runs independently of the historical backfill.
     if DAILY_MODE:

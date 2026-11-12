@@ -39,6 +39,16 @@ SYMBOLS_PATH = "data/sme/symbols_sme.json"
 PROGRESS_PATH = "data/sme/progress_sme.json"
 SERIES = "SM,ST"          # SME and SME trade-to-trade
 CHUNK_DAYS = int(os.environ.get("SME_CHUNK_DAYS", "30"))
+# Where a fresh collection starts (only used when there is no progress file,
+# e.g. after the workflow's "reset" run), and how long one run may keep
+# fetching chunks before it stops and commits; the next run carries on.
+START_DATE = os.environ.get("SME_START_DATE", "")
+TIME_BUDGET = int(os.environ.get("SME_TIME_BUDGET_SECONDS", "300"))
+# 12 Nov 2026: before the worker was redeployed it ignored ?series=, so the
+# files written here until then were main-board (EQ) copies. Bars written now
+# carry a "series" field (SM/ST); a chunk without it is refused rather than
+# saved, so that can't silently happen again.
+SME_SERIES = {"SM", "ST"}
 
 
 def http_get_json(url, timeout=120, retries=3):
@@ -112,46 +122,66 @@ def main():
         print(f"  Using cached SME symbol list ({len(syms)} symbols)")
 
     prog = load_json(PROGRESS_PATH, {})
-    # Walk backwards from today in chunks, oldest boundary first time through.
-    default_start = (datetime.date.today() - datetime.timedelta(days=CHUNK_DAYS))
-    start = datetime.date.fromisoformat(prog.get("next_start", default_start.isoformat()))
-    end = min(start + datetime.timedelta(days=CHUNK_DAYS - 1), datetime.date.today())
-    if start > datetime.date.today():
-        print("  Already current — nothing to fetch.")
-        return 0
+    today = datetime.date.today()
+    if "next_start" not in prog:
+        first = START_DATE or (today - datetime.timedelta(days=CHUNK_DAYS)).isoformat()
+        prog["next_start"] = first
+        print(f"  No progress file — starting a fresh collection from {first}")
 
-    print(f"  Fetching {start} .. {end} (series {SERIES})")
-    data = fetch_chunk(start, end)
-    if not data or "ohlc" not in data:
-        print(f"  Chunk failed: {data}")
-        return 1
+    # Near the frontier, always re-read the last week: a day whose file wasn't
+    # published yet at run time gets picked up next run (merging is by date).
+    week_ago = (today - datetime.timedelta(days=7)).isoformat()
+    if prog["next_start"] > week_ago:
+        prog["next_start"] = week_ago
 
-    ohlc = data["ohlc"]
-    print(f"  Received {len(ohlc)} symbols, "
-          f"{data.get('trading_days_fetched')} trading days "
-          f"({data.get('trading_days_failed')} failed)")
+    t0 = time.time()
+    chunks = 0
+    while time.time() - t0 < TIME_BUDGET:
+        start = datetime.date.fromisoformat(prog["next_start"])
+        if start > today:
+            print("  Already current — nothing more to fetch.")
+            break
+        end = min(start + datetime.timedelta(days=CHUNK_DAYS - 1), today)
+        print(f"  Fetching {start} .. {end} (series {SERIES})")
+        data = fetch_chunk(start, end)
+        if not data or "ohlc" not in data:
+            print(f"  Chunk failed: {str(data)[:300]}")
+            save_json(PROGRESS_PATH, prog)
+            return 1 if chunks == 0 else 0
 
-    written = 0
-    for sym, bars in ohlc.items():
-        if not bars:
-            continue
-        # Sanitise the symbol so it can never escape the output directory.
-        safe = "".join(ch for ch in sym if ch.isalnum() or ch in "-_&")
-        if not safe:
-            continue
-        path = os.path.join(OUT_DIR, f"{safe}.json")
-        merged = merge_bars(load_json(path, []), bars)
-        save_json(path, merged)
-        written += 1
+        ohlc = data["ohlc"]
+        sample = next((b[0] for b in ohlc.values() if b), None)
+        if sample is not None and sample.get("series") not in SME_SERIES:
+            print("  The worker returned bars without an SME series tag — it is not honouring "
+                  "?series=SM,ST. Nothing saved.")
+            return 1
+        print(f"  Received {len(ohlc)} symbols, "
+              f"{data.get('trading_days_fetched')} trading days "
+              f"({data.get('trading_days_failed')} failed)")
 
-    prog["next_start"] = (end + datetime.timedelta(days=1)).isoformat()
-    prog["last_run"] = datetime.datetime.now().isoformat()
-    prog["last_range"] = f"{start}..{end}"
-    prog["symbols_count"] = len(syms)
-    save_json(PROGRESS_PATH, prog)
+        written = 0
+        for sym, bars in ohlc.items():
+            if not bars:
+                continue
+            # Sanitise the symbol so it can never escape the output directory.
+            safe = "".join(ch for ch in sym if ch.isalnum() or ch in "-_&")
+            if not safe:
+                continue
+            path = os.path.join(OUT_DIR, f"{safe}.json")
+            merged = merge_bars(load_json(path, []), bars)
+            save_json(path, merged)
+            written += 1
 
-    print(f"  Wrote {written} symbol files to {OUT_DIR}")
-    print(f"  Next chunk starts {prog['next_start']}")
+        prog["next_start"] = (end + datetime.timedelta(days=1)).isoformat()
+        prog["last_run"] = datetime.datetime.now().isoformat()
+        prog["last_range"] = f"{start}..{end}"
+        prog["symbols_count"] = len(syms)
+        save_json(PROGRESS_PATH, prog)
+        chunks += 1
+        print(f"  Wrote {written} symbol files; next chunk starts {prog['next_start']}")
+        time.sleep(2)
+
+    print(f"  {chunks} chunk(s) this run.")
     return 0
 
 
