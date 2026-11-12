@@ -20,8 +20,9 @@ name: NSE Historical Backtest Collector
 # nse-backtest Cloudflare Worker's base URL.
 
 on:
-  schedule:
-    - cron: "*/5 * * * *"    # every 5 minutes — GitHub's practical floor
+  # Schedule retired 12 Nov 2026: this backfill finished on 7 Jul 2026 and
+  # every 5-minute run since was a no-op. The live archive is raw_ohlc/,
+  # kept current by "NSE Daily OHLC Refresh". Run by hand if ever needed.
   workflow_dispatch:          # manual trigger to kick off / retry immediately
 
 permissions:
@@ -36,9 +37,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 12   # safety margin above the 8-min in-script budget
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.11"
 

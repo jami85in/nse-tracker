@@ -1,0 +1,52 @@
+name: Build dashboard
+
+# app.src.html is the editable dashboard (JSX compiled in the browser by Babel
+# Standalone — handy for testing, but ~5 s to first paint on a phone and a
+# 3.6 MB download). This compiles it once with esbuild into index.html, the
+# page GitHub Pages serves: ~0.4 s and 0.5 MB. See scripts/build_dashboard.py.
+# If the build fails, index.html is left as it was.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - app.src.html
+      - scripts/build_dashboard.py
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-dashboard
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Compile app.src.html into index.html
+        run: python scripts/build_dashboard.py app.src.html index.html
+
+      - name: Commit index.html
+        run: |
+          git config user.name "nse-tracker-bot"
+          git config user.email "actions@github.com"
+          git add index.html
+          if git diff --staged --quiet; then echo "index.html unchanged."; exit 0; fi
+          VER=$(grep -o 'BUILD_VERSION = "[^"]*"' index.html | head -1 | cut -d'"' -f2)
+          git commit -q -m "dashboard: build ${VER}"
+          for try in 1 2 3; do
+            git pull -q --rebase --autostash origin main && git push -q && { echo "Published build ${VER}."; exit 0; }
+            git rebase --abort 2>/dev/null || true
+            sleep 10
+          done
+          echo "::error::Could not publish index.html after 3 attempts."
+          exit 1

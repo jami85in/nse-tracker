@@ -66,9 +66,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 360
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.11"
 
@@ -197,7 +197,22 @@ jobs:
           sha = None
           try:
               with urllib.request.urlopen(urllib.request.Request(url, headers=hdr), timeout=30) as r:
-                  sha = json.load(r).get("sha")
+                  cur = json.load(r)
+              sha = cur.get("sha")
+              # GitHub starts late scheduled runs hours after the close (11 Nov 2026: four
+              # backups at 16:54-22:33 IST), and each one asked for another capture.
+              # Skip if today's capture was requested in the last 3 hours; an older
+              # request is repeated once in a while in case that ledger run failed.
+              prev = json.loads(base64.b64decode(cur.get("content", "") or b"e30="))
+              if prev.get("session") == now.date().isoformat():
+                  try:
+                      at = datetime.datetime.strptime(prev.get("requested_at", "")[:16], "%Y-%m-%d %H:%M").replace(tzinfo=market_session.IST)
+                  except ValueError:
+                      at = None
+                  if at and now - at < datetime.timedelta(hours=3):
+                      print(f"Today's capture was requested at {at:%H:%M} IST — not asking again yet."); sys.exit(0)
+          except SystemExit:
+              raise
           except Exception:
               pass
           body = {"message": f"capture request {now:%Y-%m-%d %H:%M} IST (after the close)",
