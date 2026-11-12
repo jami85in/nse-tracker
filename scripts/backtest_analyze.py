@@ -1,8 +1,12 @@
 #!/usr/bin/env python3
 """
-Runs the squeeze->blast cycle analysis over the accumulated historical data
-in data/backtest/raw_closes/*.json, once collection is complete (or on
-partial data, if you want an early look — it just analyzes whatever's there).
+Runs the squeeze->blast cycle analysis over the daily price archive
+data/backtest/raw_ohlc/*.json (kept current every evening by the daily OHLC
+refresh), for the stocks in data/backtest/symbols.json.
+
+Until 12 Nov 2026 this read data/backtest/raw_closes/, whose collector
+finished on 7 Jul 2026 and never updated again — so every "zone" statistic
+on the dashboard was measured around July's prices.
 
 Mirrors the exact classify() logic in scan.py:
   SQUEEZE: BB width < 4.5%, Stoch K < 50, Stoch K > Stoch D (turning up)
@@ -17,9 +21,15 @@ Writes data/backtest/report.json — a ranked per-stock breakdown of:
   - a stability flag (does the pattern hold in the first half of the window
     vs the second half, or is it just noise from one period)
 """
-import json, os, glob, statistics
+import json, os, glob, statistics, sys
 
-RAW_DIR = "data/backtest/raw_closes"
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# The archive is raw bhavcopy prices: a split or bonus shows as a -50%..-90% day.
+# Same cleaning and back-adjustment as the Cycles and Ranges tabs.
+from cycles import adjust_corporate_actions, clean_bars  # noqa: E402
+
+RAW_DIR = os.environ.get("BACKTEST_ANALYZE_DIR", "data/backtest/raw_ohlc")
+UNIVERSE_PATH = os.environ.get("BACKTEST_ANALYZE_UNIVERSE", "data/backtest/symbols.json")
 REPORT_PATH = "data/backtest/report.json"
 
 
@@ -144,9 +154,11 @@ def analyze_symbol(path):
         series = json.load(f)
     if len(series) < 40:
         return None
-    series = sorted(series, key=lambda p: p["date"])
-    dates = [p["date"] for p in series]
-    closes = [p["close"] for p in series]
+    bars, _events, _warnings = adjust_corporate_actions(clean_bars(sorted(series, key=lambda p: p["date"])))
+    if len(bars) < 40:
+        return None
+    dates = [b["date"] for b in bars]
+    closes = [b["c"] for b in bars]
 
     bb_width, stoch_k, stoch_d = compute_indicators(closes)
     cycles = find_cycles(dates, closes, bb_width, stoch_k, stoch_d)
@@ -209,7 +221,13 @@ def analyze_symbol(path):
 
 def main():
     files = sorted(glob.glob(os.path.join(RAW_DIR, "*.json")))
-    print(f"Found {len(files)} symbol data files.")
+    try:
+        with open(UNIVERSE_PATH) as f:
+            universe = set(json.load(f))
+        files = [p for p in files if os.path.splitext(os.path.basename(p))[0] in universe]
+    except (OSError, ValueError):
+        pass                                    # no universe file: analyse everything
+    print(f"Found {len(files)} symbol data files in {RAW_DIR}.")
 
     report = {}
     for path in files:
