@@ -10,7 +10,8 @@ name: NSE Daily OHLC Refresh
 #
 # Schedule: 19:00 IST on weekdays (13:30 UTC). NSE closes 15:30 IST and the
 # bhavcopy is published by early evening, so today's bar is available by then.
-# Holidays are harmless — the worker returns no new day and merge is a no-op.
+# Holidays: the worker returns the previous session's file for them, so a
+# purge step below removes those copies (see scripts/purge_holiday_bars.py).
 
 on:
   schedule:
@@ -47,12 +48,19 @@ jobs:
           BACKTEST_DAILY_LOOKBACK_DAYS: ${{ github.event.inputs.lookback_days || '12' }}
         run: python scripts/backtest_fetch_ohlc.py
 
+      # NSE hands back the previous session's file for a holiday, so each
+      # holiday turned into a fake copy of the day before. Drop those.
+      - name: Remove holiday copies
+        if: always()
+        run: python scripts/purge_holiday_bars.py
+
       - name: Commit refreshed data
         if: always()
         run: |
           git config user.name "nse-tracker-bot"
           git config user.email "actions@github.com"
           git add data/backtest/raw_ohlc/ data/backtest/progress_ohlc.json
+          if [ -d data/backtest/raw_ohlc_hist ]; then git add data/backtest/raw_ohlc_hist/; fi
           git diff --staged --quiet || git commit -m "ohlc-daily: refresh $(date -u +'%Y-%m-%d %H:%M UTC')"
           git pull --rebase --autostash origin main || true
           git push
