@@ -359,7 +359,7 @@ const RAW_BASE    = `https://raw.githubusercontent.com/${GITHUB_USER}/${GITHUB_R
 // instead of requiring a manual file diff to find out. This exists because
 // PWA/service-worker caching has repeatedly made "is this actually deployed
 // yet" the hardest part of diagnosing issues in this app.
-const BUILD_VERSION = "2026-11-12.2";
+const BUILD_VERSION = "2026-11-14.1";
 
 // NSE trading calendar — keep in step with scripts/market_session.py.
 // Special sessions on a weekend (Diwali Muhurat) and weekday holidays.
@@ -2452,7 +2452,6 @@ function MonitorPage({ scanData, positions, holdings, livePrices, priceUpdated, 
         const value = H.reduce((a, x) => a + x.p * x.h.qty, 0);
         const eff = H.reduce((a, x) => a + x.h.net_invested, 0);
         const fyR = (ledger.realized_by_fy || {})[currentFY()] || {};
-        const realised = (fyR.stcg || 0) + (fyR.ltcg || 0) + (fyR.intraday || 0);
         const movers = H.map(x => ({ sym: x.h.symbol, r: pctOf(x.p, x.h.effective_cost) })).filter(m => m.r != null).sort((a, b) => a.r - b.r);
         return (
           <Section title="📒 Your holdings" count={ledger.holdings.length} color={T.accent}>
@@ -2460,9 +2459,9 @@ function MonitorPage({ scanData, positions, holdings, livePrices, priceUpdated, 
               <div style={{ display: "grid", gridTemplateColumns: "repeat(2,1fr)", gap: 12 }}>
                 <Stat label="Value" value={rs(value)} />
                 <Stat label="P&L vs effective cost" value={sgnRs(value - eff)} color={value - eff >= 0 ? T.green : T.red} sub={eff ? `${value - eff >= 0 ? "+" : ""}${((value / eff - 1) * 100).toFixed(1)}%` : null} />
-                <Stat label={`Realised ${currentFY()}`} value={sgnRs(realised)} color={realised >= 0 ? T.green : T.red} />
-                <Stat label={`Dividends ${currentFY()}`} value={rs(fyR.dividends_gross || 0)} color={T.green} />
               </div>
+              <ProfitStrip ledger={ledger} />
+              <div style={{ color: T.muted, fontSize: 10, marginTop: 6 }}>Dividends {currentFY()}: <b style={{ color: T.green }}>{rs(fyR.dividends_gross || 0)}</b></div>
               {movers.length > 1 && (
                 <div style={{ color: T.muted, fontSize: 10, marginTop: 10, lineHeight: 1.6 }}>
                   Weakest: {movers.slice(0, 3).map(m => `${m.sym} ${m.r >= 0 ? "+" : ""}${m.r.toFixed(1)}%`).join(" · ")}<br/>
@@ -3217,6 +3216,57 @@ function currentFY(now = new Date()) {
 // Nothing here is entered by hand: the ledger is rebuilt every evening from
 // your Zerodha tradebooks and the daily Kite capture, so every device that
 // has the read-only key shows exactly the same numbers.
+// Trading profit of one sale ("tp" from the ledger): a sale made while you keep
+// holding the stock is matched against the shares bought most recently — the
+// trade you actually made (FLYSBS, Nov 2026: 800 bought at ₹545 and sold at
+// ₹563 is a profit, not a loss against the September price). A sale at a loss
+// that's bought back within 30 days is tax harvesting and books nothing.
+// Ledgers written before 14 Nov 2026 have no "tp": fall back to FIFO.
+const tradePnl = s => (typeof s.tp === "number" ? s.tp : (s.pnl || 0));
+const istToday = () => new Date(Date.now() + 5.5 * 3600000).toISOString().slice(0, 10);
+const shortDay = iso => { const d = new Date(iso + "T00:00:00Z"); return `${["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][d.getUTCDay()]} ${d.getUTCDate()} ${MONTH_ABBR[d.getUTCMonth()]}`; };
+// Week = Sunday to Saturday, so a Sunday special session (Muhurat trading)
+// counts in the week it starts. Quarters are financial-year quarters (Q1 = Apr–Jun).
+function profitPeriods(sales, today = istToday()) {
+  const d = new Date(today + "T00:00:00Z"), y = d.getUTCFullYear(), m = d.getUTCMonth();
+  const iso = dt_ => dt_.toISOString().slice(0, 10);
+  const wk = new Date(d); wk.setUTCDate(d.getUTCDate() - d.getUTCDay());
+  const qs = m - (m % 3), fyS = m >= 3 ? y : y - 1;
+  const qn = { 3: 1, 6: 2, 9: 3, 0: 4 }[qs];
+  const span = `${MONTH_ABBR[qs]}–${MONTH_ABBR[qs + 2]}`;
+  const P = [
+    { key: "week", label: "This week", from: iso(wk), sub: `since ${shortDay(iso(wk))}` },
+    { key: "month", label: MONTH_ABBR[m], from: `${today.slice(0, 8)}01`, sub: "this month" },
+    { key: "quarter", label: `Q${qn} ${span}`, from: iso(new Date(Date.UTC(y, qs, 1))), sub: "this quarter" },
+    { key: "fy", label: `FY${fyS}-${String(fyS + 1).slice(2)}`, from: `${fyS}-04-01`, sub: "this year" },
+  ];
+  return P.map(p => {
+    const xs = sales.filter(s => s.d >= p.from && s.d <= today);
+    return { ...p, n: xs.length, sum: xs.reduce((a, s) => a + tradePnl(s), 0), fifo: xs.reduce((a, s) => a + (s.pnl || 0), 0) };
+  });
+}
+function ProfitStrip({ ledger }) {
+  const P = profitPeriods(ledger.sales || []);
+  const fy = P[3], hasTp = (ledger.sales || []).some(s => typeof s.tp === "number");
+  return (
+    <div style={{ marginTop: 12 }}>
+      <div style={{ color: T.muted, fontSize: 10, letterSpacing: 1, marginBottom: 6 }}>PROFIT BOOKED · AFTER CHARGES</div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(2,1fr)", gap: 10 }}>
+        {P.map(p => (
+          <Stat key={p.key} label={p.label} value={p.n ? sgnRs(p.sum) : "₹0"} color={!p.n ? T.muted : p.sum >= 0 ? T.green : T.red}
+            sub={p.n ? `${p.n} sale${p.n > 1 ? "s" : ""} · ${p.sub}` : `no sales ${p.sub}`} />
+        ))}
+      </div>
+      {hasTp && Math.abs(fy.fifo - fy.sum) >= 1 && (
+        <div style={{ color: T.muted, fontSize: 10, marginTop: 6, lineHeight: 1.5 }}>
+          A sale while you keep the stock counts against the shares you bought last. For tax (FIFO, oldest shares first)
+          the same sales come to {sgnRs(fy.fifo)} this year — 📒 Ledger has that split.
+        </div>
+      )}
+    </div>
+  );
+}
+
 function fyOfDate(d) {
   const y = Number(d.slice(0, 4)), m = Number(d.slice(5, 7));
   const s = m >= 4 ? y : y - 1;
@@ -3286,23 +3336,27 @@ function AutoPortfolio({ ledger, livePrices, scanData }) {
 
   const fyR = (ledger.realized_by_fy || {})[fy] || {};
   const sales = (ledger.sales || []).filter(s => s.fy === fy).sort((a, b) => b.d.localeCompare(a.d));
-  const booked = sales.reduce((a, s) => a + (s.pnl || 0), 0);
+  const booked = sales.reduce((a, s) => a + tradePnl(s), 0);
+  const bookedFifo = sales.reduce((a, s) => a + (s.pnl || 0), 0);
   const exits = sales.filter(s => (s.kind === "delivery" && !s.rebought) || s.kind === "buyback");
-  const wins = exits.filter(s => s.pnl > 0), losses = exits.filter(s => s.pnl <= 0);
-  const avg = xs => (xs.length ? xs.reduce((a, s) => a + s.pnl, 0) / xs.length : null);
+  const wins = exits.filter(s => tradePnl(s) > 0), losses = exits.filter(s => tradePnl(s) <= 0);
+  const avg = xs => (xs.length ? xs.reduce((a, s) => a + tradePnl(s), 0) / xs.length : null);
   const avgDays = exits.length ? Math.round(exits.reduce((a, s) => a + (s.days || 0), 0) / exits.length) : null;
   const intraday = sales.filter(s => s.kind === "intraday");
   const harvest = sales.filter(s => s.kind === "delivery" && s.rebought);
-  const best = [...exits].sort((a, b) => b.pnl - a.pnl)[0], worst = [...exits].sort((a, b) => a.pnl - b.pnl)[0];
+  const best = [...exits].sort((a, b) => tradePnl(b) - tradePnl(a))[0], worst = [...exits].sort((a, b) => tradePnl(a) - tradePnl(b))[0];
 
   const months = fyMonths(fy);
   const byMonth = Object.fromEntries(months.map(m => [m, 0]));
-  sales.forEach(s => { const m = s.d.slice(0, 7); if (m in byMonth) byMonth[m] += s.pnl || 0; });
+  sales.forEach(s => { const m = s.d.slice(0, 7); if (m in byMonth) byMonth[m] += tradePnl(s); });
   const maxAbs = Math.max(1, ...Object.values(byMonth).map(Math.abs));
 
   const shown = showAll ? sales : sales.slice(0, 15);
   return (
     <div>
+      <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, padding: "2px 14px 14px", marginBottom: 12 }}>
+        <ProfitStrip ledger={ledger} />
+      </div>
       <div style={{ display: "flex", gap: 6, overflowX: "auto", scrollbarWidth: "none", paddingBottom: 4, marginBottom: 10 }}>
         {fys.map(f => <span key={f} onClick={() => setFy(f)} style={chipStyle(f === fy)}>{f}</span>)}
       </div>
@@ -3313,7 +3367,8 @@ function AutoPortfolio({ ledger, livePrices, scanData }) {
           <Stat label="Holdings value" value={rs(value)} sub={`${H.length} stocks`} />
           <Stat label="Unrealised P&L" value={sgnRs(value - invested)} color={value - invested >= 0 ? T.green : T.red}
             sub={invested ? `${pct((value / invested - 1) * 100)} vs effective cost` : null} />
-          <Stat label={`Booked P&L ${fy}`} value={sgnRs(booked)} color={booked >= 0 ? T.green : T.red} sub={`${sales.length} sales, after charges`} />
+          <Stat label={`Booked P&L ${fy}`} value={sgnRs(booked)} color={booked >= 0 ? T.green : T.red}
+            sub={Math.abs(bookedFifo - booked) >= 1 ? `${sales.length} sales · tax (FIFO) ${sgnRs(bookedFifo)}` : `${sales.length} sales, after charges`} />
           <Stat label={`Dividends ${fy}`} value={rs(fyR.dividends_gross || 0)} color={T.green} sub={fyR.charges ? `charges ${rs(fyR.charges)}` : null} />
           <Stat label="Win rate (exits)" value={exits.length ? `${Math.round(wins.length / exits.length * 100)}%` : "—"}
             color={exits.length && wins.length / exits.length >= 0.5 ? T.green : T.warn} sub={exits.length ? `${wins.length} of ${exits.length} exits` : "no exits yet"} />
@@ -3322,8 +3377,8 @@ function AutoPortfolio({ ledger, livePrices, scanData }) {
         </div>
         {(best || intraday.length > 0 || harvest.length > 0) && (
           <div style={{ color: T.muted, fontSize: 10, marginTop: 10, lineHeight: 1.6 }}>
-            {best && <>Best exit {best.s} {sgnRs(best.pnl)} · worst {worst.s} {sgnRs(worst.pnl)}. </>}
-            {intraday.length > 0 && <>Intraday: {intraday.length} days, {sgnRs(intraday.reduce((a, s) => a + s.pnl, 0))}. </>}
+            {best && <>Best exit {best.s} {sgnRs(tradePnl(best))} · worst {worst.s} {sgnRs(tradePnl(worst))}. </>}
+            {intraday.length > 0 && <>Intraday: {intraday.length} days, {sgnRs(intraday.reduce((a, s) => a + tradePnl(s), 0))}. </>}
             {harvest.length > 0 && <>♻️ {harvest.length} tax-harvest sale(s) (sold and rebought) aren't counted as exits.</>}
           </div>
         )}
@@ -3373,7 +3428,7 @@ function AutoPortfolio({ ledger, livePrices, scanData }) {
       <div style={{ color: T.text, fontWeight: 700, margin: "18px 0 8px", fontSize: 14 }}>Sales in {fy} ({sales.length})</div>
       {sales.length === 0 && <div style={{ color: T.muted, fontSize: 12, padding: "6px 0" }}>No sales in this year.</div>}
       {shown.map((s, i) => (
-        <div key={`${s.d}-${s.s}-${s.kind}-${i}`} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", background: T.card, borderLeft: `3px solid ${s.pnl >= 0 ? T.green : T.red}`, borderRadius: 6, marginBottom: 6 }}>
+        <div key={`${s.d}-${s.s}-${s.kind}-${i}`} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", background: T.card, borderLeft: `3px solid ${tradePnl(s) >= 0 ? T.green : T.red}`, borderRadius: 6, marginBottom: 6 }}>
           <div style={{ minWidth: 0, flex: 1 }}>
             <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
               <span style={{ fontFamily: "monospace", fontWeight: 700, fontSize: 13, color: T.text }}>{s.s}</span>
@@ -3382,12 +3437,17 @@ function AutoPortfolio({ ledger, livePrices, scanData }) {
               {s.rebought && <Pill label="♻️ REBOUGHT" color={T.accent} />}
             </div>
             <div style={{ color: T.muted, fontSize: 10, marginTop: 1 }}>
-              {s.d} · {s.q} sh · {rs(s.buy)} → {rs(s.sell)}{s.kind !== "intraday" ? ` · held ${s.days}d` : ""}
+              {s.d} · {s.q} sh · {rs(typeof s.tbuy === "number" ? s.tbuy : s.buy)} → {rs(s.sell)}{s.kind !== "intraday" ? ` · held ${typeof s.tdays === "number" ? s.tdays : s.days}d` : ""}
             </div>
+            {typeof s.tp === "number" && Math.abs(s.tp - (s.pnl || 0)) >= 1 && (
+              <div style={{ color: T.muted, fontSize: 10, marginTop: 1 }}>
+                {s.harvest_q ? `♻️ bought back — tax harvest, books no profit · ` : `vs the shares bought last · `}tax (FIFO) {sgnRs(s.pnl)}
+              </div>
+            )}
           </div>
           <div style={{ textAlign: "right", flexShrink: 0 }}>
-            <div style={{ color: s.pnl >= 0 ? T.green : T.red, fontWeight: 800, fontSize: 13 }}>{sgnRs(s.pnl)}</div>
-            <div style={{ color: T.muted, fontSize: 10 }}>{s.buy ? pct((s.sell / s.buy - 1) * 100) : ""}</div>
+            <div style={{ color: tradePnl(s) >= 0 ? T.green : T.red, fontWeight: 800, fontSize: 13 }}>{sgnRs(tradePnl(s))}</div>
+            <div style={{ color: T.muted, fontSize: 10 }}>{(() => { const b = typeof s.tbuy === "number" ? s.tbuy : s.buy; return b ? pct((s.sell / b - 1) * 100) : ""; })()}</div>
           </div>
         </div>
       ))}
@@ -3397,8 +3457,10 @@ function AutoPortfolio({ ledger, livePrices, scanData }) {
         </div>
       )}
       <div style={{ color: T.muted, fontSize: 10, marginTop: 12, lineHeight: 1.6 }}>
-        Built from your Zerodha tradebooks and the daily Kite capture (trades to {ledger.sources?.last_trade || "—"}). P&L is after all charges, using FIFO lots;
-        tax figures (STCG/LTCG) are in 📒 Ledger. Buy or sell in Kite as usual — it shows up here after the evening sync.
+        Built from your Zerodha tradebooks and the daily Kite capture (trades to {ledger.sources?.last_trade || "—"}). P&L is after all charges.
+        A sale while you keep holding the stock is matched against the shares you bought most recently; selling out uses all that's left,
+        so over a whole holding the total is the same. A sale at a loss bought back within 30 days (tax harvesting) books nothing.
+        Tax figures (FIFO, STCG/LTCG) are in 📒 Ledger. Buy or sell in Kite as usual — it shows up here after the evening sync.
       </div>
     </div>
   );
@@ -3412,7 +3474,7 @@ function AutoTrades({ ledger }) {
 
   const saleKey = (d, s) => `${d}|${s}`;
   const salePnl = {};
-  (ledger.sales || []).forEach(s => { const k = saleKey(s.d, s.s); salePnl[k] = (salePnl[k] || 0) + (s.pnl || 0); });
+  (ledger.sales || []).forEach(s => { const k = saleKey(s.d, s.s); salePnl[k] = (salePnl[k] || 0) + tradePnl(s); });
   const EVENT_LABEL = { buyback: "Buyback (tendered)", "adjustment-in": "Shares credited", "adjustment-out": "Shares debited",
     "left-demat": "Left the demat", "split/bonus": "Split / bonus", "demerger-in": "Demerger — shares received", "demerger-out": "Demerger" };
   const events = [...(ledger.holdings || []), ...(ledger.closed || [])].flatMap(b =>
@@ -3940,11 +4002,25 @@ function ActionsCard({ actions, compact, holdings }) {
   if (compact && need.length === 0) return null;
   const dismiss = k => { const n = [...dismissed, k]; setDismissed(n); lsSet("ca_dismissed", JSON.stringify(n)); };
   const linkStyle = { color: T.accent, textDecoration: "none" };
+  // An all-clear is shown only when NSE's record-date list was actually read in
+  // the last 5 days (weekends, holidays); otherwise the card says it couldn't check (13 Nov 2026: the
+  // old "nothing needs your action" hid a Jyothy Labs buyback it could not see).
+  const st = (actions && actions.status) || {};
+  const checkedOn = st.source === "nse_bc" ? (st.checked_at || "") : "";
+  const fresh = checkedOn && (Date.now() - new Date(checkedOn + "T00:00:00+05:30").getTime()) < 5 * 86400000;
+  const kiteLink = <a href="https://kite.zerodha.com/" target="_blank" rel="noopener noreferrer" style={linkStyle}>Kite → Bids → Corporate actions</a>;
   return (
     <div style={{ background: need.length ? T.warn + "14" : T.card, border: `1px solid ${need.length ? T.warn + "66" : T.border}`, borderRadius: 12, padding: 14, marginBottom: 12 }}>
       <div style={{ color: need.length ? T.warn : T.muted, fontWeight: 800, fontSize: 13 }}>
-        {need.length ? `⚠️ ${need.length} corporate action${need.length > 1 ? "s" : ""} need${need.length > 1 ? "" : "s"} your input` : "✅ Corporate actions — nothing needs your action"}
+        {need.length ? `⚠️ ${need.length} corporate action${need.length > 1 ? "s" : ""} need${need.length > 1 ? "" : "s"} your input`
+          : fresh ? "✅ Corporate actions — nothing needs your action"
+          : "Corporate actions — couldn't check NSE's list"}
       </div>
+      {!need.length && !fresh && (
+        <div style={{ color: T.muted, fontSize: 11, marginTop: 4, lineHeight: 1.5 }}>
+          {checkedOn ? `Last checked ${checkedOn}.` : "NSE's record-date list wasn't readable on the last run."} Until it is, look in {kiteLink} for buybacks and rights issues.
+        </div>
+      )}
       {need.map(i => (
         <div key={caKey(i)} style={{ background: T.card, borderRadius: 8, padding: 10, marginTop: 8, border: `1px solid ${T.border}` }}>
           <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "baseline" }}>
@@ -3960,10 +4036,11 @@ function ActionsCard({ actions, compact, holdings }) {
       ))}
       {!compact && (
         <div style={{ color: T.muted, fontSize: 11, marginTop: 8, lineHeight: 1.6 }}>
-          Lists a stock only when you must act — apply for a rights issue, tender in a buyback, open offer or delisting
-          offer, or pay call money. Rights entitlements arriving in your demat are caught automatically; buyback and
-          open-offer tender windows can't be read automatically (NSE and BSE block it) — Zerodha lists those under{" "}
-          <a href="https://kite.zerodha.com/" target="_blank" rel="noopener noreferrer" style={linkStyle}>Kite → Bids → Corporate actions</a>.
+          Lists a stock only when you must act — apply for a rights issue, tender in a buyback, or pay call money.
+          Buybacks, rights issues and call money come from NSE's daily record-date list{checkedOn ? ` (checked ${checkedOn})` : ""};
+          rights entitlements arriving in your demat are caught too. A buyback's tender window opens a few weeks after its
+          record date, and you tender in {kiteLink}. Open offers and delisting offers have no record date, so they aren't
+          in NSE's list — Zerodha shows those in the same place.
         </div>
       )}
     </div>
