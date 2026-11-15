@@ -359,7 +359,7 @@ const RAW_BASE    = `https://raw.githubusercontent.com/${GITHUB_USER}/${GITHUB_R
 // instead of requiring a manual file diff to find out. This exists because
 // PWA/service-worker caching has repeatedly made "is this actually deployed
 // yet" the hardest part of diagnosing issues in this app.
-const BUILD_VERSION = "2026-11-15.2";
+const BUILD_VERSION = "2026-11-15.3";
 
 // NSE trading calendar — keep in step with scripts/market_session.py.
 // Special sessions on a weekend (Diwali Muhurat) and weekday holidays.
@@ -3274,8 +3274,10 @@ function AccountNote({ ledger }) {
   if (a.live) return null;
   return (
     <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: 10, color: T.muted, fontSize: 11, lineHeight: 1.5, marginBottom: 10 }}>
-      Built from {acctShort(a.id)}'s Console tradebooks ({a.client || "—"}) — trades up to <b style={{ color: T.text }}>{src.last_trade || "—"}</b>.
-      To update, download a new tradebook from Console and drop it in <span style={{ fontFamily: "monospace" }}>tradebooks/family/{a.id}/</span>.
+      Built from {acctShort(a.id)}'s Console tradebooks ({a.client || "—"}) — trades up to <b style={{ color: T.text }}>{src.last_trade || "—"}</b>
+      {src.holdings_checked ? <>, checked against her Console holdings statement of <b style={{ color: T.text }}>{src.holdings_snapshot}</b> — the share counts match Zerodha.</> : <>. No Console holdings statement yet, so the share counts can't be checked against Zerodha.</>}
+      {" "}To update, download a new tradebook (and Console → Portfolio → Holdings → Download) and drop them in <span style={{ fontFamily: "monospace" }}>tradebooks/family/{a.id}/</span>.
+      {(src.fy_missing || []).length > 0 && <div style={{ color: T.warn, marginTop: 6 }}>No tradebook for {src.fy_missing.join(", ")}. Sales made in {src.fy_missing.length > 1 ? "those years" : "that year"} are missing, so the profit or loss on those stocks is incomplete{src.holdings_checked ? " (their shares are removed at cost — the holdings themselves are right)" : " and stocks sold then may still show as held"}. Add {src.fy_missing.length > 1 ? "those tradebooks" : "that tradebook"} if there were trades.</div>}
       {(ledger.warnings || []).length > 0 && <> {(ledger.warnings || []).length} things to check are listed at the bottom of 📒 Ledger.</>}
     </div>
   );
@@ -4209,10 +4211,12 @@ function ActionsCard({ actions, compact, holdings }) {
   const today = new Date().toISOString().slice(0, 10);
   const items = (actions && actions.items) || [];
   const need = items.filter(i => i.needs_action && !dismissed.includes(caKey(i)));
+  const hiddenN = items.filter(i => i.needs_action && dismissed.includes(caKey(i))).length;
+  const unhide = () => { const keep = dismissed.filter(k => !items.some(i => caKey(i) === k)); setDismissed(keep); lsSet("ca_dismissed", JSON.stringify(keep)); };
   // Only actions that need you to do something (rights, buyback tender, call money,
   // open offer, delisting offer). Automatic events — dividends, bonus, splits,
   // mergers — and company announcements are deliberately not listed here.
-  if (compact && need.length === 0) return null;
+  if (compact && need.length === 0 && !hiddenN) return null;
   const dismiss = k => { const n = [...dismissed, k]; setDismissed(n); lsSet("ca_dismissed", JSON.stringify(n)); };
   const linkStyle = { color: T.accent, textDecoration: "none" };
   // An all-clear is shown only when NSE's record-date list was actually read in
@@ -4226,9 +4230,15 @@ function ActionsCard({ actions, compact, holdings }) {
     <div style={{ background: need.length ? T.warn + "14" : T.card, border: `1px solid ${need.length ? T.warn + "66" : T.border}`, borderRadius: 12, padding: 14, marginBottom: 12 }}>
       <div style={{ color: need.length ? T.warn : T.muted, fontWeight: 800, fontSize: 13 }}>
         {need.length ? `⚠️ ${need.length} corporate action${need.length > 1 ? "s" : ""} need${need.length > 1 ? "" : "s"} your input`
+          : hiddenN ? `Corporate actions — ${hiddenN} hidden on this device`
           : fresh ? "✅ Corporate actions — nothing needs your action"
           : "Corporate actions — couldn't check NSE's list"}
       </div>
+      {hiddenN > 0 && (
+        <div onClick={unhide} style={{ color: T.accent, fontSize: 11, marginTop: 6, cursor: "pointer" }}>
+          {hiddenN} hidden on this device with "Done" — show {hiddenN > 1 ? "them" : "it"} again
+        </div>
+      )}
       {!need.length && !fresh && (
         <div style={{ color: T.muted, fontSize: 11, marginTop: 4, lineHeight: 1.5 }}>
           {checkedOn ? `Last checked ${checkedOn}.` : "NSE's record-date list wasn't readable on the last run."} Until it is, look in {kiteLink} for buybacks and rights issues.
@@ -4590,6 +4600,8 @@ function LedgerPanel({ livePrices }) {
                   <div>
                     <div style={{ color: T.text, fontWeight: 800, fontSize: 15, fontFamily: "monospace" }}>{h.symbol}</div>
                     <div style={{ color: T.muted, fontSize: 11 }}>{h.qty} sh · since {h.first_buy || "—"}</div>
+                    {h.unlisted && <div style={{ color: T.accent, fontSize: 10, fontWeight: 700 }}>UNLISTED · from a corporate action</div>}
+                    {h.unverified && <div style={{ color: T.warn, fontSize: 10, fontWeight: 700 }}>⚠ {h.unverified}</div>}
                     {data.account && data.account.family && (h.accounts || []).length > 0 && (
                       <div style={{ color: T.accent, fontSize: 10 }}>{h.accounts.map(a => `${a.acct} ${a.qty}`).join(" · ")}</div>
                     )}
