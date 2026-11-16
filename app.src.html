@@ -359,7 +359,7 @@ const RAW_BASE    = `https://raw.githubusercontent.com/${GITHUB_USER}/${GITHUB_R
 // instead of requiring a manual file diff to find out. This exists because
 // PWA/service-worker caching has repeatedly made "is this actually deployed
 // yet" the hardest part of diagnosing issues in this app.
-const BUILD_VERSION = "2026-11-15.3";
+const BUILD_VERSION = "2026-11-16.1";
 
 // NSE trading calendar — keep in step with scripts/market_session.py.
 // Special sessions on a weekend (Diwali Muhurat) and weekday holidays.
@@ -2474,7 +2474,7 @@ function MonitorPage({ scanData, positions, holdings, livePrices, priceUpdated, 
                 return (
                   <div style={{ color: T.muted, fontSize: 10, marginTop: 8, lineHeight: 1.6 }}>
                     Return since {r.from}: <b style={{ color: pcCol(r.xirr_pct) }}>{pcTxt(r.xirr_pct)} a year</b> (same money in Nifty {pcTxt(r.nifty_same_money_xirr_pct ?? r.nifty_annual_pct)})
-                    {cur && <> · {cur.fy} so far <b style={{ color: pcCol(cur.return_pct) }}>{pcTxt(cur.return_pct)}</b> (Nifty {pcTxt(cur.nifty_pct)})</>}
+                    {(() => { const b = (ledger.booked_by_fy || []).find(x => x.fy === currentFY()); return <> · booked in {currentFY()} <b style={{ color: (b ? b.booked : 0) >= 0 ? T.green : T.red }}>{sgnRs(b ? b.booked : 0)}</b></>; })()}
                     {r.bank && <> · <b style={{ color: r.bank.vs_bank >= 0 ? T.green : T.red }}>{bankTxt(r.bank)}</b></>}
                   </div>
                 );
@@ -4276,8 +4276,50 @@ function ActionsCard({ actions, compact, holdings }) {
   );
 }
 
+// Profit actually booked each year — sales (all charges in) plus dividends.
+// Only changes when something is sold or a dividend comes in; market prices
+// play no part. % is on the cost of the shares sold that year.
+function BookedCard({ rows }) {
+  if (!rows || !rows.length) return null;
+  const R = [...rows].reverse();
+  const fyNow = currentFY();
+  const tot = rows.reduce((a, x) => a + (x.booked || 0), 0);
+  const cur = rows.find(x => x.fy === fyNow);
+  return (
+    <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, padding: 16, marginBottom: 12 }}>
+      <div style={{ color: T.muted, fontSize: 11, letterSpacing: 1 }}>💰 PROFIT BOOKED, YEAR BY YEAR</div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(2,1fr)", gap: 12, marginTop: 10 }}>
+        <Stat label={`Booked in ${fyNow}`} value={sgnRs(cur ? cur.booked : 0)} color={(cur ? cur.booked : 0) >= 0 ? T.green : T.red}
+          sub={cur && cur.booked_pct != null ? `${pcTxt(cur.booked_pct)} on the cost of what was sold` : "nothing sold yet"} />
+        <Stat label="Booked since the first trade" value={sgnRs(tot)} color={tot >= 0 ? T.green : T.red} sub={`${rows.length} year${rows.length > 1 ? "s" : ""}`} />
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1.1fr 1.2fr 0.8fr 1fr", gap: 6, color: T.muted, fontSize: 9, letterSpacing: 0.5, padding: "12px 0 2px" }}>
+        <span>YEAR</span><span style={{ textAlign: "right" }}>BOOKED</span><span style={{ textAlign: "right" }}>ON COST</span><span style={{ textAlign: "right" }}>SOLD FOR</span>
+      </div>
+      {R.map(x => (
+        <div key={x.fy} style={{ display: "grid", gridTemplateColumns: "1.1fr 1.2fr 0.8fr 1fr", gap: 6, fontSize: 12, padding: "5px 0", borderTop: `1px solid ${T.border}`, alignItems: "baseline" }}>
+          <span style={{ color: T.text }}>{x.fy}
+            <span style={{ color: T.muted, fontSize: 9, display: "block" }}>{x.fy === fyNow ? "so far" : `${x.sales} sale${x.sales === 1 ? "" : "s"}`}</span>
+          </span>
+          <span style={{ textAlign: "right", fontWeight: 800, color: x.booked >= 0 ? T.green : T.red }}>{sgnRs(x.booked)}
+            {x.dividends > 0 && <span style={{ color: T.muted, fontSize: 9, fontWeight: 400, display: "block" }}>incl. dividends {rs(x.dividends)}</span>}
+          </span>
+          <span style={{ textAlign: "right", color: pcCol(x.booked_pct) }}>{pcTxt(x.booked_pct)}</span>
+          <span style={{ textAlign: "right", color: T.text }}>{x.proceeds > 0 ? rs(x.proceeds) : "—"}
+            {x.sales > 0 && <span style={{ color: T.muted, fontSize: 9, display: "block" }}>{x.winners} up · {x.losers} down</span>}
+          </span>
+        </div>
+      ))}
+      <div style={{ color: T.muted, fontSize: 10, marginTop: 8, lineHeight: 1.5 }}>
+        Only what was actually sold, after all charges, plus dividends received — a year changes only when you sell or a dividend comes in.
+        Cost is first-in-first-out, as for tax. Shares still held don't count here; their paper gain or loss is in the holdings above and in the market-value view below.
+      </div>
+    </div>
+  );
+}
+
 function ReturnsCard({ r }) {
-  const [open, setOpen] = useState(true);
+  const [open, setOpen] = useState(false);
   if (!r || !r.since_first_trade) return null;
   const s = r.since_first_trade;
   const rows = [...(r.by_fy || [])].reverse();
@@ -4339,7 +4381,7 @@ function ReturnsCard({ r }) {
         Gain <b style={{ color: s.gain >= 0 ? T.green : T.red }}>{sgnRs(s.gain)}</b>: you put in {rs(s.money_in)}, took out {rs(s.money_out)},
         received {rs(s.dividends)} in dividends, and hold {rs(s.current_value)} now.
       </div>
-      <div onClick={() => setOpen(v => !v)} style={{ color: T.muted, fontSize: 10, letterSpacing: 0.6, margin: "12px 0 4px", cursor: "pointer" }}>YEAR BY YEAR {open ? "▲" : "▼"}</div>
+      <div onClick={() => setOpen(v => !v)} style={{ color: T.muted, fontSize: 10, letterSpacing: 0.6, margin: "12px 0 4px", cursor: "pointer" }}>MARKET VALUE, YEAR BY YEAR — includes paper gains on shares still held {open ? "▲" : "▼"}</div>
       {open && (
         <div>
           <div style={{ display: "grid", gridTemplateColumns: "1.3fr 0.9fr 0.9fr 1.2fr", gap: 6, color: T.muted, fontSize: 9, letterSpacing: 0.5, padding: "2px 0" }}>
@@ -4577,6 +4619,7 @@ function LedgerPanel({ livePrices }) {
               );
             })()}
           </div>
+          <BookedCard rows={data.booked_by_fy} />
           <ReturnsCard r={data.returns} />
           <TaxCard data={data} H={H} fy={fy} />
 
