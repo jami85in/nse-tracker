@@ -84,9 +84,11 @@ jobs:
         run: |
           python scripts/market_session.py info
           python scripts/fetch_zerodha_holdings.py
+          python scripts/fetch_family_holdings.py || echo "::warning::family holdings sync failed — keeping the last list"
           git config user.name "nse-tracker-bot"
           git config user.email "actions@github.com"
           git add data/zerodha_holdings.json
+          [ -f data/family_holdings.json ] && git add data/family_holdings.json
           if ! git diff --staged --quiet; then
             git commit -q -m "holdings: sync at $(TZ=Asia/Kolkata date +'%H:%M IST')"
             for try in 1 2 3; do git pull -q --rebase --autostash origin main && git push -q && break; sleep 10; done
