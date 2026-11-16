@@ -78,6 +78,48 @@ def get_symbols():
     return sorted(symbols)
 
 
+def get_family():
+    """Holdings of the family accounts other than the HUF, written by
+    fetch_family_holdings.py: symbol -> Kite instruments to try, best first
+    (Zerodha's own name, such as "OLAPP-E1" or a BSE-only code, can differ
+    from the symbol the ledger and the dashboard use)."""
+    try:
+        with open("data/family_holdings.json") as f:
+            return {s: v.get("try") or [f"NSE:{s}"] for s, v in json.load(f).get("holdings", {}).items()}
+    except FileNotFoundError:
+        return {}
+    except Exception as e:
+        print(f"  Warning reading family_holdings.json: {e}")
+        return {}
+
+
+def fetch_family_prices(kite, family, have):
+    """Quote each family holding not already priced, by the first of its
+    instruments that Kite knows, and file the price under the ledger's symbol."""
+    need = {s: c for s, c in family.items() if s not in have}
+    if not need:
+        return {}
+    wanted = sorted({i for c in need.values() for i in c})
+    got = {}
+    for i in range(0, len(wanted), 400):
+        try:
+            for key, q in kite.quote(wanted[i:i + 400]).items():
+                p = q.get("last_price")
+                if p and p > 0:
+                    got[key] = round(float(p), 2)
+        except Exception as e:
+            print(f"  Family batch fetch error: {e}")
+    out = {}
+    for s, c in need.items():
+        for inst in c:
+            if inst in got:
+                out[s] = got[inst]
+                break
+    missing = sorted(set(need) - set(out))
+    print(f"  Family holdings: {len(out)}/{len(need)} priced" + (f"; no quote for {missing}" if missing else ""))
+    return out
+
+
 def fetch_prices_kite(kite, symbols):
     """Kite's quote API wants 'EXCHANGE:SYMBOL' format and returns rich data
     (ohlc, depth, volume) — we only need last_price here. Supports up to
@@ -127,8 +169,9 @@ def main():
     kite = KiteConnect(api_key=API_KEY)
     kite.set_access_token(access_token)
 
-    symbols = get_symbols()
-    print(f"  Tracked symbols: {len(symbols)}")
+    family = get_family()
+    symbols = sorted(set(get_symbols()) | {s for s, c in family.items() if f"NSE:{s}" in c})
+    print(f"  Tracked symbols: {len(symbols)} (incl. {len(family)} family holdings)")
 
     try:
         prices = fetch_prices_kite(kite, symbols)
@@ -136,6 +179,7 @@ def main():
         print(f"  ERROR fetching quotes: {e}. Preserving existing file.")
         return
 
+    prices.update(fetch_family_prices(kite, family, prices))
     print(f"  Fetched {len(prices)}/{len(symbols)} prices.")
     for sym in list(prices.keys())[:5]:
         print(f"    {sym}: ₹{prices[sym]}")
