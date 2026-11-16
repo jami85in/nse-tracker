@@ -359,7 +359,7 @@ const RAW_BASE    = `https://raw.githubusercontent.com/${GITHUB_USER}/${GITHUB_R
 // instead of requiring a manual file diff to find out. This exists because
 // PWA/service-worker caching has repeatedly made "is this actually deployed
 // yet" the hardest part of diagnosing issues in this app.
-const BUILD_VERSION = "2026-11-16.1";
+const BUILD_VERSION = "2026-11-16.2";
 
 // NSE trading calendar — keep in step with scripts/market_session.py.
 // Special sessions on a weekend (Diwali Muhurat) and weekday holidays.
@@ -2474,7 +2474,6 @@ function MonitorPage({ scanData, positions, holdings, livePrices, priceUpdated, 
                 return (
                   <div style={{ color: T.muted, fontSize: 10, marginTop: 8, lineHeight: 1.6 }}>
                     Return since {r.from}: <b style={{ color: pcCol(r.xirr_pct) }}>{pcTxt(r.xirr_pct)} a year</b> (same money in Nifty {pcTxt(r.nifty_same_money_xirr_pct ?? r.nifty_annual_pct)})
-                    {(() => { const b = (ledger.booked_by_fy || []).find(x => x.fy === currentFY()); return <> · booked in {currentFY()} <b style={{ color: (b ? b.booked : 0) >= 0 ? T.green : T.red }}>{sgnRs(b ? b.booked : 0)}</b></>; })()}
                     {r.bank && <> · <b style={{ color: r.bank.vs_bank >= 0 ? T.green : T.red }}>{bankTxt(r.bank)}</b></>}
                   </div>
                 );
@@ -3489,7 +3488,7 @@ function AutoPortfolio({ ledger, livePrices, scanData }) {
   const sales = (ledger.sales || []).filter(s => s.fy === fy).sort((a, b) => b.d.localeCompare(a.d));
   const booked = sales.reduce((a, s) => a + tradePnl(s), 0);
   const bookedFifo = sales.reduce((a, s) => a + (s.pnl || 0), 0);
-  const exits = sales.filter(s => (s.kind === "delivery" && !s.rebought) || s.kind === "buyback");
+  const exits = sales.filter(s => (s.kind === "delivery" && !s.rebought) || s.kind === "buyback" || s.kind === "write-off" || s.kind === "removed");
   const wins = exits.filter(s => tradePnl(s) > 0), losses = exits.filter(s => tradePnl(s) <= 0);
   const avg = xs => (xs.length ? xs.reduce((a, s) => a + tradePnl(s), 0) / xs.length : null);
   const avgDays = exits.length ? Math.round(exits.reduce((a, s) => a + (s.days || 0), 0) / exits.length) : null;
@@ -3586,6 +3585,8 @@ function AutoPortfolio({ ledger, livePrices, scanData }) {
               {s.acct && <Pill label={s.acct.toUpperCase()} color={T.accent} />}
               {s.kind === "intraday" ? <Pill label="⚡ INTRADAY" color={T.warn} /> : <Pill label={s.term === "LT" ? "LONG-TERM" : "SHORT-TERM"} color={T.muted} />}
               {s.kind === "buyback" && <Pill label="🏢 BUYBACK" color={T.warn} />}
+              {s.kind === "write-off" && <Pill label="🗑 WRITTEN OFF" color={T.red} />}
+              {s.kind === "removed" && <Pill label="↗ OFF-MARKET" color={T.muted} />}
               {s.rebought && <Pill label="♻️ REBOUGHT" color={T.accent} />}
             </div>
             <div style={{ color: T.muted, fontSize: 10, marginTop: 1 }}>
@@ -4289,8 +4290,10 @@ function BookedCard({ rows }) {
     <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, padding: 16, marginBottom: 12 }}>
       <div style={{ color: T.muted, fontSize: 11, letterSpacing: 1 }}>💰 PROFIT BOOKED, YEAR BY YEAR</div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(2,1fr)", gap: 12, marginTop: 10 }}>
-        <Stat label={`Booked in ${fyNow}`} value={sgnRs(cur ? cur.booked : 0)} color={(cur ? cur.booked : 0) >= 0 ? T.green : T.red}
-          sub={cur && cur.booked_pct != null ? `${pcTxt(cur.booked_pct)} on the cost of what was sold` : "nothing sold yet"} />
+        {(() => { const ntNow = cur && (Array.isArray(cur.no_tradebook) ? cur.no_tradebook.length : cur.no_tradebook);
+          const lf = cur && typeof cur.sales_tp === "number" && Math.abs(cur.sales_tp - cur.sales_pnl) >= 1 ? ` · latest shares first ${sgnRs(cur.sales_tp)}` : "";
+          return <Stat label={`Booked in ${fyNow}`} value={sgnRs(cur ? cur.booked : 0)} color={(cur ? cur.booked : 0) >= 0 ? T.green : T.red}
+            sub={ntNow ? "⚠ no tradebook for this year yet" : cur && cur.booked_pct != null ? `sales ${pcTxt(cur.booked_pct)} on cost${lf}` : "nothing sold yet"} />; })()}
         {(() => { const gaps = rows.filter(x => Array.isArray(x.no_tradebook) ? x.no_tradebook.length : x.no_tradebook).length;
           return <Stat label="Booked since the first trade" value={sgnRs(tot)} color={tot >= 0 ? T.green : T.red}
             sub={`${rows.length} year${rows.length > 1 ? "s" : ""}${gaps ? ` · ${gaps} with a tradebook missing` : ""}`} />; })()}
@@ -4309,6 +4312,7 @@ function BookedCard({ rows }) {
           </span>
           <span style={{ textAlign: "right", fontWeight: 800, color: x.booked >= 0 ? T.green : T.red }}>{sgnRs(x.booked)}
             {x.dividends > 0 && <span style={{ color: T.muted, fontSize: 9, fontWeight: 400, display: "block" }}>sales {sgnRs(x.sales_pnl)} · dividends {rs(x.dividends)}</span>}
+            {typeof x.sales_tp === "number" && Math.abs(x.sales_tp - x.sales_pnl) >= 1 && <span style={{ color: T.muted, fontSize: 9, fontWeight: 400, display: "block" }}>latest shares first: {sgnRs(x.sales_tp)}</span>}
           </span>
           <span style={{ textAlign: "right", color: pcCol(x.booked_pct) }}>{pcTxt(x.booked_pct)}</span>
           <span style={{ textAlign: "right", color: T.text }}>{x.proceeds > 0 ? rs(x.proceeds) : "—"}
@@ -4318,7 +4322,7 @@ function BookedCard({ rows }) {
       ))}
       <div style={{ color: T.muted, fontSize: 10, marginTop: 8, lineHeight: 1.5 }}>
         Only what was actually sold, after all charges, plus dividends received (before TDS) — a year changes only when you sell or a dividend comes in. ⚠ marks a year with no tradebook: sales that year aren't counted until it's uploaded.
-        Cost is first-in-first-out, as for tax; "sales on cost" is the sales profit on what those shares cost. Shares still held don't count here — their paper gain or loss is in the holdings and in the market-value view below.
+        Cost is first-in-first-out, as for tax; "sales on cost" is the sales profit on what those shares cost. "Latest shares first" is the same sales counted against the shares you bought last — the figure in Monitor's profit-booked strip. Shares still held don't count here — their paper gain or loss is in the holdings and in the market-value view below.
       </div>
     </div>
   );
