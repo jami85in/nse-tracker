@@ -4291,18 +4291,24 @@ function BookedCard({ rows }) {
       <div style={{ display: "grid", gridTemplateColumns: "repeat(2,1fr)", gap: 12, marginTop: 10 }}>
         <Stat label={`Booked in ${fyNow}`} value={sgnRs(cur ? cur.booked : 0)} color={(cur ? cur.booked : 0) >= 0 ? T.green : T.red}
           sub={cur && cur.booked_pct != null ? `${pcTxt(cur.booked_pct)} on the cost of what was sold` : "nothing sold yet"} />
-        <Stat label="Booked since the first trade" value={sgnRs(tot)} color={tot >= 0 ? T.green : T.red} sub={`${rows.length} year${rows.length > 1 ? "s" : ""}`} />
+        {(() => { const gaps = rows.filter(x => Array.isArray(x.no_tradebook) ? x.no_tradebook.length : x.no_tradebook).length;
+          return <Stat label="Booked since the first trade" value={sgnRs(tot)} color={tot >= 0 ? T.green : T.red}
+            sub={`${rows.length} year${rows.length > 1 ? "s" : ""}${gaps ? ` · ${gaps} with a tradebook missing` : ""}`} />; })()}
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "1.1fr 1.2fr 0.8fr 1fr", gap: 6, color: T.muted, fontSize: 9, letterSpacing: 0.5, padding: "12px 0 2px" }}>
-        <span>YEAR</span><span style={{ textAlign: "right" }}>BOOKED</span><span style={{ textAlign: "right" }}>ON COST</span><span style={{ textAlign: "right" }}>SOLD FOR</span>
+        <span>YEAR</span><span style={{ textAlign: "right" }}>BOOKED</span><span style={{ textAlign: "right" }}>SALES ON COST</span><span style={{ textAlign: "right" }}>SOLD FOR</span>
       </div>
       {R.map(x => (
         <div key={x.fy} style={{ display: "grid", gridTemplateColumns: "1.1fr 1.2fr 0.8fr 1fr", gap: 6, fontSize: 12, padding: "5px 0", borderTop: `1px solid ${T.border}`, alignItems: "baseline" }}>
           <span style={{ color: T.text }}>{x.fy}
-            <span style={{ color: T.muted, fontSize: 9, display: "block" }}>{x.fy === fyNow ? "so far" : `${x.sales} sale${x.sales === 1 ? "" : "s"}`}</span>
+            {(() => { const nt = Array.isArray(x.no_tradebook) ? x.no_tradebook : (x.no_tradebook ? [""] : []);
+              return <>
+                {(x.sales > 0 || !nt.length) && <span style={{ color: T.muted, fontSize: 9, display: "block" }}>{x.fy === fyNow ? "so far · " : ""}{x.sales} sale{x.sales === 1 ? "" : "s"}</span>}
+                {nt.length > 0 && <span style={{ color: T.warn, fontSize: 9, display: "block" }}>⚠ {nt[0] ? `${nt.join(", ")}: ` : ""}no tradebook</span>}
+              </>; })()}
           </span>
           <span style={{ textAlign: "right", fontWeight: 800, color: x.booked >= 0 ? T.green : T.red }}>{sgnRs(x.booked)}
-            {x.dividends > 0 && <span style={{ color: T.muted, fontSize: 9, fontWeight: 400, display: "block" }}>incl. dividends {rs(x.dividends)}</span>}
+            {x.dividends > 0 && <span style={{ color: T.muted, fontSize: 9, fontWeight: 400, display: "block" }}>sales {sgnRs(x.sales_pnl)} · dividends {rs(x.dividends)}</span>}
           </span>
           <span style={{ textAlign: "right", color: pcCol(x.booked_pct) }}>{pcTxt(x.booked_pct)}</span>
           <span style={{ textAlign: "right", color: T.text }}>{x.proceeds > 0 ? rs(x.proceeds) : "—"}
@@ -4311,8 +4317,8 @@ function BookedCard({ rows }) {
         </div>
       ))}
       <div style={{ color: T.muted, fontSize: 10, marginTop: 8, lineHeight: 1.5 }}>
-        Only what was actually sold, after all charges, plus dividends received — a year changes only when you sell or a dividend comes in.
-        Cost is first-in-first-out, as for tax. Shares still held don't count here; their paper gain or loss is in the holdings above and in the market-value view below.
+        Only what was actually sold, after all charges, plus dividends received (before TDS) — a year changes only when you sell or a dividend comes in. ⚠ marks a year with no tradebook: sales that year aren't counted until it's uploaded.
+        Cost is first-in-first-out, as for tax; "sales on cost" is the sales profit on what those shares cost. Shares still held don't count here — their paper gain or loss is in the holdings and in the market-value view below.
       </div>
     </div>
   );
