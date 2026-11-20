@@ -359,7 +359,7 @@ const RAW_BASE    = `https://raw.githubusercontent.com/${GITHUB_USER}/${GITHUB_R
 // instead of requiring a manual file diff to find out. This exists because
 // PWA/service-worker caching has repeatedly made "is this actually deployed
 // yet" the hardest part of diagnosing issues in this app.
-const BUILD_VERSION = "2026-11-18.1";
+const BUILD_VERSION = "2026-11-20.1";
 
 // NSE trading calendar — keep in step with scripts/market_session.py.
 // Special sessions on a weekend (Diwali Muhurat) and weekday holidays.
@@ -2334,6 +2334,13 @@ function MonitorPage({ scanData, positions, holdings, livePrices, priceUpdated, 
         alerts.push({ type: "target", symbol: p.symbol, msg: `hit target ₹${fmt(p.targetPrice)} (now ₹${fmt(price)})`, color: T.green });
       }
     });
+    // Swing target / exit levels on recent buys (from the trade ledger)
+    if (ledger && !(ledger.account && ledger.account.family)) (ledger.holdings || []).forEach(h => {
+      const sw = h.swing, price = sw ? ledgerPrice(h, livePrices, ledger) : null;
+      if (!sw || price == null || suspState(h, livePrices) === "frozen") return;
+      if (price >= sw.target) alerts.push({ type: "target", symbol: h.symbol, msg: `swing target ₹${fmt(sw.target)} reached (now ₹${fmt(price)}) — about +${sw.target_pct}% after charges`, color: T.green });
+      else if (sw.stop && price <= sw.stop) alerts.push({ type: "stop", symbol: h.symbol, msg: `at swing exit level ₹${fmt(sw.stop)} (now ₹${fmt(price)})`, color: T.red });
+    });
   }
   // Seasonal exit reminders for cycle trades — calendar-based, never price-dependent
   computeNetPositions(openPos).forEach(n => {
@@ -2449,9 +2456,9 @@ function MonitorPage({ scanData, positions, holdings, livePrices, priceUpdated, 
       {ledger && (ledger.holdings || []).length > 0 && (() => {
         const H = ledger.holdings.map(h => ({ h, p: ledgerPrice(h, livePrices, ledger) })).filter(x => x.p != null);
         const value = H.reduce((a, x) => a + x.p * x.h.qty, 0);
-        const eff = H.reduce((a, x) => a + x.h.net_invested, 0);
+        const eff = H.reduce((a, x) => a + heldTot(x.h), 0);
         const fyR = (ledger.realized_by_fy || {})[currentFY()] || {};
-        const movers = H.map(x => ({ sym: x.h.symbol, r: pctOf(x.p, x.h.effective_cost) })).filter(m => m.r != null).sort((a, b) => a.r - b.r);
+        const movers = H.map(x => ({ sym: x.h.symbol, r: pctOf(x.p, heldPs(x.h)) })).filter(m => m.r != null).sort((a, b) => a.r - b.r);
         return (
           <Section title={ledger.account && ledger.account.family ? "👪 Family holdings" : ledger.account && ledger.account.id !== "huf" ? `📒 ${acctShort(ledger.account.id)}'s holdings` : "📒 Your holdings"} count={ledger.holdings.length} color={T.accent}>
             <AccountBar />
@@ -2459,9 +2466,12 @@ function MonitorPage({ scanData, positions, holdings, livePrices, priceUpdated, 
             <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: 14 }}>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(2,1fr)", gap: 12 }}>
                 <Stat label="Value" value={rs(value)} />
-                <Stat label="P&L vs effective cost" value={sgnRs(value - eff)} color={value - eff >= 0 ? T.green : T.red} sub={eff ? `${value - eff >= 0 ? "+" : ""}${((value / eff - 1) * 100).toFixed(1)}%` : null} />
+                <Stat label="P&L on shares held" value={sgnRs(value - eff)} color={value - eff >= 0 ? T.green : T.red} sub={eff ? `${value - eff >= 0 ? "+" : ""}${((value / eff - 1) * 100).toFixed(1)}%` : null} />
               </div>
               <ProfitStrip ledger={ledger} />
+              <SwingLevels ledger={ledger} livePrices={livePrices} pricesStale={pricesStale} />
+              <GttList ledger={ledger} livePrices={livePrices} />
+              <TodayOrders ledger={ledger} livePrices={livePrices} />
               <div style={{ color: T.muted, fontSize: 10, marginTop: 6 }}>Dividends {currentFY()}: <b style={{ color: T.green }}>{rs(fyR.dividends_gross || 0)}</b></div>
               {movers.length > 1 && (
                 <div style={{ color: T.muted, fontSize: 10, marginTop: 10, lineHeight: 1.6 }}>
@@ -2478,7 +2488,7 @@ function MonitorPage({ scanData, positions, holdings, livePrices, priceUpdated, 
                   </div>
                 );
               })()}
-              <div style={{ color: T.muted, fontSize: 9, marginTop: 8 }}>From your Zerodha trades · vs effective (all-in) cost · details in Portfolio → 📒 Ledger</div>
+              <div style={{ color: T.muted, fontSize: 9, marginTop: 8 }}>From your Zerodha trades · P&L vs the all-in cost of the shares still held (booked profit is in the strip above) · details in Portfolio → 📒 Ledger</div>
             </div>
           </Section>
         );
@@ -3409,6 +3419,133 @@ function profitPeriods(sales, today = istToday()) {
     return { ...p, n: xs.length, sum: xs.reduce((a, s) => a + tradePnl(s), 0), fifo: xs.reduce((a, s) => a + (s.pnl || 0), 0) };
   });
 }
+// Target / exit levels for recent buys (swing trades). The ledger works them
+// out nightly (swing field on a holding); this shows how far the live price is
+// from each, nearest first. Reminders only: nothing is sold automatically.
+function SwingLevels({ ledger, livePrices, pricesStale }) {
+  if (!ledger || (ledger.account && ledger.account.family)) return null;
+  const rows = (ledger.holdings || []).filter(h => h.swing && h.swing.target && suspState(h, livePrices) !== "frozen").map(h => {
+    const sw = h.swing, p = ledgerPrice(h, livePrices, ledger);
+    const toT = p != null ? (sw.target / p - 1) * 100 : null, toS = p != null && sw.stop ? (p / sw.stop - 1) * 100 : null;
+    return { h, sw, p, toT, toS, near: Math.min(toT == null ? 1e9 : Math.max(toT, 0), toS == null ? 1e9 : Math.max(toS, 0)) };
+  }).sort((a, b) => a.near - b.near);
+  if (!rows.length) return null;
+  return (
+    <div style={{ marginTop: 12, paddingTop: 10, borderTop: `1px solid ${T.border}` }}>
+      <div style={{ color: T.muted, fontSize: 11, letterSpacing: 1, marginBottom: 8 }}>SWING LEVELS · RECENT BUYS</div>
+      {rows.map(({ h, sw, p, toT, toS }) => {
+        const hitT = p != null && p >= sw.target, hitS = p != null && sw.stop && p <= sw.stop;
+        return (
+          <div key={h.symbol} style={{ padding: "7px 0", borderBottom: `1px solid ${T.border}55` }}>
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "baseline" }}>
+              <span style={{ fontFamily: "monospace", fontWeight: 700, fontSize: 13, color: T.text }}>{h.symbol}</span>
+              <span style={{ color: T.muted, fontSize: 10 }}>{sw.qty} sh since {sw.since} · cost {rs(sw.entry)}{p != null ? ` · now ${rs(p)}` : ""}</span>
+            </div>
+            <div style={{ display: "flex", gap: 14, marginTop: 3, fontSize: 11, flexWrap: "wrap" }}>
+              <span style={{ color: hitT ? T.green : T.text, fontWeight: hitT ? 700 : 400 }}>
+                🎯 ₹{fmt(sw.target)} {hitT ? "· reached" : toT != null ? `· ${toT.toFixed(1)}% away` : ""}
+              </span>
+              {sw.stop != null && <span style={{ color: hitS ? T.red : T.text, fontWeight: hitS ? 700 : 400 }}>
+                🛑 ₹{fmt(sw.stop)} {hitS ? "· at exit level" : toS != null ? `· ${toS.toFixed(1)}% above` : ""}
+              </span>}
+              {sw.custom && <span style={{ color: T.muted }}>your levels</span>}
+            </div>
+          </div>
+        );
+      })}
+      <div style={{ color: T.muted, fontSize: 10, marginTop: 6, lineHeight: 1.5 }}>
+        🎯 = +1.5% after selling charges, before tax · 🛑 = 1.5% under your cost, unless marked "your levels" (swing.csv). For shares bought in the last 30 days{pricesStale ? " · prices from the last close" : ""}. Reminders only — nothing is sold automatically.
+      </div>
+    </div>
+  );
+}
+
+// Active GTT orders in Kite for the account on screen, saved by the price loop
+// (scripts/notify.py) on days the account logged in: ledger/gtt.json (HUF) or
+// ledger/accounts/<id>/gtt.json.
+function GttList({ ledger, livePrices }) {
+  const acct = useLedgerAccount();
+  const [g, setG] = useState(null);
+  useEffect(() => {
+    let on = true;
+    const pat = lsGet("ledger_pat", "");
+    if (!pat || acct === "family") { setG(null); return; }
+    const repo = lsGet("ledger_repo", "jami85in/nse-tracker-secrets");
+    const load = () => ghGet(repo, pat, acct === "huf" ? "ledger/gtt.json" : `ledger/accounts/${acct}/gtt.json`)
+      .then(d => { if (on) setG(d); }).catch(() => { if (on) setG(null); });
+    load();
+    const t = setInterval(load, 10 * 60 * 1000);      // the price loop refreshes it every ~10 min
+    return () => { on = false; clearInterval(t); };
+  }, [acct]);
+  if (!g || !(g.gtts || []).length || (ledger && ledger.account && ledger.account.family)) return null;
+  return (
+    <div style={{ marginTop: 12, paddingTop: 10, borderTop: `1px solid ${T.border}` }}>
+      <div style={{ color: T.muted, fontSize: 11, letterSpacing: 1, marginBottom: 8 }}>GTT ORDERS IN KITE · {g.updated_at || g.date}</div>
+      {g.gtts.map(o => {
+        const p = livePrices[o.symbol] ?? livePrices[`${o.symbol}-SM`];
+        return (
+          <div key={o.id} style={{ padding: "6px 0", borderBottom: `1px solid ${T.border}55` }}>
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+              <span style={{ fontFamily: "monospace", fontWeight: 700, fontSize: 13, color: T.text }}>{o.symbol}</span>
+              <span style={{ color: T.muted, fontSize: 10 }}>{p != null ? `now ${rs(p)}` : ""}</span>
+            </div>
+            {(o.triggers || []).map((t, i) => {
+              const ord = (o.orders || [])[i] || (o.orders || [])[0] || {};
+              const gap = p != null ? (p / t - 1) * 100 : null;
+              const near = gap != null && Math.abs(gap) <= 1;
+              return <div key={i} style={{ fontSize: 11, color: near ? T.warn : T.text, marginTop: 2 }}>
+                ⚡ trigger ₹{fmt(t)} → {(ord.side || "").toLowerCase()} {ord.qty ?? ""}{ord.price ? ` @ ₹${fmt(ord.price)}` : ""}{gap != null ? ` · ${Math.abs(gap).toFixed(1)}% ${gap >= 0 ? "above" : "below"}` : ""}
+              </div>;
+            })}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// Today's regular (non-GTT) orders for the account on screen, saved by the
+// price loop (scripts/notify.py): ledger/orders.json or ledger/accounts/<id>/orders.json.
+// Kite lists only the current day's orders, so this shows today only.
+const ORDER_OPEN = new Set(["OPEN", "TRIGGER PENDING", "AMO REQ RECEIVED", "OPEN PENDING", "VALIDATION PENDING", "PUT ORDER REQ RECEIVED", "MODIFY PENDING", "MODIFY VALIDATION PENDING"]);
+function TodayOrders({ ledger, livePrices }) {
+  const acct = useLedgerAccount();
+  const [d, setD] = useState(null);
+  useEffect(() => {
+    let on = true;
+    const pat = lsGet("ledger_pat", "");
+    if (!pat || acct === "family") { setD(null); return; }
+    const repo = lsGet("ledger_repo", "jami85in/nse-tracker-secrets");
+    const load = () => ghGet(repo, pat, acct === "huf" ? "ledger/orders.json" : `ledger/accounts/${acct}/orders.json`)
+      .then(x => { if (on) setD(x); }).catch(() => { if (on) setD(null); });
+    load();
+    const t = setInterval(load, 10 * 60 * 1000);
+    return () => { on = false; clearInterval(t); };
+  }, [acct]);
+  const today = new Date(Date.now() + new Date().getTimezoneOffset() * 60000 + 5.5 * 3600000).toISOString().slice(0, 10);
+  if (!d || d.date !== today || !(d.orders || []).length || (ledger && ledger.account && ledger.account.family)) return null;
+  const open = d.orders.filter(o => ORDER_OPEN.has(o.status));
+  const done = d.orders.filter(o => o.status === "COMPLETE"), rej = d.orders.filter(o => o.status === "REJECTED");
+  return (
+    <div style={{ marginTop: 12, paddingTop: 10, borderTop: `1px solid ${T.border}` }}>
+      <div style={{ color: T.muted, fontSize: 11, letterSpacing: 1, marginBottom: 8 }}>TODAY'S ORDERS · {d.updated_at}</div>
+      {open.map(o => {
+        const p = livePrices[o.symbol] ?? livePrices[`${o.symbol}-SM`], lvl = o.trigger || o.price;
+        const gap = p != null && lvl ? (p / lvl - 1) * 100 : null;
+        return (
+          <div key={o.id} style={{ display: "flex", justifyContent: "space-between", gap: 8, padding: "5px 0", borderBottom: `1px solid ${T.border}55`, fontSize: 11 }}>
+            <span><b style={{ fontFamily: "monospace", fontSize: 12, color: T.text }}>{o.symbol}</b> <span style={{ color: o.side === "BUY" ? T.green : T.red }}>{(o.side || "").toLowerCase()}</span> {o.qty} · {o.type}{o.trigger ? ` trig ₹${fmt(o.trigger)}` : ""}{o.price ? ` @ ₹${fmt(o.price)}` : ""}</span>
+            <span style={{ color: gap != null && Math.abs(gap) <= 0.5 ? T.warn : T.muted, whiteSpace: "nowrap" }}>{gap != null ? `${Math.abs(gap).toFixed(1)}% away` : (o.status || "").toLowerCase()}</span>
+          </div>
+        );
+      })}
+      <div style={{ color: T.muted, fontSize: 10, marginTop: 6 }}>
+        {open.length} pending · {done.length} filled · {rej.length} rejected{rej.length ? ` (${rej.map(o => o.symbol).join(", ")})` : ""}
+      </div>
+    </div>
+  );
+}
+
 function ProfitStrip({ ledger }) {
   const P = profitPeriods(ledger.sales || []);
   const fy = P[3], hasTp = (ledger.sales || []).some(s => typeof s.tp === "number");
@@ -3479,6 +3616,18 @@ function LedgerGate({ state, what, onOpenLedger, children }) {
   );
 }
 
+// Cost of the shares still held, on the same basis as booked profit (a sale
+// while holding takes the latest shares), so it doesn't count again profit
+// already booked from the stock. Older ledgers fall back to the effective cost.
+const heldTot = h => (typeof h.held_cost_total === "number" ? h.held_cost_total : h.net_invested);
+const heldPs = h => (typeof h.held_cost === "number" ? h.held_cost : h.effective_cost);
+// Profit (or loss) already booked in the current round: the effective cost
+// (break-even) folds it in. null when negligible or unknown.
+const bookedInRound = h => {
+  const b = h.booked_in_round;
+  return typeof b === "number" && Math.abs(b) >= 100 ? b : null;
+};
+
 function AutoPortfolio({ ledger, livePrices, scanData }) {
   const fys = [...new Set([...Object.keys(ledger.realized_by_fy || {}), ...(ledger.sales || []).map(s => s.fy)])].filter(Boolean).sort().reverse();
   const [fy, setFy] = useState(() => (fys.includes(currentFY()) ? currentFY() : (fys[0] || currentFY())));
@@ -3488,15 +3637,15 @@ function AutoPortfolio({ ledger, livePrices, scanData }) {
   const H = (ledger.holdings || []).map(h => {
     const px = ledgerPrice(h, livePrices, ledger);
     return {
-      h, px, value: px != null ? px * h.qty : null, r: pctOf(px, h.effective_cost),
-      pnl: px != null ? px * h.qty - h.net_invested : null,
+      h, px, value: px != null ? px * h.qty : null, r: pctOf(px, heldPs(h)),
+      pnl: px != null ? px * h.qty - heldTot(h) : null,
       days: h.first_buy ? Math.round((Date.parse(today) - Date.parse(h.first_buy)) / 86400000) : null,
       sig: holdingSignal(h.symbol, scanData, px),
     };
   }).sort((a, b) => (b.value || 0) - (a.value || 0));
   const priced = H.filter(x => x.value != null);
   const value = priced.reduce((a, x) => a + x.value, 0);
-  const invested = priced.reduce((a, x) => a + x.h.net_invested, 0);
+  const invested = priced.reduce((a, x) => a + heldTot(x.h), 0);
 
   const fyR = (ledger.realized_by_fy || {})[fy] || {};
   const sales = (ledger.sales || []).filter(s => s.fy === fy).sort((a, b) => b.d.localeCompare(a.d));
@@ -3530,7 +3679,7 @@ function AutoPortfolio({ ledger, livePrices, scanData }) {
         <div style={{ display: "grid", gridTemplateColumns: "repeat(2,1fr)", gap: 12 }}>
           <Stat label="Holdings value" value={rs(value)} sub={`${H.length} stocks`} />
           <Stat label="Unrealised P&L" value={sgnRs(value - invested)} color={value - invested >= 0 ? T.green : T.red}
-            sub={invested ? `${pct((value / invested - 1) * 100)} vs effective cost` : null} />
+            sub={invested ? `${pct((value / invested - 1) * 100)} on shares still held` : null} />
           <Stat label={`Booked P&L ${fy}`} value={sgnRs(booked)} color={booked >= 0 ? T.green : T.red}
             sub={Math.abs(bookedFifo - booked) >= 1 ? `${sales.length} sales · tax (FIFO) ${sgnRs(bookedFifo)}` : `${sales.length} sales, after charges`} />
           <Stat label={`Dividends ${fy}`} value={rs(fyR.dividends_gross || 0)} color={T.green} sub={fyR.charges ? `charges ${rs(fyR.charges)}` : null} />
@@ -3579,8 +3728,9 @@ function AutoPortfolio({ ledger, livePrices, scanData }) {
               <SuspBadge h={h} livePrices={livePrices} small />
             </div>
             <div style={{ color: T.muted, fontSize: 10, marginTop: 1 }}>
-              {h.qty} sh · {rs(h.effective_cost)} → {px != null ? rs(px) : "no price"}{days != null ? ` · ${days}d` : ""}
+              {h.qty} sh · {rs(heldPs(h))} → {px != null ? rs(px) : "no price"}{days != null ? ` · ${days}d` : ""}
             </div>
+            {(() => { const bk = bookedInRound(h); return bk != null && <div style={{ color: T.muted, fontSize: 10, marginTop: 1 }}>break-even {rs(h.effective_cost)} · {sgnRs(bk)} already booked from this stock</div>; })()}
             {h.bank && (() => { const b = liveBank(h.bank, px, h.qty); return <div style={{ color: b.vs_bank >= 0 ? T.green : T.red, fontSize: 10, marginTop: 1 }}>{b.vs_bank >= 0 ? "▲" : "▼"} {bankTxt(b)}{bankRate(b) ? ` · ${bankRate(b)}` : ""}</div>; })()}
           </div>
           <div style={{ textAlign: "right", flexShrink: 0 }}>
