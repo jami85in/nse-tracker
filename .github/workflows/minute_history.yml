@@ -1,0 +1,56 @@
+name: Minute candles — history backfill (all NSE stocks, since 2015)
+
+# One-time backfill, resumable: 1-minute candles for every NSE equity Kite
+# lists, month by month from Feb 2015 up to the day before the daily archive
+# began, into the PRIVATE repo's "minute-history" release
+# (scripts/minute_bars.py history). Progress is kept in
+# market/minute_progress.json there, so each run carries on where the last
+# stopped. One month for all stocks takes ~21-30 minutes; ~140 months in all,
+# so it completes over roughly a week of login days. Each run needs that day's HUF Kite
+# login and stops before the ~06:00 IST token reset. Once everything is done
+# the runs find nothing left and exit within a minute.
+
+on:
+  schedule:
+    - cron: "1 4 * * *"       # 09:31 IST
+    - cron: "17 11 * * *"     # 16:47 IST (queues behind the daily archive if it's running)
+    - cron: "7 17 * * *"      # 22:37 IST
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kite-historical
+  cancel-in-progress: false
+
+jobs:
+  history:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      - run: pip install --quiet kiteconnect pyarrow
+      - name: Backfill the next months
+        env:
+          KITE_API_KEY: ${{ secrets.KITE_API_KEY }}
+          SECRETS_REPO_PAT: ${{ secrets.SECRETS_REPO_PAT }}
+          SECRETS_REPO: ${{ secrets.SECRETS_REPO }}
+        run: |
+          # time budget: at most 320 min, and finish by 05:40 IST (Kite resets logins ~06:00)
+          BUDGET=$(python - <<'PY'
+          import datetime
+          ist = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
+          now = datetime.datetime.now(ist)
+          reset = now.replace(hour=5, minute=40, second=0, microsecond=0)
+          if reset <= now:
+              reset += datetime.timedelta(days=1)
+          print(max(0, min(320, int((reset - now).total_seconds() // 60))))
+          PY
+          )
+          echo "Time budget: ${BUDGET} min"
+          if [ "$BUDGET" -lt 30 ]; then echo "Too close to the 06:00 login reset — skipping."; exit 0; fi
+          python scripts/minute_bars.py history "$BUDGET"
