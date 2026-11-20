@@ -19,6 +19,14 @@ name: NSE Live Price Update (Kite Connect)
 #     treated every weekend as closed, so the Muhurat session got no prices.
 #   - it first syncs your Zerodha holdings, so a login also refreshes which
 #     stocks you hold (not only the 19:30 evening sync).
+#   - every round it also checks Kite for new trades in each account that has
+#     logged in today (HUF, wife, mother) and saves them to the private ledger
+#     (scripts/trade_watch.py), so a buy or sell shows on the dashboard within
+#     about 15-20 minutes instead of after the evening capture, and sends phone
+#     alerts through ntfy (scripts/notify.py): swing target/exit levels, GTT
+#     triggers, and STRONG seasonal-cycle stocks down 2%+ in their up-season.
+#   - after the close it starts the daily archive of 1-minute candles for all
+#     NSE stocks (minute_archive.yml -> private repo) for intraday research.
 #   - if it reaches GitHub's 6-hour cap while the market is still open, it
 #     starts its own successor run (workflow_dispatch, which GitHub doesn't
 #     drop). On Fri 6 Nov 2026 the login at 07:38 started the loop early, it
@@ -99,6 +107,9 @@ jobs:
           KITE_API_KEY: ${{ secrets.KITE_API_KEY }}
           SECRETS_REPO_PAT: ${{ secrets.SECRETS_REPO_PAT }}
           SECRETS_REPO: ${{ secrets.SECRETS_REPO }}
+          KITE_API_KEY_WIFE: ${{ secrets.KITE_API_KEY_WIFE }}
+          KITE_API_KEY_MOTHER: ${{ secrets.KITE_API_KEY_MOTHER }}
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
           INTERVAL_SECONDS: ${{ github.event.inputs.interval_seconds || '600' }}
           FORCE_SESSION: ${{ github.event.inputs.force || 'false' }}
           GH_TOKEN: ${{ github.token }}
@@ -162,6 +173,12 @@ jobs:
               [ "$waited" = "1" ] && echo "::notice::Today's Kite token isn't refreshed yet — waiting for the daily login, re-checking every ${INTERVAL_SECONDS}s."
               echo "[$(ist)] waiting for today's token..."
             fi
+            # New trades in any Kite-connected account that logged in today go to
+            # the private ledger now, not only in the evening. Runs even before the
+            # HUF login, for wife/mother. Prints nothing about trades.
+            python scripts/trade_watch.py || true
+            # Phone alerts (ntfy): swing levels, GTT triggers, STRONG cycle dips.
+            python scripts/notify.py || true
             sleep "$INTERVAL_SECONDS"
           done
           echo "Loop done at $(ist): $fetched price updates committed."
@@ -171,6 +188,24 @@ jobs:
             gh workflow run prices_kite.yml --ref "${GITHUB_REF_NAME:-main}" -f interval_seconds="$INTERVAL_SECONDS" \
               || echo "::warning::Could not start the successor run — prices may stop until the next scheduled start."
           fi
+
+      # After the close: start the daily archive of 1-minute candles for all
+      # NSE stocks (minute_archive.yml; its schedules are backups).
+      - name: Start today's minute-candle archive
+        if: always()
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if python - <<'PY'
+          import datetime, sys
+          sys.path.insert(0, "scripts")
+          import market_session
+          now = datetime.datetime.now(market_session.IST)
+          s = market_session.session(now.date())
+          sys.exit(0 if s and now >= s[1] else 1)
+          PY
+          then gh workflow run minute_archive.yml --ref "${GITHUB_REF_NAME:-main}" && echo "Minute archive started."; else echo "Session not over yet — not starting the archive."; fi
 
       # Right after the close, ask the private repo's Trade Ledger to capture
       # today's trades and holdings now, instead of waiting for GitHub's evening

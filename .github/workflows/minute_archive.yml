@@ -1,0 +1,61 @@
+name: Minute candles — daily archive (all NSE stocks)
+
+# After each session, saves 1-minute candles for every NSE equity Kite lists
+# into the PRIVATE repo as a release file (scripts/minute_bars.py archive).
+# Needs that day's HUF Kite login (valid until ~06:00 IST next morning).
+# Started by the price loop right after the close; these schedules are
+# backups (GitHub sometimes drops scheduled runs). A run that finds today's
+# file already saved exits at once. ~2,700 stocks at 2.2 requests a second take
+# about 21 minutes a day; a run also fills up to 3 missed days from the last 30
+# (a day without a login). Prints counts only.
+
+on:
+  schedule:
+    - cron: "47 10 * * 1-5"   # 16:17 IST
+    - cron: "22 13 * * 1-5"   # 18:52 IST (backup)
+    - cron: "7 16 * * 1-5"    # 21:37 IST (backup)
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "Re-save today's file even if it exists"
+        required: false
+        default: "false"
+        type: choice
+        options: ["false", "true"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kite-historical      # shared with the history backfill: one 3-requests-a-second budget
+  cancel-in-progress: false
+
+jobs:
+  archive:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      - run: pip install --quiet kiteconnect pyarrow
+      - name: Save today's minute candles
+        env:
+          KITE_API_KEY: ${{ secrets.KITE_API_KEY }}
+          SECRETS_REPO_PAT: ${{ secrets.SECRETS_REPO_PAT }}
+          SECRETS_REPO: ${{ secrets.SECRETS_REPO }}
+          FORCE: ${{ github.event.inputs.force == 'true' && '1' || '0' }}
+        run: |
+          if python - <<'PY'
+          import datetime, sys
+          sys.path.insert(0, "scripts")
+          import market_session
+          now = datetime.datetime.now(market_session.IST)
+          s = market_session.session(now.date())
+          if not s:
+              print("No NSE session today."); sys.exit(1)
+          if now < s[1]:
+              print("Today's session hasn't ended yet."); sys.exit(1)
+          PY
+          then python scripts/minute_bars.py archive; fi
