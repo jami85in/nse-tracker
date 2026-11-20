@@ -352,7 +352,7 @@ const GITHUB_USER = "jami85in";
 const GITHUB_REPO = "nse-tracker";
 const GITHUB_API = `https://api.github.com/repos/${GITHUB_USER}/${GITHUB_REPO}/contents/data`;
 const RAW_BASE = `https://raw.githubusercontent.com/${GITHUB_USER}/${GITHUB_REPO}/main/data`;
-const BUILD_VERSION = "2026-11-18.1";
+const BUILD_VERSION = "2026-11-20.1";
 const NSE_SPECIAL_SESSIONS = { "2026-11-08": [14 * 60 + 20, 15 * 60 + 30, "Muhurat trading"] };
 const NSE_HOLIDAYS = { "2026-11-10": "Diwali Balipratipada", "2026-11-24": "Guru Nanak Jayanti", "2026-12-25": "Christmas" };
 function nseMarketOpenNow() {
@@ -1592,6 +1592,12 @@ function MonitorPage({ scanData, positions, holdings, livePrices, priceUpdated, 
         alerts.push({ type: "target", symbol: p.symbol, msg: `hit target ₹${fmt(p.targetPrice)} (now ₹${fmt(price)})`, color: T.green });
       }
     });
+    if (ledger && !(ledger.account && ledger.account.family)) (ledger.holdings || []).forEach((h) => {
+      const sw = h.swing, price = sw ? ledgerPrice(h, livePrices, ledger) : null;
+      if (!sw || price == null || suspState(h, livePrices) === "frozen") return;
+      if (price >= sw.target) alerts.push({ type: "target", symbol: h.symbol, msg: `swing target ₹${fmt(sw.target)} reached (now ₹${fmt(price)}) — about +${sw.target_pct}% after charges`, color: T.green });
+      else if (sw.stop && price <= sw.stop) alerts.push({ type: "stop", symbol: h.symbol, msg: `at swing exit level ₹${fmt(sw.stop)} (now ₹${fmt(price)})`, color: T.red });
+    });
   }
   computeNetPositions(openPos).forEach((n) => {
     const info = cycleExitInfo(n.cycle);
@@ -1635,14 +1641,14 @@ function MonitorPage({ scanData, positions, holdings, livePrices, priceUpdated, 
     var _a;
     const H = ledger.holdings.map((h) => ({ h, p: ledgerPrice(h, livePrices, ledger) })).filter((x) => x.p != null);
     const value = H.reduce((a, x) => a + x.p * x.h.qty, 0);
-    const eff = H.reduce((a, x) => a + x.h.net_invested, 0);
+    const eff = H.reduce((a, x) => a + heldTot(x.h), 0);
     const fyR = (ledger.realized_by_fy || {})[currentFY()] || {};
-    const movers = H.map((x) => ({ sym: x.h.symbol, r: pctOf(x.p, x.h.effective_cost) })).filter((m) => m.r != null).sort((a, b) => a.r - b.r);
-    return /* @__PURE__ */ React.createElement(Section, { title: ledger.account && ledger.account.family ? "👪 Family holdings" : ledger.account && ledger.account.id !== "huf" ? `📒 ${acctShort(ledger.account.id)}'s holdings` : "📒 Your holdings", count: ledger.holdings.length, color: T.accent }, /* @__PURE__ */ React.createElement(AccountBar, null), /* @__PURE__ */ React.createElement(AccountsTable, { ledger }), /* @__PURE__ */ React.createElement("div", { style: { background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: 14 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(2,1fr)", gap: 12 } }, /* @__PURE__ */ React.createElement(Stat, { label: "Value", value: rs(value) }), /* @__PURE__ */ React.createElement(Stat, { label: "P&L vs effective cost", value: sgnRs(value - eff), color: value - eff >= 0 ? T.green : T.red, sub: eff ? `${value - eff >= 0 ? "+" : ""}${((value / eff - 1) * 100).toFixed(1)}%` : null })), /* @__PURE__ */ React.createElement(ProfitStrip, { ledger }), /* @__PURE__ */ React.createElement("div", { style: { color: T.muted, fontSize: 10, marginTop: 6 } }, "Dividends ", currentFY(), ": ", /* @__PURE__ */ React.createElement("b", { style: { color: T.green } }, rs(fyR.dividends_gross || 0))), movers.length > 1 && /* @__PURE__ */ React.createElement("div", { style: { color: T.muted, fontSize: 10, marginTop: 10, lineHeight: 1.6 } }, "Weakest: ", movers.slice(0, 3).map((m) => `${m.sym} ${m.r >= 0 ? "+" : ""}${m.r.toFixed(1)}%`).join(" · "), /* @__PURE__ */ React.createElement("br", null), "Strongest: ", movers.slice(-3).reverse().map((m) => `${m.sym} ${m.r >= 0 ? "+" : ""}${m.r.toFixed(1)}%`).join(" · ")), ((_a = ledger.returns) == null ? void 0 : _a.since_first_trade) && (() => {
+    const movers = H.map((x) => ({ sym: x.h.symbol, r: pctOf(x.p, heldPs(x.h)) })).filter((m) => m.r != null).sort((a, b) => a.r - b.r);
+    return /* @__PURE__ */ React.createElement(Section, { title: ledger.account && ledger.account.family ? "👪 Family holdings" : ledger.account && ledger.account.id !== "huf" ? `📒 ${acctShort(ledger.account.id)}'s holdings` : "📒 Your holdings", count: ledger.holdings.length, color: T.accent }, /* @__PURE__ */ React.createElement(AccountBar, null), /* @__PURE__ */ React.createElement(AccountsTable, { ledger }), /* @__PURE__ */ React.createElement("div", { style: { background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: 14 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(2,1fr)", gap: 12 } }, /* @__PURE__ */ React.createElement(Stat, { label: "Value", value: rs(value) }), /* @__PURE__ */ React.createElement(Stat, { label: "P&L on shares held", value: sgnRs(value - eff), color: value - eff >= 0 ? T.green : T.red, sub: eff ? `${value - eff >= 0 ? "+" : ""}${((value / eff - 1) * 100).toFixed(1)}%` : null })), /* @__PURE__ */ React.createElement(ProfitStrip, { ledger }), /* @__PURE__ */ React.createElement(SwingLevels, { ledger, livePrices, pricesStale }), /* @__PURE__ */ React.createElement(GttList, { ledger, livePrices }), /* @__PURE__ */ React.createElement(TodayOrders, { ledger, livePrices }), /* @__PURE__ */ React.createElement("div", { style: { color: T.muted, fontSize: 10, marginTop: 6 } }, "Dividends ", currentFY(), ": ", /* @__PURE__ */ React.createElement("b", { style: { color: T.green } }, rs(fyR.dividends_gross || 0))), movers.length > 1 && /* @__PURE__ */ React.createElement("div", { style: { color: T.muted, fontSize: 10, marginTop: 10, lineHeight: 1.6 } }, "Weakest: ", movers.slice(0, 3).map((m) => `${m.sym} ${m.r >= 0 ? "+" : ""}${m.r.toFixed(1)}%`).join(" · "), /* @__PURE__ */ React.createElement("br", null), "Strongest: ", movers.slice(-3).reverse().map((m) => `${m.sym} ${m.r >= 0 ? "+" : ""}${m.r.toFixed(1)}%`).join(" · ")), ((_a = ledger.returns) == null ? void 0 : _a.since_first_trade) && (() => {
       var _a2;
       const r = ledger.returns.since_first_trade, cur = (ledger.returns.by_fy || []).slice(-1)[0];
       return /* @__PURE__ */ React.createElement("div", { style: { color: T.muted, fontSize: 10, marginTop: 8, lineHeight: 1.6 } }, "Return since ", r.from, ": ", /* @__PURE__ */ React.createElement("b", { style: { color: pcCol(r.xirr_pct) } }, pcTxt(r.xirr_pct), " a year"), " (same money in Nifty ", pcTxt((_a2 = r.nifty_same_money_xirr_pct) != null ? _a2 : r.nifty_annual_pct), ")", r.bank && /* @__PURE__ */ React.createElement(React.Fragment, null, " · ", /* @__PURE__ */ React.createElement("b", { style: { color: r.bank.vs_bank >= 0 ? T.green : T.red } }, bankTxt(r.bank))));
-    })(), /* @__PURE__ */ React.createElement("div", { style: { color: T.muted, fontSize: 9, marginTop: 8 } }, "From your Zerodha trades · vs effective (all-in) cost · details in Portfolio → 📒 Ledger")));
+    })(), /* @__PURE__ */ React.createElement("div", { style: { color: T.muted, fontSize: 9, marginTop: 8 } }, "From your Zerodha trades · P&L vs the all-in cost of the shares still held (booked profit is in the strip above) · details in Portfolio → 📒 Ledger")));
   })(), (openPos.length > 0 || closedPos.length > 0 || !ledger) && /* @__PURE__ */ React.createElement(Section, { title: "💼 Swing trades (tracked here)", color: T.accent }, /* @__PURE__ */ React.createElement("div", { style: { background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: 14 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(2,1fr)", gap: 12 } }, /* @__PURE__ */ React.createElement(Stat, { label: "Invested", value: curr(totalInvested) }), /* @__PURE__ */ React.createElement(Stat, { label: "Unrealized P&L", value: (unrealizedPL >= 0 ? "+" : "-") + curr(Math.abs(unrealizedPL)), color: unrealizedPL >= 0 ? T.green : T.red }), /* @__PURE__ */ React.createElement(Stat, { label: "Realized P&L", value: (realizedPL >= 0 ? "+" : "-") + curr(Math.abs(realizedPL)), color: realizedPL >= 0 ? T.green : T.red }), /* @__PURE__ */ React.createElement(Stat, { label: "Long-term Holdings", value: (holdings || []).length })), monitorMissingCount > 0 && /* @__PURE__ */ React.createElement("div", { style: { marginTop: 10, color: T.warn, fontSize: 10 } }, "⚠ Unrealized P&L excludes ", monitorMissingCount, " position", monitorMissingCount === 1 ? "" : "s", " with no live price yet.")), openPos.length > 0 && (() => {
     const nets = computeNetPositions(openPos);
     return /* @__PURE__ */ React.createElement("div", { style: { marginTop: 10 } }, nets.map((net) => {
@@ -2178,6 +2184,90 @@ function profitPeriods(sales, today = istToday()) {
     return { ...p, n: xs.length, sum: xs.reduce((a, s) => a + tradePnl(s), 0), fifo: xs.reduce((a, s) => a + (s.pnl || 0), 0) };
   });
 }
+function SwingLevels({ ledger, livePrices, pricesStale }) {
+  if (!ledger || ledger.account && ledger.account.family) return null;
+  const rows = (ledger.holdings || []).filter((h) => h.swing && h.swing.target && suspState(h, livePrices) !== "frozen").map((h) => {
+    const sw = h.swing, p = ledgerPrice(h, livePrices, ledger);
+    const toT = p != null ? (sw.target / p - 1) * 100 : null, toS = p != null && sw.stop ? (p / sw.stop - 1) * 100 : null;
+    return { h, sw, p, toT, toS, near: Math.min(toT == null ? 1e9 : Math.max(toT, 0), toS == null ? 1e9 : Math.max(toS, 0)) };
+  }).sort((a, b) => a.near - b.near);
+  if (!rows.length) return null;
+  return /* @__PURE__ */ React.createElement("div", { style: { marginTop: 12, paddingTop: 10, borderTop: `1px solid ${T.border}` } }, /* @__PURE__ */ React.createElement("div", { style: { color: T.muted, fontSize: 11, letterSpacing: 1, marginBottom: 8 } }, "SWING LEVELS · RECENT BUYS"), rows.map(({ h, sw, p, toT, toS }) => {
+    const hitT = p != null && p >= sw.target, hitS = p != null && sw.stop && p <= sw.stop;
+    return /* @__PURE__ */ React.createElement("div", { key: h.symbol, style: { padding: "7px 0", borderBottom: `1px solid ${T.border}55` } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", gap: 8, alignItems: "baseline" } }, /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "monospace", fontWeight: 700, fontSize: 13, color: T.text } }, h.symbol), /* @__PURE__ */ React.createElement("span", { style: { color: T.muted, fontSize: 10 } }, sw.qty, " sh since ", sw.since, " · cost ", rs(sw.entry), p != null ? ` · now ${rs(p)}` : "")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 14, marginTop: 3, fontSize: 11, flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("span", { style: { color: hitT ? T.green : T.text, fontWeight: hitT ? 700 : 400 } }, "🎯 ₹", fmt(sw.target), " ", hitT ? "· reached" : toT != null ? `· ${toT.toFixed(1)}% away` : ""), sw.stop != null && /* @__PURE__ */ React.createElement("span", { style: { color: hitS ? T.red : T.text, fontWeight: hitS ? 700 : 400 } }, "🛑 ₹", fmt(sw.stop), " ", hitS ? "· at exit level" : toS != null ? `· ${toS.toFixed(1)}% above` : ""), sw.custom && /* @__PURE__ */ React.createElement("span", { style: { color: T.muted } }, "your levels")));
+  }), /* @__PURE__ */ React.createElement("div", { style: { color: T.muted, fontSize: 10, marginTop: 6, lineHeight: 1.5 } }, '🎯 = +1.5% after selling charges, before tax · 🛑 = 1.5% under your cost, unless marked "your levels" (swing.csv). For shares bought in the last 30 days', pricesStale ? " · prices from the last close" : "", ". Reminders only — nothing is sold automatically."));
+}
+function GttList({ ledger, livePrices }) {
+  const acct = useLedgerAccount();
+  const [g, setG] = useState(null);
+  useEffect(() => {
+    let on = true;
+    const pat = lsGet("ledger_pat", "");
+    if (!pat || acct === "family") {
+      setG(null);
+      return;
+    }
+    const repo = lsGet("ledger_repo", "jami85in/nse-tracker-secrets");
+    const load = () => ghGet(repo, pat, acct === "huf" ? "ledger/gtt.json" : `ledger/accounts/${acct}/gtt.json`).then((d) => {
+      if (on) setG(d);
+    }).catch(() => {
+      if (on) setG(null);
+    });
+    load();
+    const t = setInterval(load, 10 * 60 * 1e3);
+    return () => {
+      on = false;
+      clearInterval(t);
+    };
+  }, [acct]);
+  if (!g || !(g.gtts || []).length || ledger && ledger.account && ledger.account.family) return null;
+  return /* @__PURE__ */ React.createElement("div", { style: { marginTop: 12, paddingTop: 10, borderTop: `1px solid ${T.border}` } }, /* @__PURE__ */ React.createElement("div", { style: { color: T.muted, fontSize: 11, letterSpacing: 1, marginBottom: 8 } }, "GTT ORDERS IN KITE · ", g.updated_at || g.date), g.gtts.map((o) => {
+    var _a;
+    const p = (_a = livePrices[o.symbol]) != null ? _a : livePrices[`${o.symbol}-SM`];
+    return /* @__PURE__ */ React.createElement("div", { key: o.id, style: { padding: "6px 0", borderBottom: `1px solid ${T.border}55` } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", gap: 8 } }, /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "monospace", fontWeight: 700, fontSize: 13, color: T.text } }, o.symbol), /* @__PURE__ */ React.createElement("span", { style: { color: T.muted, fontSize: 10 } }, p != null ? `now ${rs(p)}` : "")), (o.triggers || []).map((t, i) => {
+      var _a2;
+      const ord = (o.orders || [])[i] || (o.orders || [])[0] || {};
+      const gap = p != null ? (p / t - 1) * 100 : null;
+      const near = gap != null && Math.abs(gap) <= 1;
+      return /* @__PURE__ */ React.createElement("div", { key: i, style: { fontSize: 11, color: near ? T.warn : T.text, marginTop: 2 } }, "⚡ trigger ₹", fmt(t), " → ", (ord.side || "").toLowerCase(), " ", (_a2 = ord.qty) != null ? _a2 : "", ord.price ? ` @ ₹${fmt(ord.price)}` : "", gap != null ? ` · ${Math.abs(gap).toFixed(1)}% ${gap >= 0 ? "above" : "below"}` : "");
+    }));
+  }));
+}
+const ORDER_OPEN = /* @__PURE__ */ new Set(["OPEN", "TRIGGER PENDING", "AMO REQ RECEIVED", "OPEN PENDING", "VALIDATION PENDING", "PUT ORDER REQ RECEIVED", "MODIFY PENDING", "MODIFY VALIDATION PENDING"]);
+function TodayOrders({ ledger, livePrices }) {
+  const acct = useLedgerAccount();
+  const [d, setD] = useState(null);
+  useEffect(() => {
+    let on = true;
+    const pat = lsGet("ledger_pat", "");
+    if (!pat || acct === "family") {
+      setD(null);
+      return;
+    }
+    const repo = lsGet("ledger_repo", "jami85in/nse-tracker-secrets");
+    const load = () => ghGet(repo, pat, acct === "huf" ? "ledger/orders.json" : `ledger/accounts/${acct}/orders.json`).then((x) => {
+      if (on) setD(x);
+    }).catch(() => {
+      if (on) setD(null);
+    });
+    load();
+    const t = setInterval(load, 10 * 60 * 1e3);
+    return () => {
+      on = false;
+      clearInterval(t);
+    };
+  }, [acct]);
+  const today = new Date(Date.now() + (/* @__PURE__ */ new Date()).getTimezoneOffset() * 6e4 + 5.5 * 36e5).toISOString().slice(0, 10);
+  if (!d || d.date !== today || !(d.orders || []).length || ledger && ledger.account && ledger.account.family) return null;
+  const open = d.orders.filter((o) => ORDER_OPEN.has(o.status));
+  const done = d.orders.filter((o) => o.status === "COMPLETE"), rej = d.orders.filter((o) => o.status === "REJECTED");
+  return /* @__PURE__ */ React.createElement("div", { style: { marginTop: 12, paddingTop: 10, borderTop: `1px solid ${T.border}` } }, /* @__PURE__ */ React.createElement("div", { style: { color: T.muted, fontSize: 11, letterSpacing: 1, marginBottom: 8 } }, "TODAY'S ORDERS · ", d.updated_at), open.map((o) => {
+    var _a;
+    const p = (_a = livePrices[o.symbol]) != null ? _a : livePrices[`${o.symbol}-SM`], lvl = o.trigger || o.price;
+    const gap = p != null && lvl ? (p / lvl - 1) * 100 : null;
+    return /* @__PURE__ */ React.createElement("div", { key: o.id, style: { display: "flex", justifyContent: "space-between", gap: 8, padding: "5px 0", borderBottom: `1px solid ${T.border}55`, fontSize: 11 } }, /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("b", { style: { fontFamily: "monospace", fontSize: 12, color: T.text } }, o.symbol), " ", /* @__PURE__ */ React.createElement("span", { style: { color: o.side === "BUY" ? T.green : T.red } }, (o.side || "").toLowerCase()), " ", o.qty, " · ", o.type, o.trigger ? ` trig ₹${fmt(o.trigger)}` : "", o.price ? ` @ ₹${fmt(o.price)}` : ""), /* @__PURE__ */ React.createElement("span", { style: { color: gap != null && Math.abs(gap) <= 0.5 ? T.warn : T.muted, whiteSpace: "nowrap" } }, gap != null ? `${Math.abs(gap).toFixed(1)}% away` : (o.status || "").toLowerCase()));
+  }), /* @__PURE__ */ React.createElement("div", { style: { color: T.muted, fontSize: 10, marginTop: 6 } }, open.length, " pending · ", done.length, " filled · ", rej.length, " rejected", rej.length ? ` (${rej.map((o) => o.symbol).join(", ")})` : ""));
+}
 function ProfitStrip({ ledger }) {
   const P = profitPeriods(ledger.sales || []);
   const fy = P[3], hasTp = (ledger.sales || []).some((s) => typeof s.tp === "number");
@@ -2238,6 +2328,12 @@ function LedgerGate({ state, what, onOpenLedger, children }) {
     "Open 📒 Ledger"
   ));
 }
+const heldTot = (h) => typeof h.held_cost_total === "number" ? h.held_cost_total : h.net_invested;
+const heldPs = (h) => typeof h.held_cost === "number" ? h.held_cost : h.effective_cost;
+const bookedInRound = (h) => {
+  const b = h.booked_in_round;
+  return typeof b === "number" && Math.abs(b) >= 100 ? b : null;
+};
 function AutoPortfolio({ ledger, livePrices, scanData }) {
   var _a;
   const fys = [.../* @__PURE__ */ new Set([...Object.keys(ledger.realized_by_fy || {}), ...(ledger.sales || []).map((s) => s.fy)])].filter(Boolean).sort().reverse();
@@ -2250,15 +2346,15 @@ function AutoPortfolio({ ledger, livePrices, scanData }) {
       h,
       px,
       value: px != null ? px * h.qty : null,
-      r: pctOf(px, h.effective_cost),
-      pnl: px != null ? px * h.qty - h.net_invested : null,
+      r: pctOf(px, heldPs(h)),
+      pnl: px != null ? px * h.qty - heldTot(h) : null,
       days: h.first_buy ? Math.round((Date.parse(today) - Date.parse(h.first_buy)) / 864e5) : null,
       sig: holdingSignal(h.symbol, scanData, px)
     };
   }).sort((a, b) => (b.value || 0) - (a.value || 0));
   const priced = H.filter((x) => x.value != null);
   const value = priced.reduce((a, x) => a + x.value, 0);
-  const invested = priced.reduce((a, x) => a + x.h.net_invested, 0);
+  const invested = priced.reduce((a, x) => a + heldTot(x.h), 0);
   const fyR = (ledger.realized_by_fy || {})[fy] || {};
   const sales = (ledger.sales || []).filter((s) => s.fy === fy).sort((a, b) => b.d.localeCompare(a.d));
   const booked = sales.reduce((a, s) => a + tradePnl(s), 0);
@@ -2284,7 +2380,7 @@ function AutoPortfolio({ ledger, livePrices, scanData }) {
       label: "Unrealised P&L",
       value: sgnRs(value - invested),
       color: value - invested >= 0 ? T.green : T.red,
-      sub: invested ? `${pct((value / invested - 1) * 100)} vs effective cost` : null
+      sub: invested ? `${pct((value / invested - 1) * 100)} on shares still held` : null
     }
   ), /* @__PURE__ */ React.createElement(
     Stat,
@@ -2312,7 +2408,10 @@ function AutoPortfolio({ ledger, livePrices, scanData }) {
   )), (best || intraday.length > 0 || harvest.length > 0) && /* @__PURE__ */ React.createElement("div", { style: { color: T.muted, fontSize: 10, marginTop: 10, lineHeight: 1.6 } }, best && /* @__PURE__ */ React.createElement(React.Fragment, null, "Best exit ", best.s, " ", sgnRs(tradePnl(best)), " · worst ", worst.s, " ", sgnRs(tradePnl(worst)), ". "), intraday.length > 0 && /* @__PURE__ */ React.createElement(React.Fragment, null, "Intraday: ", intraday.length, " days, ", sgnRs(intraday.reduce((a, s) => a + tradePnl(s), 0)), ". "), harvest.length > 0 && /* @__PURE__ */ React.createElement(React.Fragment, null, "♻️ ", harvest.length, " tax-harvest sale(s) (sold and rebought) aren't counted as exits."))), /* @__PURE__ */ React.createElement("div", { style: { background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, padding: 14, marginBottom: 16 } }, /* @__PURE__ */ React.createElement("div", { style: { color: T.muted, fontSize: 11, letterSpacing: 1, marginBottom: 10 } }, "BOOKED P&L BY MONTH · ", fy), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "stretch", gap: 3, height: 110 } }, months.map((m) => {
     const v = byMonth[m], hpct = Math.abs(v) / maxAbs * 50;
     return /* @__PURE__ */ React.createElement("div", { key: m, title: `${m}: ${sgnRs(v)}`, style: { flex: 1, display: "flex", flexDirection: "column", minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { flex: 1, display: "flex", flexDirection: "column", justifyContent: "flex-end" } }, v > 0 && /* @__PURE__ */ React.createElement("div", { style: { height: `${hpct * 2}%`, background: T.green, borderRadius: "3px 3px 0 0", minHeight: 2 } })), /* @__PURE__ */ React.createElement("div", { style: { height: 1, background: T.border } }), /* @__PURE__ */ React.createElement("div", { style: { flex: 1, display: "flex", flexDirection: "column" } }, v < 0 && /* @__PURE__ */ React.createElement("div", { style: { height: `${hpct * 2}%`, background: T.red, borderRadius: "0 0 3px 3px", minHeight: 2 } })), /* @__PURE__ */ React.createElement("div", { style: { color: T.muted, fontSize: 8, textAlign: "center", marginTop: 3 } }, MONTH_ABBR[Number(m.slice(5, 7)) - 1].slice(0, 1)));
-  }))), /* @__PURE__ */ React.createElement("div", { style: { color: T.text, fontWeight: 700, marginBottom: 8, fontSize: 14 } }, "Open positions (", H.length, ")"), H.map(({ h, px, r, pnl, days, sig }) => /* @__PURE__ */ React.createElement("div", { key: h.symbol, style: { display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", background: T.card, borderLeft: `3px solid ${r == null ? T.border : r >= 0 ? T.green : T.red}`, borderRadius: 6, marginBottom: 6 } }, /* @__PURE__ */ React.createElement("div", { style: { minWidth: 0, flex: 1 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "monospace", fontWeight: 700, fontSize: 13, color: T.text } }, h.symbol), sig && /* @__PURE__ */ React.createElement(Pill, { label: sig.label, color: sig.color }), /* @__PURE__ */ React.createElement(SuspBadge, { h, livePrices, small: true })), /* @__PURE__ */ React.createElement("div", { style: { color: T.muted, fontSize: 10, marginTop: 1 } }, h.qty, " sh · ", rs(h.effective_cost), " → ", px != null ? rs(px) : "no price", days != null ? ` · ${days}d` : ""), h.bank && (() => {
+  }))), /* @__PURE__ */ React.createElement("div", { style: { color: T.text, fontWeight: 700, marginBottom: 8, fontSize: 14 } }, "Open positions (", H.length, ")"), H.map(({ h, px, r, pnl, days, sig }) => /* @__PURE__ */ React.createElement("div", { key: h.symbol, style: { display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", background: T.card, borderLeft: `3px solid ${r == null ? T.border : r >= 0 ? T.green : T.red}`, borderRadius: 6, marginBottom: 6 } }, /* @__PURE__ */ React.createElement("div", { style: { minWidth: 0, flex: 1 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "monospace", fontWeight: 700, fontSize: 13, color: T.text } }, h.symbol), sig && /* @__PURE__ */ React.createElement(Pill, { label: sig.label, color: sig.color }), /* @__PURE__ */ React.createElement(SuspBadge, { h, livePrices, small: true })), /* @__PURE__ */ React.createElement("div", { style: { color: T.muted, fontSize: 10, marginTop: 1 } }, h.qty, " sh · ", rs(heldPs(h)), " → ", px != null ? rs(px) : "no price", days != null ? ` · ${days}d` : ""), (() => {
+    const bk = bookedInRound(h);
+    return bk != null && /* @__PURE__ */ React.createElement("div", { style: { color: T.muted, fontSize: 10, marginTop: 1 } }, "break-even ", rs(h.effective_cost), " · ", sgnRs(bk), " already booked from this stock");
+  })(), h.bank && (() => {
     const b = liveBank(h.bank, px, h.qty);
     return /* @__PURE__ */ React.createElement("div", { style: { color: b.vs_bank >= 0 ? T.green : T.red, fontSize: 10, marginTop: 1 } }, b.vs_bank >= 0 ? "▲" : "▼", " ", bankTxt(b), bankRate(b) ? ` · ${bankRate(b)}` : "");
   })()), /* @__PURE__ */ React.createElement("div", { style: { textAlign: "right", flexShrink: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { color: r == null ? T.muted : r >= 0 ? T.green : T.red, fontWeight: 800, fontSize: 13 } }, r != null ? pct(r) : "—"), /* @__PURE__ */ React.createElement("div", { style: { color: T.muted, fontSize: 10 } }, pnl != null ? sgnRs(pnl) : "")))), /* @__PURE__ */ React.createElement("div", { style: { color: T.text, fontWeight: 700, margin: "18px 0 8px", fontSize: 14 } }, "Sales in ", fy, " (", sales.length, ")"), sales.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { color: T.muted, fontSize: 12, padding: "6px 0" } }, "No sales in this year."), shown.map((s, i) => /* @__PURE__ */ React.createElement("div", { key: `${s.d}-${s.s}-${s.kind}-${i}`, style: { display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", background: T.card, borderLeft: `3px solid ${tradePnl(s) >= 0 ? T.green : T.red}`, borderRadius: 6, marginBottom: 6 } }, /* @__PURE__ */ React.createElement("div", { style: { minWidth: 0, flex: 1 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("span", { style: { fontFamily: "monospace", fontWeight: 700, fontSize: 13, color: T.text } }, s.s), s.acct && /* @__PURE__ */ React.createElement(Pill, { label: s.acct.toUpperCase(), color: T.accent }), s.kind === "intraday" ? /* @__PURE__ */ React.createElement(Pill, { label: "⚡ INTRADAY", color: T.warn }) : /* @__PURE__ */ React.createElement(Pill, { label: s.term === "LT" ? "LONG-TERM" : "SHORT-TERM", color: T.muted }), s.kind === "buyback" && /* @__PURE__ */ React.createElement(Pill, { label: "🏢 BUYBACK", color: T.warn }), s.kind === "write-off" && /* @__PURE__ */ React.createElement(Pill, { label: "🗑 WRITTEN OFF", color: T.red }), s.kind === "removed" && /* @__PURE__ */ React.createElement(Pill, { label: "↗ OFF-MARKET", color: T.muted }), s.rebought && /* @__PURE__ */ React.createElement(Pill, { label: "♻️ REBOUGHT", color: T.accent })), /* @__PURE__ */ React.createElement("div", { style: { color: T.muted, fontSize: 10, marginTop: 1 } }, s.d, " · ", s.q, " sh · ", rs(typeof s.tbuy === "number" ? s.tbuy : s.buy), " → ", rs(s.sell), s.kind !== "intraday" ? ` · held ${typeof s.tdays === "number" ? s.tdays : s.days}d` : ""), typeof s.tp === "number" && Math.abs(s.tp - (s.pnl || 0)) >= 1 && /* @__PURE__ */ React.createElement("div", { style: { color: T.muted, fontSize: 10, marginTop: 1 } }, s.harvest_q ? `♻️ bought back — tax harvest, books no profit · ` : `vs the shares bought last · `, "tax (FIFO) ", sgnRs(s.pnl))), /* @__PURE__ */ React.createElement("div", { style: { textAlign: "right", flexShrink: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { color: tradePnl(s) >= 0 ? T.green : T.red, fontWeight: 800, fontSize: 13 } }, sgnRs(tradePnl(s))), /* @__PURE__ */ React.createElement("div", { style: { color: T.muted, fontSize: 10 } }, (() => {
