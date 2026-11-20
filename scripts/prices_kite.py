@@ -75,6 +75,18 @@ def get_symbols():
     except Exception as e:
         print(f"  Warning reading zerodha_holdings.json: {e}")
     print(f"  +{len(symbols) - n_before} symbols added from Zerodha holdings.")
+    # STRONG seasonal-cycle stocks in their up-season, for the cycle-dip alerts
+    # (scripts/notify.py) and the intraday archive.
+    n_before = len(symbols)
+    try:
+        month = datetime.datetime.now(IST).month
+        with open("data/cycles/summary.json") as f:
+            for s in json.load(f).get("stocks", []):
+                if s.get("grade") == "STRONG" and s.get("entry") and 1 <= (month - s["entry"]) % 12 <= s.get("hold", 0) - 1:
+                    symbols.add(s["symbol"])
+    except Exception as e:
+        print(f"  Warning reading cycles summary: {e}")
+    print(f"  +{len(symbols) - n_before} symbols added from in-season STRONG cycles.")
     return sorted(symbols)
 
 
@@ -120,6 +132,9 @@ def fetch_family_prices(kite, family, have):
     return out
 
 
+PREV_CLOSE = {}   # yesterday's close per symbol, from the same quote call (ohlc.close)
+
+
 def fetch_prices_kite(kite, symbols):
     """Kite's quote API wants 'EXCHANGE:SYMBOL' format and returns rich data
     (ohlc, depth, volume) — we only need last_price here. Supports up to
@@ -136,6 +151,9 @@ def fetch_prices_kite(kite, symbols):
                 price = q.get("last_price")
                 if price and price > 0:
                     prices[sym] = round(float(price), 2)
+                    pc = (q.get("ohlc") or {}).get("close")
+                    if pc and pc > 0:
+                        PREV_CLOSE[sym] = round(float(pc), 2)
         except Exception as e:
             print(f"  Batch fetch error: {e}")
     return prices
@@ -203,6 +221,8 @@ def main():
         "source": "Kite Connect (licensed, live)",
         "count": len(prices),
         "prices": prices,
+        # previous session's close, for today's % change (cycle-dip alerts)
+        "prev_close": {k: v for k, v in PREV_CLOSE.items() if k in prices},
     }
     os.makedirs("data", exist_ok=True)
     with open("data/prices_live.json", "w") as f:

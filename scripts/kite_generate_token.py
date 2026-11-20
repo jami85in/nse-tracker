@@ -143,7 +143,8 @@ def main():
     }
 
     commit_token_to_private_repo(token_data)
-    print(f"SUCCESS. Logged in as: {data.get('user_name')} ({data.get('user_id')})")
+    # This log is public: don't print the account name or client ID.
+    print("SUCCESS. Today's token is saved in the private repo.")
     if now_ist.hour < 6:
         print("::warning::Logged in before 06:00 IST. Zerodha resets every Kite token at about "
               "6 AM, so this one stops working then — log in again after 6 AM for today's prices.")
