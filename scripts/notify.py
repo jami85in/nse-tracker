@@ -62,7 +62,7 @@ def send(topic, title, body, priority=5, tags="chart_with_upwards_trend", click=
 
 def in_season(s, month):
     since = (month - s["entry"]) % 12
-    return 1 <= since <= s["hold"] - 1      # up-leg months, excluding the month it usually ends
+    return 1 <= since <= (s.get("hold") or 0) - 1      # up-leg months, excluding the month it usually ends
 
 
 def swing_alerts(priv, prices):
@@ -151,10 +151,10 @@ def gtt_alerts(priv, prices, today):
                     crossed = base is not None and ((base < trig <= p) or (base > trig >= p))
                     if crossed or abs(gap) <= 0.1:
                         out.append((f"gtt-hit:{aid}:{g['id']}:{i}", f"⚡ {g['symbol']} at its GTT trigger ({label})",
-                                    f"Now {rupees(p)}, trigger {rupees(trig)} ({what}). Check the order in Kite.", 5, "zap"))
+                                    f"Now {rupees(p)} ({what} GTT). Check the order in Kite.", 5, "zap"))
                     elif abs(gap) <= GTT_NEAR_PCT:
                         out.append((f"gtt-near:{aid}:{g['id']}:{i}", f"👀 {g['symbol']} near its GTT ({label})",
-                                    f"Now {rupees(p)}, {abs(gap):.1f}% from the {rupees(trig)} trigger ({what}).", 4, "eyes"))
+                                    f"Now {rupees(p)}, {abs(gap):.1f}% from the trigger ({what}).", 4, "eyes"))
         except Exception as e:                   # one account failing mustn't stop the others
             print(f"::warning::GTT check skipped for one account ({type(e).__name__})")
     return out
@@ -208,7 +208,7 @@ def order_alerts(priv, prices, today):
                     if p and lvl and o["type"] != "MARKET" and abs(p / lvl - 1) * 100 <= ORDER_NEAR_PCT:
                         what = "trigger" if o["trigger"] else "limit"
                         out.append((f"ord-near:{aid}:{o['id']}", f"👀 {o['symbol']} near its {side} order ({label})",
-                                    f"Now {rupees(p)}, {abs(p / lvl - 1) * 100:.1f}% from the {rupees(lvl)} {what}.", 4, "eyes"))
+                                    f"Now {rupees(p)}, {abs(p / lvl - 1) * 100:.1f}% from the order's {what}.", 4, "eyes"))
         except Exception as e:
             print(f"::warning::order check skipped for one account ({type(e).__name__})")
     return out
@@ -244,6 +244,53 @@ def dip_alerts(cycles, prices, prev, month, now):
 
 
 LOGIN_URL = "https://kite-login.jami85in.workers.dev/"
+LOCAL_SENT = os.path.join(os.environ.get("RUNNER_TEMP") or "/tmp", "notify-sent.json")
+
+
+def _local_sent(today, add=None):
+    """What this run already sent today, kept on the runner too, so a failed save
+    of the state file can't make an alert repeat every 10 minutes."""
+    try:
+        got = json.load(open(LOCAL_SENT))
+    except (OSError, ValueError):
+        got = {}
+    have = set(got.get(today, []))
+    if add:
+        have |= set(add)
+        try:
+            json.dump({today: sorted(have)}, open(LOCAL_SENT, "w"))
+        except OSError:
+            pass
+    return have
+
+
+def private_repo_reachable(priv, topic, now):
+    """If GitHub refuses the private-repo token (expired or revoked), nothing
+    else can work: say so once a day by ntfy (which needs no GitHub) and stop."""
+    import urllib.error, urllib.request
+    try:
+        urllib.request.urlopen(urllib.request.Request(f"https://api.github.com/repos/{priv.repo}", headers=priv.hdr),
+                               timeout=30).close()
+        return True
+    except urllib.error.HTTPError as e:
+        if e.code not in (401, 403, 404):
+            return True                           # GitHub hiccup: let the round try as usual
+        code = e.code
+    except Exception:
+        return True
+    print(f"::error::GitHub refuses SECRETS_REPO_PAT for the private repo (HTTP {code}): prices, trade sync "
+          f"and alerts are stopped until it is renewed.")
+    key = f"pat-broken:{code}"
+    if topic and key not in _local_sent(now.date().isoformat()):
+        try:
+            send(topic, "🔧 NSE tracker stopped: GitHub token problem",
+                 f"GitHub refused the private-repo token (HTTP {code}). Renew SECRETS_REPO_PAT in the nse-tracker repo "
+                 f"settings; until then there are no prices, trade sync or alerts.", 5, "wrench",
+                 click="https://github.com/settings/personal-access-tokens")
+            _local_sent(now.date().isoformat(), [key])
+        except Exception as e2:
+            print(f"::warning::couldn't send the token alert ({type(e2).__name__})")
+    return False
 REMIND_FROM, REMIND_TO = dt.time(8, 45), dt.time(14, 30)
 
 
@@ -276,6 +323,8 @@ def main():
         return 0
     now = dt.datetime.now(IST)
     today = now.date().isoformat()
+    if not private_repo_reachable(priv, topic, now):
+        return 0
     try:
         live = json.load(open("data/prices_live.json"))
     except (OSError, ValueError):
@@ -299,18 +348,20 @@ def main():
             print(f"::warning::{name} check skipped this round ({type(e).__name__})")
     if not topic:
         return 0                                  # nowhere to send alerts (NTFY_TOPIC not set)
+    dips_ok = False
     if fresh:
         try:
             cycles = json.load(open("data/cycles/summary.json")).get("stocks", [])
             a, papers = dip_alerts(cycles, prices, prev, now.month, now)
             alerts += a
+            dips_ok = True
         except Exception as e:
             print(f"::warning::cycle-dip check skipped this round ({type(e).__name__})")
 
     state_path = f"notify/state-{today[:7]}.json"
     state, sha = priv.get_json(state_path, {})
     state = state or {}
-    sent_today = set(state.get(today, []))
+    sent_today = set(state.get(today, [])) | _local_sent(today)
     levels, lsha = priv.get_json("notify/levels.json", {})   # swing level alerts: once per level, across months
     levels = levels or {}
     sticky = set(levels.get("sent", []))
@@ -352,6 +403,7 @@ def main():
             delivered += members
     before = json.dumps(state, sort_keys=True)
     delivered = [d for d in delivered if not d.endswith(":batch")]   # the members are what's remembered
+    _local_sent(today, delivered)
     if delivered:
         state[today] = sorted(sent_today | {d for d in delivered if not d.startswith("swing-")})
     new_levels = {d for d in delivered if d.startswith("swing-")}
@@ -360,7 +412,7 @@ def main():
             priv.put_json("notify/levels.json", {"sent": sorted(sticky | new_levels)}, f"notify levels {today}", lsha)
         except Exception as e:
             print(f"::warning::alert levels not saved ({type(e).__name__})")
-    if fresh and CLOSE_ROUND <= now.time() < MARKET_CLOSE:
+    if fresh and dips_ok and CLOSE_ROUND <= now.time() < MARKET_CLOSE:   # a failed round keeps the last record
         # Paper record of the tested rule: rebuilt every round from 15:10, so it ends up
         # as the stocks still down 2%+ in the last round (the price is that round's, not
         # the official close).

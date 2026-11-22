@@ -113,17 +113,11 @@ def watch(name, token_path, api_key, daily_dir, gh):
     trades = [_clean(t) for t in (kite.trades() or [])]
     if not trades:
         return
-    sig = signature(trades)
-    state = f"{STATE}.{name}"
-    try:
-        if open(state).read().strip() == sig:
-            return                            # nothing new since the last check in this run
-    except OSError:
-        pass
+    # No local "already synced" cache: sync() compares with what the private file
+    # really holds, so a fill dropped by a concurrent ledger merge is written back
+    # in the next round.
     now = dt.datetime.now(IST)
     sync(trades, gh, now.date().isoformat(), f"{now:%Y-%m-%d %H:%M} IST", daily_dir)
-    with open(state, "w") as f:
-        f.write(sig)
 
 
 def main():
