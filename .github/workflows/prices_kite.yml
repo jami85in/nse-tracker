@@ -168,7 +168,9 @@ jobs:
               fi
             else
               rc=$?
-              [ "$rc" = "2" ] && { echo "::error::Token unavailable — stopping."; exit 1; }
+              # rc 2 = the token file couldn't be read (GitHub API hiccup, or no file yet):
+              # keep waiting like a missing login, so family trade sync and alerts carry on.
+              [ "$rc" = "2" ] && [ "$waited" = "0" ] && echo "::warning::Couldn't read the Kite token file — will keep re-checking."
               waited=$((waited+1))
               [ "$waited" = "1" ] && echo "::notice::Today's Kite token isn't refreshed yet — waiting for the daily login, re-checking every ${INTERVAL_SECONDS}s."
               echo "[$(ist)] waiting for today's token..."
