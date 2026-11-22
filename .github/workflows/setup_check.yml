@@ -33,7 +33,7 @@ jobs:
           KITE_API_KEY_MOTHER: ${{ secrets.KITE_API_KEY_MOTHER }}
         run: |
           python - <<'PY'
-          import datetime as dt, json, os, sys, urllib.request
+          import datetime as dt, json, os, sys, urllib.error, urllib.request
           sys.path.insert(0, "scripts")
           from private_repo import PrivateRepo
           from kite_token_reader import token_is_stale
@@ -53,6 +53,14 @@ jobs:
                                                headers={"Content-Type": "application/json"}, method="POST")
                   with urllib.request.urlopen(req, timeout=20) as r:
                       print(f"Phone alerts: test notification sent (HTTP {r.status}) - check your phone.")
+              except urllib.error.HTTPError as e:
+                  try:
+                      why = json.loads(e.read().decode()).get("error", "")   # ntfy's reason; never contains the topic
+                  except Exception:
+                      why = ""
+                  print(f"::warning::Phone alerts: ntfy refused the test (HTTP {e.code}) {why}".strip())
+                  if e.code == 400:
+                      print("Topic names may use only letters, digits, - and _ (max 64), no spaces or https://ntfy.sh/.")
               except Exception as e:
                   print(f"::warning::Phone alerts: sending failed ({type(e).__name__}).")
 
