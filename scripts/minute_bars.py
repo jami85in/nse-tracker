@@ -163,7 +163,10 @@ class ParquetSink:
                 cols["time"].append(t)
                 for f in ("open", "high", "low", "close"):
                     cols[f].append(float(c[f]))
-                cols["volume"].append(int(c.get("volume") or 0))
+                v = int(c.get("volume") or 0)
+                # Kite's older candles occasionally carry a corrupt volume beyond 64 bits
+                # (Mar 2015 crashed the backfill): store it as missing, keep the prices.
+                cols["volume"].append(v if -2**63 <= v < 2**63 else None)
         if not cols["symbol"]:
             return
         arr = [pa.array(cols["symbol"], type=pa.string()).dictionary_encode().cast(self.schema.field("symbol").type),
