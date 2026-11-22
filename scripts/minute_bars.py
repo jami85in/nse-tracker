@@ -114,7 +114,7 @@ def fetch_all(kite, toks, frm, to, deadline=None, sink=None, batch=200):
                     failed.append(sym)
                     return
                 if name in ("PermissionException", "InputException"):
-                    break                           # not retryable for this stock
+                    return                          # not retryable: Kite has no candles to give for this stock
                 time.sleep(2.0 * (attempt + 1))     # 429 / network: back off and retry
         failed.append(sym)
 
@@ -227,6 +227,13 @@ class Releases:
         return self._call("POST", url, data, {"Content-Type": "application/octet-stream"})
 
 
+def too_many_failed(failed, toks):
+    """Transient failures (429s, network) above ~1% of stocks: don't save the file as
+    complete; the next run fetches it again. A few stragglers are accepted (and
+    counted in the progress file) so one bad symbol can't block the backfill."""
+    return len(failed) > max(10, len(toks) // 100)
+
+
 # ── modes ────────────────────────────────────────────────────────────────────
 def month_end(m0):
     return dt.date(m0.year + (m0.month == 12), m0.month % 12 + 1, 1) - dt.timedelta(days=1)
@@ -293,6 +300,9 @@ def archive(kite, priv, day=None):
         if not got:
             print(f"{d}: no candles")
             continue
+        if too_many_failed(failed, toks):
+            print(f"{d}: {len(failed)} stocks failed after retries (rate limit / network) — not saved; the next run retries.")
+            continue
         rels.upload(rel, name, data)
         print(f"{d}: saved {sink.rows:,} candles for {got} of {len(toks)} stocks ({len(failed)} failed), {len(data)/1e6:.1f} MB.")
         if not prog.get("archive_from"):
@@ -328,6 +338,9 @@ def history(kite, priv, budget_min=320):
         data = sink.close()
         if stopped:
             print(f"{key}: stopped before finishing (time budget or login expired); redone next run.")
+            break
+        if too_many_failed(failed, toks):
+            print(f"{key}: {len(failed)} stocks failed after retries (rate limit / network) — not marked done; redone next run.")
             break
         if got:
             rels.upload(rel, f"minute-hist-{key}.parquet", data)

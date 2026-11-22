@@ -94,6 +94,17 @@ def commit_token_to_private_repo(token_data):
     print(f"Token committed to private repo: {SECRETS_REPO}/{TOKEN_FILE_PATH}")
 
 
+def expected_huf_client():
+    """The HUF's Zerodha client ID from ledger/accounts.json in the private repo, or ''."""
+    try:
+        got = github_api_request("GET", f"https://api.github.com/repos/{SECRETS_REPO}/contents/ledger/accounts.json",
+                                 SECRETS_REPO_PAT)
+        accts = json.loads(base64.b64decode(got.get("content", "")).decode()).get("accounts", [])
+        return next((str(a.get("client") or "").strip().upper() for a in accts if a.get("id") == "huf"), "")
+    except Exception:
+        return ""
+
+
 def main():
     if not API_KEY or not API_SECRET:
         print("ERROR: KITE_API_KEY and KITE_API_SECRET must be set.")
@@ -133,6 +144,18 @@ def main():
 
     access_token = data["access_token"]
     now_ist = datetime.datetime.now(IST)
+
+    # This app logs in whoever is signed in to Kite in the browser. Save the token
+    # only for the HUF account, so a family member's login can't become the "HUF"
+    # token. The expected client ID comes from the private repo (never printed).
+    want = expected_huf_client()
+    got_id = str(data.get("user_id") or "").strip().upper()
+    if want and got_id != want:
+        print("ERROR: this login is not the HUF account. Log out of Kite in the browser, "
+              "log in with the HUF account and run this again. Nothing was saved.")
+        sys.exit(1)
+    if not want:
+        print("::warning::Couldn't read the HUF client ID from the private repo; saving without the account check.")
 
     token_data = {
         "access_token": access_token,

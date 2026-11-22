@@ -78,14 +78,17 @@ def swing_alerts(priv, prices):
             p = prices.get(sym) or prices.get(f"{sym}-SM")
             if not sw or not p:
                 continue
-            what = "your target" if sw.get("custom") else f"target (+{sw['target_pct']}% after charges)"
-            # keyed by the level, not the day: a stock sitting above its target buzzes once, not daily
+            # Keyed by the level and the buy date, not the day: a stock sitting above its target
+            # buzzes once, and a later re-buy at the same price gets its own alert.
+            # The text carries no level: target/exit are fixed % from the buy price, so
+            # printing them would reveal the cost (levels are on the dashboard).
+            since = sw.get("since", "")
             if p >= sw["target"]:
-                out.append((f"swing-t:{aid}:{sym}:{sw['target']}", f"🎯 {sym} target reached ({label})",
-                            f"Now {rupees(p)}, {what} {rupees(sw['target'])}.", 5, "dart"))
+                out.append((f"swing-t:{aid}:{sym}:{sw['target']}:{since}", f"🎯 {sym} swing target reached ({label})",
+                            f"Now {rupees(p)}. Target and exit are on the dashboard's Swing levels.", 5, "dart"))
             elif sw.get("stop") and p <= sw["stop"]:
-                out.append((f"swing-s:{aid}:{sym}:{sw['stop']}", f"🛑 {sym} at exit level ({label})",
-                            f"Now {rupees(p)}, exit level {rupees(sw['stop'])}.", 5, "warning"))
+                out.append((f"swing-s:{aid}:{sym}:{sw['stop']}:{since}", f"🛑 {sym} at swing exit level ({label})",
+                            f"Now {rupees(p)}. Target and exit are on the dashboard's Swing levels.", 5, "warning"))
     return out
 
 
@@ -195,8 +198,10 @@ def order_alerts(priv, prices, today):
                     out.append((f"ord-done:{aid}:{o['id']}", f"✅ {o['symbol']} {side} order filled ({label})",
                                 "Executed — details in Kite.", 5, "white_check_mark"))
                 elif o["status"] == "REJECTED":
+                    # Kite's reason often carries margin amounts or quantities: kept in the private
+                    # orders file for the dashboard, not sent through ntfy.
                     out.append((f"ord-rej:{aid}:{o['id']}", f"❌ {o['symbol']} {side} order rejected ({label})",
-                                (o["note"] or "See Kite for the reason."), 5, "x"))
+                                "See Kite (or the dashboard's Today's orders) for the reason.", 5, "x"))
                 elif o["status"] in OPEN_STATES:
                     p = prices.get(o["symbol"]) or prices.get(f"{o['symbol']}-SM")
                     lvl = o["trigger"] or o["price"]
@@ -209,8 +214,13 @@ def order_alerts(priv, prices, today):
     return out
 
 
+MARKET_CLOSE = dt.time(15, 30)   # the loop runs a few minutes past the close: no "buy" alert then
+
+
 def dip_alerts(cycles, prices, prev, month, now):
     out, papers = [], []
+    if now.time() >= MARKET_CLOSE:
+        return out, papers
     closing = now.time() >= CLOSE_ROUND
     for s in cycles:
         if s.get("grade") not in DIP_GRADES or not s.get("entry") or not in_season(s, month):
@@ -233,34 +243,69 @@ def dip_alerts(cycles, prices, prev, month, now):
     return out, papers
 
 
+LOGIN_URL = "https://kite-login.jami85in.workers.dev/"
+REMIND_FROM, REMIND_TO = dt.time(8, 45), dt.time(14, 30)
+
+
+def login_reminders(priv, now):
+    """Trading days from 08:45 IST: one buzz per account per day while today's
+    Kite login is missing (HUF at priority 5 — prices and alerts depend on it;
+    wife/mother at 4, only once their API key is set up)."""
+    import market_session
+    from kite_token_reader import token_is_stale
+    if not (REMIND_FROM <= now.time() <= REMIND_TO) or not market_session.session(now.date()):
+        return []
+    out = []
+    for aid, label, tok_path, key_env in ACCOUNTS:
+        if not os.environ.get(key_env):
+            continue
+        tok, _ = priv.get_json(tok_path, None)
+        if tok and tok.get("access_token") and not token_is_stale(tok, now):
+            continue
+        out.append((f"login:{aid}", f"🔑 Kite login needed today ({label})",
+                    "Tap to open the login page." + (" Prices, alerts and the trade sync wait for this login."
+                                                     if aid == "huf" else " Today's trades sync once logged in."),
+                    5 if aid == "huf" else 4, "key"))
+    return out
+
+
 def main():
     topic = os.environ.get("NTFY_TOPIC", "").strip()
     priv = PrivateRepo()
-    if not topic or not priv.ok:
+    if not priv.ok:
         return 0
     now = dt.datetime.now(IST)
     today = now.date().isoformat()
     try:
         live = json.load(open("data/prices_live.json"))
     except (OSError, ValueError):
-        return 0
-    if live.get("data_date") != today:
-        return 0                              # no fresh prices today: nothing reliable to alert on
-    prices, prev = live.get("prices", {}), live.get("prev_close", {})
+        live = {}
+    fresh = live.get("data_date") == today       # price alerts only on today's prices
+    prices = dict(live.get("prices", {})) if fresh else {}
+    prev = live.get("prev_close", {}) if fresh else {}
 
+    # GTT and order checks also refresh the private gtt/orders files the dashboard
+    # shows, so they run without a topic and before the HUF login (wife/mother).
+    checks = [("gtt", lambda: gtt_alerts(priv, prices, today)), ("orders", lambda: order_alerts(priv, prices, today))]
+    if topic:
+        checks.append(("login", lambda: login_reminders(priv, now)))
+        if fresh:
+            checks.insert(0, ("swing", lambda: swing_alerts(priv, prices)))
     alerts, papers = [], []
-    for name, fn in (("swing", lambda: swing_alerts(priv, prices)), ("gtt", lambda: gtt_alerts(priv, prices, today)),
-                     ("orders", lambda: order_alerts(priv, prices, today))):
+    for name, fn in checks:
         try:
             alerts += fn()
         except Exception as e:
             print(f"::warning::{name} check skipped this round ({type(e).__name__})")
-    try:
-        cycles = json.load(open("data/cycles/summary.json")).get("stocks", [])
-        a, papers = dip_alerts(cycles, prices, prev, now.month, now)
-        alerts += a
-    except Exception as e:
-        print(f"::warning::cycle-dip check skipped this round ({type(e).__name__})")
+    if not topic:
+        return 0                                  # nowhere to send alerts (NTFY_TOPIC not set)
+    if fresh:
+        try:
+            cycles = json.load(open("data/cycles/summary.json")).get("stocks", [])
+            a, papers = dip_alerts(cycles, prices, prev, now.month, now)
+            alerts += a
+        except Exception as e:
+            print(f"::warning::cycle-dip check skipped this round ({type(e).__name__})")
 
     state_path = f"notify/state-{today[:7]}.json"
     state, sha = priv.get_json(state_path, {})
@@ -270,21 +315,35 @@ def main():
     levels = levels or {}
     sticky = set(levels.get("sent", []))
     new = [a for a in alerts if a[0] not in sent_today and a[0] not in sticky]
-    # More than 4 new cycle dips in one round: one summary instead of a burst.
+    # More than 4 new alerts of one kind in a round (e.g. the first round after a
+    # login finds the day's fills): one summary per kind instead of a burst.
+    BATCH = {"dip-close": ("📉", "STRONG cycle stocks down 2%+ near the close — buy-at-close candidates",
+                           " Sell target for each: +2.23% from your buy price."),
+             "dip-early": ("👀", "STRONG cycle stocks down 2%+ today (heads-up)", ""),
+             "swing-t": ("🎯", "swing targets reached", ""), "swing-s": ("🛑", "swing exit levels reached", ""),
+             "gtt-fired": ("✅", "GTTs triggered", " Check the orders in Kite."),
+             "gtt-hit": ("⚡", "stocks at their GTT trigger", " Check the orders in Kite."),
+             "gtt-near": ("👀", "stocks near their GTT trigger", ""),
+             "ord-done": ("✅", "orders filled", " Details in Kite."), "ord-rej": ("❌", "orders rejected", " See Kite."),
+             "ord-near": ("👀", "stocks near their pending order", "")}
     batch_keys = {}
-    for kind, prio, words in (("dip-close:", 5, "near the close — buy-at-close candidates"),
-                              ("dip-early:", 4, "today (heads-up)")):
-        group = [a for a in new if a[0].startswith(kind)]
-        if len(group) > 4:                      # one summary instead of a burst
-            new = [a for a in new if not a[0].startswith(kind)] + [(
-                f"{kind}batch", f"📉 {len(group)} STRONG cycle stocks down 2%+ {words}",
-                ", ".join(a[1].split(" ")[1] for a in group) + ". Sell target for each: +2.23% from your buy price.", prio,
-                "chart_with_downwards_trend")]
-            batch_keys[f"{kind}batch"] = [a[0] for a in group]
+    for kind, (icon, words, tail) in BATCH.items():
+        group = [a for a in new if a[0].split(":", 1)[0] == kind]
+        if len(group) > 4:
+            syms = []
+            for a in group:                     # titles read "<icon> SYMBOL ..."
+                s_ = a[1].split(" ")[1] if " " in a[1] else "?"
+                if s_ not in syms:
+                    syms.append(s_)
+            new = [a for a in new if a[0].split(":", 1)[0] != kind] + [(
+                f"{kind}:batch", f"{icon} {len(group)} {words}", ", ".join(syms) + "." + tail,
+                max(a[3] for a in group), group[0][4])]
+            batch_keys[f"{kind}:batch"] = [a[0] for a in group]
     delivered = []
     for key, title, body, prio, tags in new:
         try:
-            send(topic, title, body, prio, tags, click="https://jami85in.github.io/nse-tracker/")
+            send(topic, title, body, prio, tags,
+                 click=LOGIN_URL if key.startswith("login:") else "https://jami85in.github.io/nse-tracker/")
             delivered.append(key)
         except Exception as e:
             print(f"::warning::a notification could not be sent ({type(e).__name__})")
@@ -292,6 +351,7 @@ def main():
         if bk_ in delivered:
             delivered += members
     before = json.dumps(state, sort_keys=True)
+    delivered = [d for d in delivered if not d.endswith(":batch")]   # the members are what's remembered
     if delivered:
         state[today] = sorted(sent_today | {d for d in delivered if not d.startswith("swing-")})
     new_levels = {d for d in delivered if d.startswith("swing-")}
@@ -300,7 +360,7 @@ def main():
             priv.put_json("notify/levels.json", {"sent": sorted(sticky | new_levels)}, f"notify levels {today}", lsha)
         except Exception as e:
             print(f"::warning::alert levels not saved ({type(e).__name__})")
-    if now.time() >= CLOSE_ROUND:
+    if fresh and CLOSE_ROUND <= now.time() < MARKET_CLOSE:
         # Paper record of the tested rule: rebuilt every round from 15:10, so it ends up
         # as the stocks still down 2%+ in the last round (the price is that round's, not
         # the official close).
