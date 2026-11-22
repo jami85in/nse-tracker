@@ -1,0 +1,89 @@
+name: Setup check (phone alert test + Kite logins)
+
+# Run by hand (Actions -> Setup check -> Run workflow) after changing keys.
+#  1. Sends a test notification to your phone through ntfy (NTFY_TOPIC).
+#  2. For each account (HUF, wife, mother): is the API key secret set, is
+#     today's login saved, and does Kite accept that login with that key?
+# PRIVACY: this repo is public, so the log shows only OK / problem per
+# account, never names, client IDs, keys, tokens or holdings.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      - run: pip install --quiet kiteconnect
+      - name: Check
+        env:
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          SECRETS_REPO_PAT: ${{ secrets.SECRETS_REPO_PAT }}
+          SECRETS_REPO: ${{ secrets.SECRETS_REPO }}
+          KITE_API_KEY: ${{ secrets.KITE_API_KEY }}
+          KITE_API_KEY_WIFE: ${{ secrets.KITE_API_KEY_WIFE }}
+          KITE_API_KEY_MOTHER: ${{ secrets.KITE_API_KEY_MOTHER }}
+        run: |
+          python - <<'PY'
+          import datetime as dt, json, os, sys, urllib.request
+          sys.path.insert(0, "scripts")
+          from private_repo import PrivateRepo
+          from kite_token_reader import token_is_stale
+
+          now = dt.datetime.now(dt.timezone(dt.timedelta(hours=5, minutes=30)))
+          topic = os.environ.get("NTFY_TOPIC", "").strip()
+          if not topic:
+              print("Phone alerts: NTFY_TOPIC is not set.")
+          elif topic != os.environ.get("NTFY_TOPIC", ""):
+              print("Phone alerts: NTFY_TOPIC has spaces/new lines around it - re-save it without them.")
+          else:
+              msg = {"topic": topic, "title": "✅ Test alert from your NSE tracker",
+                     "message": f"Sent {now:%d %b %H:%M} IST by the Setup check. Real alerts look like this, with sound.",
+                     "priority": 5, "tags": ["white_check_mark"], "click": "https://kite-login.jami85in.workers.dev/"}
+              try:
+                  req = urllib.request.Request("https://ntfy.sh/", data=json.dumps(msg).encode(),
+                                               headers={"Content-Type": "application/json"}, method="POST")
+                  with urllib.request.urlopen(req, timeout=20) as r:
+                      print(f"Phone alerts: test notification sent (HTTP {r.status}) - check your phone.")
+              except Exception as e:
+                  print(f"::warning::Phone alerts: sending failed ({type(e).__name__}).")
+
+          priv = PrivateRepo()
+          if not priv.ok:
+              print("::warning::Private repo not readable (SECRETS_REPO / SECRETS_REPO_PAT)."); sys.exit(0)
+          from kiteconnect import KiteConnect
+          for label, path, env in (("HUF", "kite_token.json", "KITE_API_KEY"),
+                                   ("Wife", "tokens/wife.json", "KITE_API_KEY_WIFE"),
+                                   ("Mother", "tokens/mother.json", "KITE_API_KEY_MOTHER")):
+              raw = os.environ.get(env, "")
+              key = raw.strip()
+              if not key:
+                  print(f"{label}: {env} is not set in this repo."); continue
+              note = " (the secret has spaces/new lines around it - re-save it without them)" if key != raw else ""
+              tok, _ = priv.get_json(path, None)
+              if not tok or not tok.get("access_token"):
+                  print(f"{label}: no login saved yet - log in on the login page.{note}"); continue
+              when = str(tok.get("generated_at", "?"))
+              if token_is_stale(tok, now):
+                  print(f"{label}: saved login is from {when}, not today - log in again.{note}"); continue
+              k = KiteConnect(api_key=raw)
+              k.set_access_token(tok["access_token"])
+              try:
+                  k.profile()
+                  print(f"{label}: OK - Kite accepts today's login ({when}) with {env}.{note}")
+              except Exception as e:
+                  if "Token" in type(e).__name__:
+                      print(f"::warning::{label}: Kite REJECTS today's login ({when}) with {env}. Either {env} here is "
+                            f"not the same API key as in Cloudflare (re-paste it), or this account logged in again "
+                            f"after {when} (log in once more on the login page).{note}")
+                  else:
+                      print(f"::warning::{label}: Kite check failed ({type(e).__name__}).{note}")
+          PY
