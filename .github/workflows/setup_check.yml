@@ -79,9 +79,9 @@ jobs:
               tok, _ = priv.get_json(path, None)
               if not tok or not tok.get("access_token"):
                   print(f"{label}: no login saved yet - log in on the login page.{note}"); continue
-              when = str(tok.get("generated_at", "?"))
+              when = "today" if not token_is_stale(tok, now) else "an earlier day"   # no login times in this public log
               if token_is_stale(tok, now):
-                  print(f"{label}: saved login is from {when}, not today - log in again.{note}"); continue
+                  print(f"{label}: saved login is from an earlier day - log in again.{note}"); continue
               k = KiteConnect(api_key=raw)
               k.set_access_token(tok["access_token"])
               try:
