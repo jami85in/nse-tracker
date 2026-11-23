@@ -289,7 +289,12 @@ def dip_alerts(cycles, prices, prev, month, now, buy=None):
         ct = cycle_target(s, p)
         if not ct or ct[1] < DIP_MIN_ROOM_PCT:   # too close to (or past) its seasonal target, or unknown
             continue
-        season = f"Seasonal target {rupees(ct[0])} (+{ct[1]:.0f}% from here)."
+        # A 1:5 or 1:10 bonus since the weekly summary (live/weekly ratio ~0.833 / ~0.909) would
+        # leave the target that much too high: skip when the stock only passes if no bonus happened.
+        r_ = p / s["last_close"]
+        if any(abs(r_ / f - 1) <= 0.015 and (ct[0] * f / p - 1) * 100 < DIP_MIN_ROOM_PCT for f in (5 / 6, 10 / 11)):
+            continue
+        season = f"Median seasonal target {rupees(ct[0])} (+{ct[1]:.0f}% from here)."
         tgt = p * (1 + (2.0 + COST_PCT) / 100)
         if closing:
             papers.append({"symbol": sym, "change_pct": round(chg, 2), "price": p, "prev_close": pc, "target": round(tgt, 2),
@@ -330,31 +335,33 @@ def _instruments():
     global _INSTR
     if _INSTR is not None:
         return _INSTR
-    import csv, io
+    import csv, io, time
     today = dt.datetime.now(IST).date().isoformat()
     cache = os.path.join(os.environ.get("RUNNER_TEMP") or "/tmp", f"kite-instruments-{today}.json")
     try:
-        _INSTR = json.load(open(cache))
-        return _INSTR
-    except (OSError, ValueError):
+        got = json.load(open(cache))
+        # a failed download is retried at most once an hour (each round is a new process)
+        if not got.get("_failed_at") or time.time() - got["_failed_at"] < 3600:
+            _INSTR = got
+            return _INSTR
+    except (OSError, ValueError, AttributeError):
         pass
     out = {}
     for ex in ("NSE", "BSE"):
         try:
             req = urllib.request.Request(f"https://api.kite.trade/instruments/{ex}",
                                          headers={"X-Kite-Version": "3", "User-Agent": "nse-tracker-notify"})
-            with urllib.request.urlopen(req, timeout=60) as r:
+            with urllib.request.urlopen(req, timeout=20) as r:
                 for row in csv.DictReader(io.StringIO(r.read().decode("utf-8", "replace"))):
                     if row.get("segment") == ex and row.get("instrument_type") == "EQ":
                         out[f"{ex}:{row['tradingsymbol']}"] = (float(row.get("tick_size") or 0), int(float(row.get("lot_size") or 1)))
         except Exception as e:
             print(f"::warning::Kite instrument list not read ({type(e).__name__}) - tick from price bands")
     _INSTR = out
-    if out:
-        try:
-            json.dump(out, open(cache, "w"))
-        except OSError:
-            pass
+    try:
+        json.dump(out if out else {"_failed_at": time.time()}, open(cache, "w"))
+    except OSError:
+        pass
     return _INSTR
 
 
@@ -375,7 +382,7 @@ def _tick(p, side, tick=None):
 
 def _order(sym, side, qty, price, exchange="NSE", product="CNC"):
     """One LIMIT order, or None when the quantity is under one share (or one lot for SME stocks)."""
-    tick, lot = _instruments().get(f"{exchange}:{sym}", (None, 1))
+    tick, lot = (_instruments().get(f"{exchange}:{sym}") or (None, 1))[:2]
     q = int(qty) // lot * lot if lot and lot > 1 else int(qty)
     if q < 1:
         return None
@@ -488,7 +495,8 @@ REMIND_FROM, REMIND_TO = dt.time(8, 45), dt.time(14, 30)
 
 
 def login_reminders(priv, now):
-    """Trading days from 08:45 IST: one buzz per account per day while today's
+    """Trading days from 08:45 IST (in practice from the price loop's first round, ~09:10,
+    or earlier if a login started it): one buzz per account per day while today's
     Kite login is missing (HUF at priority 5 — prices and alerts depend on it;
     wife/mother at 4, only once their API key is set up)."""
     import market_session
@@ -586,8 +594,12 @@ def main():
                 orders_ = [o for s_ in specs for o in s_["orders"]]
                 basket = dict(specs[0], orders=orders_[:10],
                               label=(f"First 10 of {len(orders_)}: " if len(orders_) > 10 else f"{len(orders_)}: ") + words)
+            short = ""                # say when the basket holds fewer stocks than the alert lists
+            if basket and len(basket["orders"]) < len(group):
+                short = (f" Order button: {len(basket['orders'])} of {len(group)}"
+                         + (" (Kite takes 10 at a time)." if len(group) > 10 else " (the rest cost more than the buy amount per share)."))
             new = [a for a in new if a[0].split(":", 1)[0] != kind] + [(
-                f"{kind}:batch", f"{icon} {len(group)} {words}", ", ".join(syms) + "." + tail,
+                f"{kind}:batch", f"{icon} {len(group)} {words}", ", ".join(syms) + "." + tail + short,
                 max(a[3] for a in group), group[0][4], basket)]
             batch_keys[f"{kind}:batch"] = [a[0] for a in group]
     # 2-4 buy-at-close stocks in one round: also one basket link that fills in all of them
