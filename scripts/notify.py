@@ -28,7 +28,7 @@ PRIVACY: this runs in the PUBLIC repo, so it prints nothing about alerts,
 holdings or orders, only failures by type. Notification text travels via
 ntfy.sh under the private topic name.
 """
-import datetime as dt, json, os, sys, urllib.request
+import datetime as dt, json, os, secrets, sys, urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from private_repo import PrivateRepo
@@ -49,11 +49,13 @@ def rupees(v):
     return f"₹{v:,.2f}"
 
 
-def send(topic, title, body, priority=5, tags="chart_with_upwards_trend", click=None):
+def send(topic, title, body, priority=5, tags="chart_with_upwards_trend", click=None, order_url=None):
     """Publish with ntfy's JSON API (UTF-8 titles, emoji and ₹ work)."""
     msg = {"topic": topic, "title": title, "message": body, "priority": priority, "tags": [tags]}
     if click:
         msg["click"] = click
+    if order_url:     # a button on the alert: opens Kite's order screen, filled in (see order links below)
+        msg["actions"] = [{"action": "view", "label": "Review order in Kite", "url": order_url, "clear": True}]
     req = urllib.request.Request("https://ntfy.sh/", data=json.dumps(msg).encode("utf-8"),
                                  headers={"Content-Type": "application/json"}, method="POST")
     with urllib.request.urlopen(req, timeout=20) as r:
@@ -83,12 +85,15 @@ def swing_alerts(priv, prices):
             # The text carries no level: target/exit are fixed % from the buy price, so
             # printing them would reveal the cost (levels are on the dashboard).
             since = sw.get("since", "")
+            q_ = int(h.get("qty") or 0)
+            spec = ({"account": aid, "client": a.get("client"), "who": label, "label": f"Sell {sym} ({label})",
+                     "orders": [_order(sym, "SELL", q_, p)]} if q_ >= 1 else None)
             if p >= sw["target"]:
                 out.append((f"swing-t:{aid}:{sym}:{sw['target']}:{since}", f"🎯 {sym} swing target reached ({label})",
-                            f"Now {rupees(p)}. Target and exit are on the dashboard's Swing levels.", 5, "dart"))
+                            f"Now {rupees(p)}. Target and exit are on the dashboard's Swing levels.", 5, "dart", spec))
             elif sw.get("stop") and p <= sw["stop"]:
                 out.append((f"swing-s:{aid}:{sym}:{sw['stop']}:{since}", f"🛑 {sym} at swing exit level ({label})",
-                            f"Now {rupees(p)}. Target and exit are on the dashboard's Swing levels.", 5, "warning"))
+                            f"Now {rupees(p)}. Target and exit are on the dashboard's Swing levels.", 5, "warning", spec))
     return out
 
 
@@ -227,7 +232,7 @@ def order_alerts(priv, prices, today):
 MARKET_CLOSE = dt.time(15, 30)   # the loop runs a few minutes past the close: no "buy" alert then
 
 
-def dip_alerts(cycles, prices, prev, month, now):
+def dip_alerts(cycles, prices, prev, month, now, buy=None):
     out, papers = [], []
     if now.time() >= MARKET_CLOSE:
         return out, papers
@@ -246,11 +251,86 @@ def dip_alerts(cycles, prices, prev, month, now):
         if closing:
             papers.append({"symbol": sym, "change_pct": round(chg, 2), "price": p, "prev_close": pc, "target": round(tgt, 2)})
             out.append((f"dip-close:{sym}", f"📉 {sym} −{abs(chg):.1f}% near the close · STRONG cycle",
-                        f"Now {rupees(p)} (prev close {rupees(pc)}). Plan: buy before the close, sell at {rupees(tgt)} (+2% after charges), else exit by day 5. Backtest: 78% reached +2% within 5 days; misses avg −4.8%.", 5, "chart_with_downwards_trend"))
+                        f"Now {rupees(p)} (prev close {rupees(pc)}). Plan: buy before the close, sell at {rupees(tgt)} (+2% after charges), else exit by day 5. Backtest: 78% reached +2% within 5 days; misses avg −4.8%.", 5, "chart_with_downwards_trend", _buy_spec(buy, sym, p)))
         else:
             out.append((f"dip-early:{sym}", f"👀 {sym} −{abs(chg):.1f}% · STRONG cycle in season",
                         f"Now {rupees(p)}. Heads-up only: the tested rule buys at the close if it's still down 2%+; you'll get a buzz after 3:10 pm if so.", 4, "eyes"))
     return out, papers
+
+
+# ── One-tap order links ──────────────────────────────────────────────────────
+# Actionable alerts (swing target/exit, buy-at-close) carry a "Review order in Kite"
+# button. The order details (stock, side, quantity, limit price) are saved in the
+# PRIVATE repo (notify/links-<date>.json) under a random id; the alert carries only
+# https://kite-login.jami85in.workers.dev/o/<date>/<id>. The kite-login worker turns
+# that into Kite's own basket screen for the account: you check and edit it there,
+# and nothing is placed until you confirm in Kite. Links work on the alert's day only.
+# Several buy-at-close stocks in one round also get one basket link for all of them.
+# Settings (private repo, notify/order_links.json; defaults below):
+#   enabled      false turns the buttons off
+#   buy_account  which account's Kite the buy links open (huf / wife / mother)
+#   buy_amount   rupees per stock for buy links: quantity = amount / price, rounded down
+#   product      CNC (delivery)
+ORDER_LINK = "https://kite-login.jami85in.workers.dev/o"
+LINKS_CFG_PATH = "notify/order_links.json"
+LINKS_DEFAULT = {"enabled": True, "buy_account": "huf", "buy_amount": 25000, "product": "CNC"}
+
+
+def _tick(p):
+    return round(round(float(p) / 0.05) * 0.05, 2)
+
+
+def _order(sym, side, qty, price, exchange="NSE", product="CNC"):
+    return {"exchange": exchange, "tradingsymbol": sym, "transaction_type": side, "order_type": "LIMIT",
+            "quantity": int(qty), "price": _tick(price), "product": product, "variety": "regular",
+            "validity": "DAY", "tag": "nsetracker"}
+
+
+def _buy_spec(buy, sym, p):
+    """Buy-at-close link: quantity = the configured amount / today's price."""
+    if not buy or not p:
+        return None
+    q = int(float(buy.get("amount") or 0) // float(p))
+    if q < 1:
+        return None
+    return {"account": buy["account"], "client": buy.get("client"), "who": buy.get("who"),
+            "label": f"Buy {sym} at the close ({buy.get('who')})",
+            "orders": [_order(sym, "BUY", q, p, product=buy.get("product") or "CNC")]}
+
+
+def _links_config(priv):
+    """(links on?, buy settings or None)."""
+    try:
+        cfg, _ = priv.get_json(LINKS_CFG_PATH, None)
+        cfg = {**LINKS_DEFAULT, **(cfg if isinstance(cfg, dict) else {})}
+        if not cfg.get("enabled"):
+            return False, None
+        accts, _ = priv.get_json("ledger/accounts.json", {"accounts": []})
+        a = next((x for x in (accts or {}).get("accounts", []) if x.get("id") == cfg["buy_account"]), {})
+        return True, {"account": cfg["buy_account"], "client": a.get("client"), "who": a.get("short") or cfg["buy_account"],
+                      "amount": cfg.get("buy_amount"), "product": cfg.get("product") or "CNC"}
+    except Exception as e:
+        print(f"::warning::order-link settings not read ({type(e).__name__})")
+        return False, None
+
+
+def _save_links(priv, today, now, alerts):
+    """Save this round's order details privately; returns {alert key: link}."""
+    ids = {a[0]: secrets.token_hex(12) for a in alerts if len(a) > 5 and a[5] and a[5].get("orders")}
+    if not ids:
+        return {}
+    try:
+        path = f"notify/links-{today}.json"
+        data, sha = priv.get_json(path, {})
+        data = data if isinstance(data, dict) else {}
+        for a in alerts:
+            if a[0] in ids:
+                data[ids[a[0]]] = dict(a[5], made=now.strftime("%H:%M"))
+        priv.put_json(path, data, f"notify links {today}", sha)
+    except Exception as e:
+        print(f"::warning::order links not saved this round ({type(e).__name__})")
+        return {}
+    return {k: f"{ORDER_LINK}/{today}/{v}" for k, v in ids.items()}
 
 
 LOGIN_URL = "https://kite-login.jami85in.workers.dev/"
@@ -342,6 +422,7 @@ def main():
     fresh = live.get("data_date") == today       # price alerts only on today's prices
     prices = dict(live.get("prices", {})) if fresh else {}
     prev = live.get("prev_close", {}) if fresh else {}
+    links_on, buy_cfg = _links_config(priv)
 
     # GTT and order checks also refresh the private gtt/orders files the dashboard
     # shows, so they run without a topic and before the HUF login (wife/mother).
@@ -362,7 +443,7 @@ def main():
     if fresh:
         try:
             cycles = json.load(open("data/cycles/summary.json")).get("stocks", [])
-            a, papers = dip_alerts(cycles, prices, prev, now.month, now)
+            a, papers = dip_alerts(cycles, prices, prev, now.month, now, buy_cfg)
             alerts += a
             dips_ok = True
         except Exception as e:
@@ -396,15 +477,31 @@ def main():
                 s_ = a[1].split(" ")[1] if " " in a[1] else "?"
                 if s_ not in syms:
                     syms.append(s_)
+            specs = [a[5] for a in group if len(a) > 5 and a[5]]
+            basket = None             # one basket link for the whole group (same account, up to 10)
+            if specs and len({s_["account"] for s_ in specs}) == 1:
+                basket = dict(specs[0], label=f"{len(group)} {words}",
+                              orders=[o for s_ in specs for o in s_["orders"]][:10])
             new = [a for a in new if a[0].split(":", 1)[0] != kind] + [(
                 f"{kind}:batch", f"{icon} {len(group)} {words}", ", ".join(syms) + "." + tail,
-                max(a[3] for a in group), group[0][4])]
+                max(a[3] for a in group), group[0][4], basket)]
             batch_keys[f"{kind}:batch"] = [a[0] for a in group]
+    # 2-4 buy-at-close stocks in one round: also one basket link that fills in all of them
+    singles = [a for a in new if a[0].startswith("dip-close:") and not a[0].endswith(":batch") and len(a) > 5 and a[5]]
+    if len(singles) >= 2 and len({a[5]["account"] for a in singles}) == 1:
+        syms_ = sorted(a[5]["orders"][0]["tradingsymbol"] for a in singles)
+        new.append((f"dip-basket:{'+'.join(syms_)}", f"🧺 Buy-at-close basket: {len(singles)} stocks",
+                    "One tap opens Kite with all of them filled in. Check quantities and prices, then place.",
+                    5, "shopping_cart", dict(singles[0][5], label=f"Buy at the close: {', '.join(syms_)}",
+                                             orders=[a[5]["orders"][0] for a in singles][:10])))
+    links = _save_links(priv, today, now, new) if links_on else {}
     delivered = []
-    for key, title, body, prio, tags in new:
+    for a_ in new:
+        key, title, body, prio, tags = a_[:5]
         try:
             send(topic, title, body, prio, tags,
-                 click=LOGIN_URL if key.startswith("login:") else "https://jami85in.github.io/nse-tracker/")
+                 click=LOGIN_URL if key.startswith("login:") else "https://jami85in.github.io/nse-tracker/",
+                 order_url=links.get(key))
             delivered.append(key)
         except Exception as e:
             print(f"::warning::a notification could not be sent ({type(e).__name__})")
