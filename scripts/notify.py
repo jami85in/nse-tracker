@@ -22,8 +22,12 @@ doesn't repeat it). Checks:
      medians, so in-sample): without the 8% rule 79.5% reached +2% after
      charges within 5 trading days (misses avg -4.8%, avg trade +0.60%); with
      it 79.7% (misses avg -4.5%, avg trade +0.68%) on 9,158 of 12,517
-     signals. Also logged to the private repo as a paper record, so the idea
-     can be judged on new data before real money goes in.
+     signals. The rule mainly trims the misses (stocks already at or past
+     their target); results are similar for any threshold from 0% to 20%.
+     Without hindsight (medians/grades from earlier years only) the edge is
+     about half: ~74-77% hit, +0.3-0.5% a trade; 2026 alone 74%, +0.28%
+     (review 24 Nov 2026). Also logged to the private repo as a paper
+     record, so the idea can be judged on new data before real money goes in.
 
 Phone setup: install "ntfy" (Play Store), tap +, subscribe to the topic name
 saved as the NTFY_TOPIC secret. Action alerts use priority 5 (sound + long
@@ -98,8 +102,9 @@ def swing_alerts(priv, prices):
             k_ex = h.get("zerodha_exchange") or "NSE"
 
             def spec(px):
+                o = _order(k_sym, "SELL", q_, px, exchange=k_ex) if q_ >= 1 else None
                 return ({"account": aid, "client": a.get("client"), "who": label, "label": f"Sell {sym} ({label})",
-                         "orders": [_order(k_sym, "SELL", q_, px, exchange=k_ex)]} if q_ >= 1 else None)
+                         "orders": [o]} if o else None)
             if p >= sw["target"]:
                 out.append((f"swing-t:{aid}:{sym}:{sw['target']}:{since}", f"🎯 {sym} swing target reached ({label})",
                             f"Now {rupees(p)}. Target and exit are on the dashboard's Swing levels.", 5, "dart", spec(p)))
@@ -260,7 +265,7 @@ def cycle_target(s, p):
         entry_close = lc            # summary dated inside the entry month: its last close stands in
     else:
         return None
-    if not 0.6 <= p / lc <= 1.67:   # split/bonus since the weekly summary: prices aren't comparable
+    if not 0.82 <= p / lc <= 1.22:  # split/bonus (even 1:4) since the weekly summary: not comparable
         return None
     t = entry_close * (1 + med / 100)
     return t, (t / p - 1) * 100
@@ -290,7 +295,7 @@ def dip_alerts(cycles, prices, prev, month, now, buy=None):
             papers.append({"symbol": sym, "change_pct": round(chg, 2), "price": p, "prev_close": pc, "target": round(tgt, 2),
                            "cycle_target": round(ct[0], 2), "room_pct": round(ct[1], 1)})
             out.append((f"dip-close:{sym}", f"📉 {sym} −{abs(chg):.1f}% near the close · STRONG cycle",
-                        f"Now {rupees(p)} (prev close {rupees(pc)}). {season} Plan: buy before the close, sell at {rupees(tgt)} (+2% after charges), else exit by day 5. Backtest: 80% reached +2% within 5 days; misses avg −4.5%.", 5, "chart_with_downwards_trend", _buy_spec(buy, sym, p)))
+                        f"Now {rupees(p)} (prev close {rupees(pc)}). {season} Plan: buy before the close, sell at {rupees(tgt)} (+2% after charges), else exit by day 5. Backtest: 74–80% reached +2% within 5 days (74% without hindsight); misses avg −4.5%.{_no_buy_note(buy, p)}", 5, "chart_with_downwards_trend", _buy_spec(buy, sym, p)))
         else:
             out.append((f"dip-early:{sym}", f"👀 {sym} −{abs(chg):.1f}% · STRONG cycle in season",
                         f"Now {rupees(p)}. {season} Heads-up only: the tested rule buys at the close if it's still down 2%+; you'll get a buzz after 3:10 pm if so.", 4, "eyes"))
@@ -315,22 +320,67 @@ LINKS_CFG_PATH = "notify/order_links.json"
 LINKS_DEFAULT = {"enabled": True, "buy_account": "huf", "buy_amount": 25000, "product": "CNC"}
 
 
-def _tick(p, side):
-    """A limit price on NSE's tick grid (from 15 Apr 2025 the tick depends on the price:
-    0.01 below 250, 0.05 to 1,000, 0.10 to 5,000, 0.50 to 10,000, 1 to 20,000, 5 above;
-    NSE/CMTR/67133). Near a band edge the larger tick is used (it is a whole multiple of
-    the smaller one, so valid either way). Buys round up, sells round down."""
+_INSTR = None
+
+
+def _instruments():
+    """{"EXCH:SYMBOL": (tick_size, lot_size)} from Kite's public instrument lists (NSE, BSE),
+    fetched once a day per runner and cached in RUNNER_TEMP. {} if unreachable: _tick then
+    falls back to NSE's price bands and quantities aren't rounded to lots."""
+    global _INSTR
+    if _INSTR is not None:
+        return _INSTR
+    import csv, io
+    today = dt.datetime.now(IST).date().isoformat()
+    cache = os.path.join(os.environ.get("RUNNER_TEMP") or "/tmp", f"kite-instruments-{today}.json")
+    try:
+        _INSTR = json.load(open(cache))
+        return _INSTR
+    except (OSError, ValueError):
+        pass
+    out = {}
+    for ex in ("NSE", "BSE"):
+        try:
+            req = urllib.request.Request(f"https://api.kite.trade/instruments/{ex}",
+                                         headers={"X-Kite-Version": "3", "User-Agent": "nse-tracker-notify"})
+            with urllib.request.urlopen(req, timeout=60) as r:
+                for row in csv.DictReader(io.StringIO(r.read().decode("utf-8", "replace"))):
+                    if row.get("segment") == ex and row.get("instrument_type") == "EQ":
+                        out[f"{ex}:{row['tradingsymbol']}"] = (float(row.get("tick_size") or 0), int(float(row.get("lot_size") or 1)))
+        except Exception as e:
+            print(f"::warning::Kite instrument list not read ({type(e).__name__}) - tick from price bands")
+    _INSTR = out
+    if out:
+        try:
+            json.dump(out, open(cache, "w"))
+        except OSError:
+            pass
+    return _INSTR
+
+
+def _tick(p, side, tick=None):
+    """A limit price on the stock's tick grid. Kite's instrument list gives the tick in
+    force (NSE resets it monthly from the last month-end close); without it, NSE's
+    price bands from 15 Apr 2025 (NSE/CMTR/67133): 0.01 below 250, 0.05 to 1,000,
+    0.10 to 5,000, 0.50 to 10,000, 1 to 20,000, 5 above, using the larger tick near
+    a band edge (a whole multiple of the smaller). Buys round up, sells round down."""
     import math
     p = float(p)
-    t = 0.01 if p < 245 else 0.05 if p < 980 else 0.10 if p < 4900 else 0.50 if p < 9800 else 1.0 if p < 19600 else 5.0
+    t = tick if tick and tick > 0 else (0.01 if p < 245 else 0.05 if p < 980 else 0.10 if p < 4900
+                                        else 0.50 if p < 9800 else 1.0 if p < 19600 else 5.0)
     n = p / t
     n = math.ceil(n - 1e-9) if side == "BUY" else math.floor(n + 1e-9)
     return round(n * t, 2)
 
 
 def _order(sym, side, qty, price, exchange="NSE", product="CNC"):
+    """One LIMIT order, or None when the quantity is under one share (or one lot for SME stocks)."""
+    tick, lot = _instruments().get(f"{exchange}:{sym}", (None, 1))
+    q = int(qty) // lot * lot if lot and lot > 1 else int(qty)
+    if q < 1:
+        return None
     return {"exchange": exchange, "tradingsymbol": sym, "transaction_type": side, "order_type": "LIMIT",
-            "quantity": int(qty), "price": _tick(price, side), "product": product, "variety": "regular",
+            "quantity": q, "price": _tick(price, side, tick), "product": product, "variety": "regular",
             "validity": "DAY", "tag": "nsetrk"}       # Kite: tag max 8 characters
 
 
@@ -339,12 +389,16 @@ def _buy_spec(buy, sym, p):
     if not buy or not p:
         return None
     q = int(float(buy.get("amount") or 0) // float(p))
-    if q < 1:
-        return None
     # limit 0.3% over the price, so the order fills if the stock ticks up into the close
+    o = _order(sym, "BUY", q, p * 1.003, product=buy.get("product") or "CNC") if q >= 1 else None
     return {"account": buy["account"], "client": buy.get("client"), "who": buy.get("who"),
-            "label": f"Buy {sym} at the close ({buy.get('who')})",
-            "orders": [_order(sym, "BUY", q, p * 1.003, product=buy.get("product") or "CNC")]}
+            "label": f"Buy {sym} at the close ({buy.get('who')})", "orders": [o]} if o else None
+
+
+def _no_buy_note(buy, p):
+    """Why a buy-at-close alert has no order button, when the amount is the reason."""
+    amt = float((buy or {}).get("amount") or 0)
+    return f" No order button: the ₹{amt:,.0f} buy amount is less than one share." if buy and p and amt < float(p) else ""
 
 
 def _links_config(priv):
