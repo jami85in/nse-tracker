@@ -283,7 +283,7 @@ def _tick(p):
 def _order(sym, side, qty, price, exchange="NSE", product="CNC"):
     return {"exchange": exchange, "tradingsymbol": sym, "transaction_type": side, "order_type": "LIMIT",
             "quantity": int(qty), "price": _tick(price), "product": product, "variety": "regular",
-            "validity": "DAY", "tag": "nsetracker"}
+            "validity": "DAY", "tag": "nsetrk"}       # Kite: tag max 8 characters
 
 
 def _buy_spec(buy, sym, p):
