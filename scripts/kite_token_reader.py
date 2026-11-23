@@ -14,8 +14,12 @@ import json, os, base64, urllib.request, urllib.error, datetime
 TOKEN_FILE_PATH = "kite_token.json"
 
 
-def get_kite_token():
+def get_kite_token(allow_overnight=False):
     """
+    allow_overnight=True (the minute-candle backfill only): between midnight and
+    ~05:50 IST, yesterday's login still counts — Kite keeps it working until the
+    06:00 reset — so overnight runs aren't wasted.
+
     Returns (access_token, is_stale) or (None, None) if unavailable.
     is_stale=True if the token was generated on a date earlier than today
     (IST), or before Zerodha's ~06:00 IST daily reset when it is now past it —
@@ -41,7 +45,10 @@ def get_kite_token():
         return None, None
 
     access_token = token_data.get("access_token")
-    return access_token, token_is_stale(token_data)
+    stale = token_is_stale(token_data)
+    if stale and allow_overnight and still_valid_overnight(token_data):
+        stale = False
+    return access_token, stale
 
 
 # Zerodha cancels every Kite access token in its daily reset at about 06:00 IST,
@@ -64,6 +71,19 @@ def token_is_stale(token_data, now=None):
     except (ValueError, IndexError):
         return False                                                # older files: date check only
     return made < KITE_RESET <= now.time()
+
+
+def still_valid_overnight(token_data, now=None):
+    """True if it's before ~05:50 IST and the token is from yesterday's login
+    made after yesterday's 06:00 reset, i.e. Kite hasn't cancelled it yet."""
+    ist = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
+    now = now or datetime.datetime.now(ist)
+    if now.time() >= datetime.time(5, 50):
+        return False
+    if token_data.get("generated_date") != (now.date() - datetime.timedelta(days=1)).isoformat():
+        return False
+    hm = str(token_data.get("generated_at", ""))[11:16]
+    return not (hm and hm < "06:00")
 
 
 if __name__ == "__main__":

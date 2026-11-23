@@ -52,7 +52,7 @@ NON_EQUITY = re.compile(r"-(N\d|Y\d|Z\d|GB|GS|SG|TB|D\d|P\d|NB|IV|RR|MF)$")
 def kite_client():
     from kiteconnect import KiteConnect
     from kite_token_reader import get_kite_token
-    token, stale = get_kite_token()
+    token, stale = get_kite_token(allow_overnight=True)   # yesterday's login works until ~06:00
     key = os.environ.get("KITE_API_KEY", "")
     if not token or stale or not key:
         return None
