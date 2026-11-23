@@ -12,13 +12,18 @@ doesn't repeat it). Checks:
      1% of a trigger (heads-up), at/through a trigger, or triggered today.
      Regular (non-GTT) orders, which Kite lists for the current day only:
      filled, rejected, or a pending order within 0.5% of its price/trigger.
-  3. Cycle dips: a STRONG seasonal-cycle stock that is in its up-season and
-     is down 2% or more today: a priority-4 heads-up during the day, and the
+  3. Cycle dips: a STRONG seasonal-cycle stock that is in its up-season, is
+     down 2% or more today, and still has at least 8% to go to its seasonal
+     target (the Cycles tab's median seasonal gain on top of this cycle's
+     entry-month close): a priority-4 heads-up during the day, and the
      priority-5 "buy at the close" alert from 15:10 IST (the backtest buys at
-     the close, so the paper record uses the last price at/after 15:10). Backtest (Sep 2020 - Nov 2026, daily bars):
-     78% reached +2% after charges within 5 trading days; misses averaged
-     -4.8%. Also logged to the private repo as a paper record, so the idea can
-     be judged on new data before real money goes in.
+     the close, so the paper record uses the last price at/after 15:10).
+     Backtest (Sep 2020 - Nov 2026, daily bars, today's STRONG list and
+     medians, so in-sample): without the 8% rule 79.5% reached +2% after
+     charges within 5 trading days (misses avg -4.8%, avg trade +0.60%); with
+     it 79.7% (misses avg -4.5%, avg trade +0.68%) on 9,158 of 12,517
+     signals. Also logged to the private repo as a paper record, so the idea
+     can be judged on new data before real money goes in.
 
 Phone setup: install "ntfy" (Play Store), tap +, subscribe to the topic name
 saved as the NTFY_TOPIC secret. Action alerts use priority 5 (sound + long
@@ -36,6 +41,7 @@ from private_repo import PrivateRepo
 IST = dt.timezone(dt.timedelta(hours=5, minutes=30))
 DIP_PCT = -2.0
 DIP_GRADES = ("STRONG",)
+DIP_MIN_ROOM_PCT = 8.0     # cycle dips: the seasonal target must be at least this far above the price
 GTT_NEAR_PCT = 1.0
 COST_PCT = 0.23
 ACCOUNTS = [  # (id, label, token file, API-key env var)
@@ -232,6 +238,26 @@ def order_alerts(priv, prices, today):
 MARKET_CLOSE = dt.time(15, 30)   # the loop runs a few minutes past the close: no "buy" alert then
 
 
+def cycle_target(s, p):
+    """Seasonal target of an in-season cycle stock, as on the Cycles tab: this
+    cycle's entry-month close x (1 + the median seasonal gain). The entry-month
+    close comes from the weekly summary: last close / (1 + this cycle so far).
+    Returns (target, % above p), or None when it can't be worked out safely."""
+    med, cr, lc = s.get("median"), s.get("cycle_return"), s.get("last_close")
+    if not isinstance(med, (int, float)) or not isinstance(lc, (int, float)) or lc <= 0 or not p or p <= 0:
+        return None
+    if isinstance(cr, (int, float)) and cr > -100:
+        entry_close = lc / (1 + cr / 100)
+    elif s.get("phase") == "BUY_WINDOW":
+        entry_close = lc            # summary dated inside the entry month: its last close stands in
+    else:
+        return None
+    if not 0.6 <= p / lc <= 1.67:   # split/bonus since the weekly summary: prices aren't comparable
+        return None
+    t = entry_close * (1 + med / 100)
+    return t, (t / p - 1) * 100
+
+
 def dip_alerts(cycles, prices, prev, month, now, buy=None):
     out, papers = [], []
     if now.time() >= MARKET_CLOSE:
@@ -247,14 +273,19 @@ def dip_alerts(cycles, prices, prev, month, now, buy=None):
         chg = (p / pc - 1) * 100
         if chg > DIP_PCT or chg < -15:          # below -15%: likely a split/bonus ex-date, not a real fall
             continue
+        ct = cycle_target(s, p)
+        if not ct or ct[1] < DIP_MIN_ROOM_PCT:   # too close to (or past) its seasonal target, or unknown
+            continue
+        season = f"Seasonal target {rupees(ct[0])} (+{ct[1]:.0f}% from here)."
         tgt = p * (1 + (2.0 + COST_PCT) / 100)
         if closing:
-            papers.append({"symbol": sym, "change_pct": round(chg, 2), "price": p, "prev_close": pc, "target": round(tgt, 2)})
+            papers.append({"symbol": sym, "change_pct": round(chg, 2), "price": p, "prev_close": pc, "target": round(tgt, 2),
+                           "cycle_target": round(ct[0], 2), "room_pct": round(ct[1], 1)})
             out.append((f"dip-close:{sym}", f"📉 {sym} −{abs(chg):.1f}% near the close · STRONG cycle",
-                        f"Now {rupees(p)} (prev close {rupees(pc)}). Plan: buy before the close, sell at {rupees(tgt)} (+2% after charges), else exit by day 5. Backtest: 78% reached +2% within 5 days; misses avg −4.8%.", 5, "chart_with_downwards_trend", _buy_spec(buy, sym, p)))
+                        f"Now {rupees(p)} (prev close {rupees(pc)}). {season} Plan: buy before the close, sell at {rupees(tgt)} (+2% after charges), else exit by day 5. Backtest: 80% reached +2% within 5 days; misses avg −4.5%.", 5, "chart_with_downwards_trend", _buy_spec(buy, sym, p)))
         else:
             out.append((f"dip-early:{sym}", f"👀 {sym} −{abs(chg):.1f}% · STRONG cycle in season",
-                        f"Now {rupees(p)}. Heads-up only: the tested rule buys at the close if it's still down 2%+; you'll get a buzz after 3:10 pm if so.", 4, "eyes"))
+                        f"Now {rupees(p)}. {season} Heads-up only: the tested rule buys at the close if it's still down 2%+; you'll get a buzz after 3:10 pm if so.", 4, "eyes"))
     return out, papers
 
 
