@@ -359,7 +359,7 @@ const RAW_BASE    = `https://raw.githubusercontent.com/${GITHUB_USER}/${GITHUB_R
 // instead of requiring a manual file diff to find out. This exists because
 // PWA/service-worker caching has repeatedly made "is this actually deployed
 // yet" the hardest part of diagnosing issues in this app.
-const BUILD_VERSION = "2026-11-24.2";
+const BUILD_VERSION = "2026-11-24.3";
 
 // NSE trading calendar — keep in step with scripts/market_session.py.
 // Special sessions on a weekend (Diwali Muhurat) and weekday holidays.
@@ -2882,12 +2882,14 @@ function cyAction(s, tl) {
 }
 // Seasonal target of an in-season stock: this cycle's entry-month close x (1 + the
 // median seasonal gain), from the weekly figures (last close, this cycle so far).
+// It is the MEDIAN end-of-season level (reached in about half of past years), not a cap.
 // The phone alerts for cycle dips use the same target (notify.py cycle_target) and
 // only fire while at least 8% of it is still to go.
-function cyTarget(median, cycleRet, last) {
+function cyTarget(median, cycleRet, last, asOf) {
   if (typeof median !== "number" || typeof cycleRet !== "number" || typeof last !== "number" || last <= 0 || cycleRet <= -100) return null;
   const price = last / (1 + cycleRet / 100) * (1 + median / 100);
-  return { price, room: (price / last - 1) * 100 };
+  const asof = /^\d{4}-\d{2}-\d{2}/.test(asOf || "") ? `${+asOf.slice(8, 10)} ${CY_MON3[+asOf.slice(5, 7) - 1]}` : "last";
+  return { price, room: (price / last - 1) * 100, asof };
 }
 
 // The "usual low" line, phrased relative to today's price so a stock that has
@@ -2990,7 +2992,7 @@ function CycleDetail({ symbol, summaryRow, held, onClose, sizeNote, onBuy }) {
               <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
                 <span style={{ fontSize: 11, fontWeight: 800, color: ph.color }}>{ph.label}</span>
                 {typeof d.status.cycle_return === "number" && <span style={{ color: T.muted, fontSize: 11 }}>· this cycle so far {cyPct(d.status.cycle_return)}</span>}
-                {(() => { const tg = (d.status.phase === "IN_SEASON" || d.status.phase === "SELL_WINDOW") && cyTarget(d.best && d.best.median, d.status.cycle_return, d.last_close); return tg ? <span style={{ color: T.muted, fontSize: 11 }}>· seasonal target ≈ {cyRs(tg.price)} {tg.room >= 0 ? `(+${tg.room.toFixed(0)}% to go)` : `(already ${(-tg.room).toFixed(0)}% past it)`}</span> : null; })()}
+                {(() => { const tg = (d.status.phase === "IN_SEASON" || d.status.phase === "SELL_WINDOW") && cyTarget(d.best && d.best.median, d.status.cycle_return, d.last_close, d.as_of); return tg ? <span style={{ color: T.muted, fontSize: 11 }}>· median seasonal target ≈ {cyRs(tg.price)} {tg.room >= 0 ? `(+${tg.room.toFixed(0)}% to go from the ${tg.asof} close)` : `(already ${(-tg.room).toFixed(0)}% past it at the ${tg.asof} close)`}</span> : null; })()}
               </div>
               <div style={{ color: T.text, fontWeight: 700, fontSize: 14 }}>{(() => { const tl = cyTimeline(d.best); const a = cyAction(d.best, tl); return `${a.main} ${a.sub}`; })()}</div>
               <div style={{ color: T.muted, fontSize: 11, marginTop: 2 }}>Pattern: {cyWindowText(d.best)} (hold ~{d.best.hold} months)</div>
@@ -5246,7 +5248,7 @@ function CyclesPage({ holdings, positions, onRecordBuy }) {
               <div style={{ color: T.muted, fontSize: 11, marginTop: 3 }}>
                 {cyRs(s.last_close)} · {cyPct(s.pct_from_52w_high, 0)} from 52w high{cyCr(s.mcap_cr) ? ` · mcap ${cyCr(s.mcap_cr)}` : ""}
                 {typeof s.cycle_return === "number" && tl.phase !== "OFF_SEASON" && <> · this cycle so far {cyPct(s.cycle_return, 0)}</>}
-                {(() => { const tg = tl.phase !== "OFF_SEASON" && cyTarget(s.median, s.cycle_return, s.last_close); return tg ? <> · seasonal target ≈ {cyRs(tg.price)} {tg.room >= 0 ? `(+${tg.room.toFixed(0)}% to go)` : `(already ${(-tg.room).toFixed(0)}% past it)`}</> : null; })()}
+                {(() => { const tg = tl.phase !== "OFF_SEASON" && cyTarget(s.median, s.cycle_return, s.last_close, s.as_of); return tg ? <> · median seasonal target ≈ {cyRs(tg.price)} {tg.room >= 0 ? `(+${tg.room.toFixed(0)}% to go from the ${tg.asof} close)` : `(already ${(-tg.room).toFixed(0)}% past it at the ${tg.asof} close)`}</> : null; })()}
                 {low && <> · <span style={{ color: low.color }}>{low.text}</span></>}
               </div>
               {smallNote(s) && <div style={{ color: T.warn, fontSize: 11, marginTop: 3 }}>⚠ {smallNote(s)}</div>}
