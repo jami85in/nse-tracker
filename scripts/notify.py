@@ -143,12 +143,20 @@ def gtt_alerts(priv, prices, today):
                 if not p:
                     continue
                 base = g.get("set_at_price")
-                for i, trig in enumerate(g["triggers"] or []):
+                trigs = [t_ for t_ in (g["triggers"] or []) if t_]
+                for i, trig in enumerate(trigs):
                     o = g["orders"][i] if i < len(g["orders"]) else (g["orders"][0] if g["orders"] else {})
                     what = (o.get("side") or "order").lower()
                     gap = (p / trig - 1) * 100
-                    # A GTT fires when the price crosses its trigger from where it was when set.
-                    crossed = base is not None and ((base < trig <= p) or (base > trig >= p))
+                    # Two-leg (OCO) GTTs, trailing or not: the lower trigger is the stop-loss and
+                    # fires at or below it, the higher one is the target and fires at or above it.
+                    # A trailing stop moves up after the GTT is set, so the price at creation can't
+                    # give the direction (that sent false "at its GTT trigger" alerts on 23 Nov 2026).
+                    # A single GTT fires when the price crosses its trigger from where it was set.
+                    if len(trigs) == 2:
+                        crossed = p <= trig if trig == min(trigs) else p >= trig
+                    else:
+                        crossed = base is not None and ((base < trig <= p) or (base > trig >= p))
                     if crossed or abs(gap) <= 0.1:
                         out.append((f"gtt-hit:{aid}:{g['id']}:{i}", f"⚡ {g['symbol']} at its GTT trigger ({label})",
                                     f"Now {rupees(p)} ({what} GTT). Check the order in Kite.", 5, "zap"))
