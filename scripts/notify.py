@@ -91,15 +91,23 @@ def swing_alerts(priv, prices):
             # The text carries no level: target/exit are fixed % from the buy price, so
             # printing them would reveal the cost (levels are on the dashboard).
             since = sw.get("since", "")
-            q_ = int(h.get("qty") or 0)
-            spec = ({"account": aid, "client": a.get("client"), "who": label, "label": f"Sell {sym} ({label})",
-                     "orders": [_order(sym, "SELL", q_, p)]} if q_ >= 1 else None)
+            # Sell link: the swing position (not shares from older rounds), on the symbol and
+            # exchange Kite knows the holding by (SME "-SM", BSE-only scrips).
+            q_ = int(min(sw.get("qty") or h.get("qty") or 0, h.get("qty") or 0))
+            k_sym = h.get("zerodha_symbol") or sym
+            k_ex = h.get("zerodha_exchange") or "NSE"
+
+            def spec(px):
+                return ({"account": aid, "client": a.get("client"), "who": label, "label": f"Sell {sym} ({label})",
+                         "orders": [_order(k_sym, "SELL", q_, px, exchange=k_ex)]} if q_ >= 1 else None)
             if p >= sw["target"]:
                 out.append((f"swing-t:{aid}:{sym}:{sw['target']}:{since}", f"🎯 {sym} swing target reached ({label})",
-                            f"Now {rupees(p)}. Target and exit are on the dashboard's Swing levels.", 5, "dart", spec))
+                            f"Now {rupees(p)}. Target and exit are on the dashboard's Swing levels.", 5, "dart", spec(p)))
             elif sw.get("stop") and p <= sw["stop"]:
+                # exit: a limit 0.5% under the price so the order fills while the price is falling
                 out.append((f"swing-s:{aid}:{sym}:{sw['stop']}:{since}", f"🛑 {sym} at swing exit level ({label})",
-                            f"Now {rupees(p)}. Target and exit are on the dashboard's Swing levels.", 5, "warning", spec))
+                            f"Now {rupees(p)}. Target and exit are on the dashboard's Swing levels.", 5, "warning",
+                            spec(p * 0.995)))
     return out
 
 
@@ -307,13 +315,22 @@ LINKS_CFG_PATH = "notify/order_links.json"
 LINKS_DEFAULT = {"enabled": True, "buy_account": "huf", "buy_amount": 25000, "product": "CNC"}
 
 
-def _tick(p):
-    return round(round(float(p) / 0.05) * 0.05, 2)
+def _tick(p, side):
+    """A limit price on NSE's tick grid (from 15 Apr 2025 the tick depends on the price:
+    0.01 below 250, 0.05 to 1,000, 0.10 to 5,000, 0.50 to 10,000, 1 to 20,000, 5 above;
+    NSE/CMTR/67133). Near a band edge the larger tick is used (it is a whole multiple of
+    the smaller one, so valid either way). Buys round up, sells round down."""
+    import math
+    p = float(p)
+    t = 0.01 if p < 245 else 0.05 if p < 980 else 0.10 if p < 4900 else 0.50 if p < 9800 else 1.0 if p < 19600 else 5.0
+    n = p / t
+    n = math.ceil(n - 1e-9) if side == "BUY" else math.floor(n + 1e-9)
+    return round(n * t, 2)
 
 
 def _order(sym, side, qty, price, exchange="NSE", product="CNC"):
     return {"exchange": exchange, "tradingsymbol": sym, "transaction_type": side, "order_type": "LIMIT",
-            "quantity": int(qty), "price": _tick(price), "product": product, "variety": "regular",
+            "quantity": int(qty), "price": _tick(price, side), "product": product, "variety": "regular",
             "validity": "DAY", "tag": "nsetrk"}       # Kite: tag max 8 characters
 
 
@@ -324,9 +341,10 @@ def _buy_spec(buy, sym, p):
     q = int(float(buy.get("amount") or 0) // float(p))
     if q < 1:
         return None
+    # limit 0.3% over the price, so the order fills if the stock ticks up into the close
     return {"account": buy["account"], "client": buy.get("client"), "who": buy.get("who"),
             "label": f"Buy {sym} at the close ({buy.get('who')})",
-            "orders": [_order(sym, "BUY", q, p, product=buy.get("product") or "CNC")]}
+            "orders": [_order(sym, "BUY", q, p * 1.003, product=buy.get("product") or "CNC")]}
 
 
 def _links_config(priv):
@@ -511,8 +529,9 @@ def main():
             specs = [a[5] for a in group if len(a) > 5 and a[5]]
             basket = None             # one basket link for the whole group (same account, up to 10)
             if specs and len({s_["account"] for s_ in specs}) == 1:
-                basket = dict(specs[0], label=f"{len(group)} {words}",
-                              orders=[o for s_ in specs for o in s_["orders"]][:10])
+                orders_ = [o for s_ in specs for o in s_["orders"]]
+                basket = dict(specs[0], orders=orders_[:10],
+                              label=(f"First 10 of {len(orders_)}: " if len(orders_) > 10 else f"{len(orders_)}: ") + words)
             new = [a for a in new if a[0].split(":", 1)[0] != kind] + [(
                 f"{kind}:batch", f"{icon} {len(group)} {words}", ", ".join(syms) + "." + tail,
                 max(a[3] for a in group), group[0][4], basket)]
@@ -526,6 +545,7 @@ def main():
                     5, "shopping_cart", dict(singles[0][5], label=f"Buy at the close: {', '.join(syms_)}",
                                              orders=[a[5]["orders"][0] for a in singles][:10])))
     links = _save_links(priv, today, now, new) if links_on else {}
+    new = [a for a in new if not a[0].startswith("dip-basket:") or a[0] in links]   # its only point is the button
     delivered = []
     for a_ in new:
         key, title, body, prio, tags = a_[:5]
