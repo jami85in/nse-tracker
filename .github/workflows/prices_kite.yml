@@ -152,6 +152,8 @@ jobs:
 
           waited=0; fetched=0
           while [ "$(now)" -lt "$END" ]; do
+            # pick up script fixes pushed during the session (notify.py, trade_watch.py)
+            git pull -q --rebase --autostash origin main || true
             if token_fresh; then
               python scripts/prices_kite.py || echo "::warning::price fetch failed at $(ist) — will retry"
               git add data/prices_live.json
