@@ -128,7 +128,7 @@ def gtt_alerts(priv, prices, today):
             for g in fired:
                 sym = (g.get("condition") or {}).get("tradingsymbol", "?")
                 out.append((f"gtt-fired:{aid}:{g.get('id')}", f"✅ {sym} GTT triggered ({label})",
-                            "Kite has placed the order — check it in Kite.", 5, "white_check_mark"))
+                            "Kite has sent the order — check in Kite that it went through.", 5, "white_check_mark"))
             # GTTs on stocks the price job doesn't quote: one LTP call with the HUF login
             missing = sorted({f"{g['exchange'] or 'NSE'}:{g['symbol']}" for g in slim
                               if not (prices.get(g["symbol"]) or prices.get(f"{g['symbol']}-SM"))})
@@ -144,7 +144,9 @@ def gtt_alerts(priv, prices, today):
                     continue
                 base = g.get("set_at_price")
                 trigs = [t_ for t_ in (g["triggers"] or []) if t_]
-                for i, trig in enumerate(trigs):
+                for i, trig in enumerate(g["triggers"] or []):
+                    if not trig:
+                        continue
                     o = g["orders"][i] if i < len(g["orders"]) else (g["orders"][0] if g["orders"] else {})
                     what = (o.get("side") or "order").lower()
                     gap = (p / trig - 1) * 100
