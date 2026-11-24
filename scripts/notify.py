@@ -418,7 +418,9 @@ def dip3_alerts(cycles, prices, prev, month, now, buy=None, closes=_daily_closes
             missing += 1
             continue
         filled = False
-        if last_day == before_want:   # the nightly refresh missed one session: Kite's previous close is that close
+        # the nightly refresh missed one session: Kite's previous close is that close (unless it equals the
+        # history's last close - then "yesterday" was probably an exchange holiday missing from the calendar)
+        if last_day == before_want and abs(cl[-1][1] / pc - 1) > 1e-4:
             cl, last_day, filled = cl + [(want, pc)], want, True
         # the history must end at the previous session, at Kite's previous close (within 0.3%):
         # a missed nightly refresh would otherwise shift the 3- and 20-session windows by a day
@@ -822,6 +824,19 @@ def main():
             except Exception as e:
                 print(f"::warning::open-plan check skipped ({type(e).__name__}) - repeats keep their order button")
         alerts += merge_dips(a, a3)
+    try:   # prices stuck although today's HUF login is in (Kite outage, subscription, failing fetch)
+        import market_session as M
+        from kite_token_reader import token_is_stale
+        s_ = M.session(now.date())
+        if s_ and s_[0] + dt.timedelta(minutes=30) <= now <= s_[1] and (not fresh or age is None or age > 30 * 60):
+            tok, _ = priv.get_json(ACCOUNTS[0][2], None)
+            if tok and tok.get("access_token") and not token_is_stale(tok, now):
+                alerts.append(("sys:prices-stale", "⚠️ Live prices not updating",
+                               f"Today's HUF login is in, but live prices last updated {live.get('updated_at') or 'not today'}. "
+                               "Alerts that need prices are paused. Check Kite (outage or subscription) and the price-loop run.",
+                               4, "warning"))
+    except Exception:
+        pass
     try:   # the holiday calendar must cover this year (and next year from mid-December)
         import market_session as M
         for y in [now.year] + ([now.year + 1] if (now.month, now.day) >= (12, 15) else []):
