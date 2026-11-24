@@ -336,6 +336,7 @@ def dip_alerts(cycles, prices, prev, month, now, buy=None, closes=None):
     closing = now.time() >= CLOSE_ROUND
     closes = closes or _daily_closes
     want = _prev_session(now.date()).isoformat()
+    spec = _weekend_special_since(_prev_session(now.date()), now.date())
     for s in cycles:
         if s.get("grade") not in DIP_GRADES or not s.get("entry") or not in_season(s, month):
             continue
@@ -343,6 +344,14 @@ def dip_alerts(cycles, prices, prev, month, now, buy=None, closes=None):
         p, pc = prices.get(sym), prev.get(sym)
         if not p or not pc:
             continue
+        if spec:   # after a weekend special session: measure from the history's close, as the backtest did
+            try:
+                cl0 = closes(sym, now.date().isoformat())
+            except Exception:
+                cl0 = None
+            if not cl0 or cl0[-1][0] != want:
+                continue
+            pc = cl0[-1][1]
         chg = (p / pc - 1) * 100
         if chg > DIP_PCT or chg < -15:          # below -15%: likely a split/bonus ex-date, not a real fall
             continue
@@ -380,6 +389,19 @@ def _bonus_like(r):
     """A day-to-day price ratio within 0.25% of a 1:5 (5/6) or 1:10 (10/11) bonus factor:
     cycles.py only adjusts gaps deeper than -18%, so such a day may be a bonus, not a fall."""
     return any(abs(r / f - 1) <= 0.0025 for f in (5 / 6, 10 / 11))
+
+
+def _weekend_special_since(want_d, day):
+    """A weekend special session (Muhurat Sunday, budget Saturday) between the previous regular session
+    and `day`: Kite's previous close is then that session's close, which the nightly history and the
+    backtest don't have (review E7)."""
+    import market_session as M
+    d = want_d + dt.timedelta(days=1)
+    while d < day:
+        if d.isoformat() in M.SPECIAL_SESSIONS:
+            return True
+        d += dt.timedelta(days=1)
+    return False
 
 
 def _prev_session(day):
@@ -427,6 +449,7 @@ def dip3_alerts(cycles, prices, prev, month, now, buy=None, closes=_daily_closes
     want_d = _prev_session(now.date())
     want = want_d.isoformat()                    # the history must end at the previous trading session
     before_want = _prev_session(want_d).isoformat()
+    spec = _weekend_special_since(want_d, now.date())   # Kite's prev close is then a weekend session's
     missing = checked = 0
     for s in cycles:
         if not s.get("entry"):
@@ -445,10 +468,12 @@ def dip3_alerts(cycles, prices, prev, month, now, buy=None, closes=_daily_closes
         except Exception:
             missing += 1
             continue
+        if spec and last_day == want:
+            pc = cl[-1][1]
         filled = False
         # the nightly refresh missed one session: Kite's previous close is that close (unless it equals the
         # history's last close - then "yesterday" was probably an exchange holiday missing from the calendar)
-        if last_day == before_want and abs(cl[-1][1] / pc - 1) > 1e-4:
+        if not spec and last_day == before_want and abs(cl[-1][1] / pc - 1) > 1e-4:
             cl, last_day, filled = cl + [(want, pc)], want, True
         # the history must end at the previous session, at Kite's previous close (within 0.3%):
         # a missed nightly refresh would otherwise shift the 3- and 20-session windows by a day
@@ -863,7 +888,11 @@ def main():
     except (ValueError, TypeError):
         age = None
     closing_now = CLOSE_ROUND <= now.time() < MARKET_CLOSE
-    if fresh and (age is None or age > 25 * 60):
+    if fresh and now.date().weekday() >= 5:
+        # a weekend special session isn't in the price history or the backtest; its buys would also be
+        # invisible to the open-plan check (review E7)
+        print("::notice::cycle-dip checks off on a weekend special session")
+    elif fresh and (age is None or age > 25 * 60):
         print("::warning::cycle-dip checks skipped - live prices are older than 25 minutes")
     elif fresh and closing_now and upd[11:16] < "15:05":
         # buy-at-close alerts and paper records need a price from the closing window

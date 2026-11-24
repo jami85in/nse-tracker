@@ -244,7 +244,8 @@ def main():
     # An exchange holiday missing from scripts/market_session.py: Kite still answers, with the
     # last session's trades. Don't publish those as today's prices (the dip alerts would read
     # them as today's moves).
-    if now_ist.time() >= datetime.time(9, 17) and len(TRADED_TODAY) < 0.2 * len(prices):
+    # (no quote at all traded today: also before 09:17 - pre-open trades carry today's time on a real session)
+    if prices and (not TRADED_TODAY or (now_ist.time() >= datetime.time(9, 17) and len(TRADED_TODAY) < 0.2 * len(prices))):
         print(f"::warning::Only {len(TRADED_TODAY)} of {len(prices)} quotes traded today - an exchange holiday missing "
               "from scripts/market_session.py? Preserving existing file.")
         return

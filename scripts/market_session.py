@@ -41,6 +41,10 @@ HOLIDAYS = {
     "2026-11-24": "Guru Nanak Jayanti",
     "2026-12-25": "Christmas",
 }
+# A day in both lists is a special session (e.g. a weekday Diwali holiday with Muhurat trading, as NSE's
+# holiday list shows it): the exchange trades and publishes a bar, so it counts as a session for the dip
+# rules, the holiday-bar purge and the OHLC check (review E7).
+HOLIDAYS = {k: v for k, v in HOLIDAYS.items() if k not in SPECIAL_SESSIONS}
 
 
 def _hm(day, hm):
