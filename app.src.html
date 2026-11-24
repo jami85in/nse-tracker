@@ -359,7 +359,7 @@ const RAW_BASE    = `https://raw.githubusercontent.com/${GITHUB_USER}/${GITHUB_R
 // instead of requiring a manual file diff to find out. This exists because
 // PWA/service-worker caching has repeatedly made "is this actually deployed
 // yet" the hardest part of diagnosing issues in this app.
-const BUILD_VERSION = "2026-11-24.3";
+const BUILD_VERSION = "2026-11-24.4";
 
 // NSE trading calendar — keep in step with scripts/market_session.py.
 // Special sessions on a weekend (Diwali Muhurat) and weekday holidays.
@@ -639,7 +639,7 @@ const PRICE_PROXY_URL = "";  // ← PASTE YOUR CLOUDFLARE WORKER URL HERE
 //   3. Yahoo via public CORS proxy
 // Returns the first that yields prices.
 async function fetchBrowserPrices(symbols) {
-  if (!symbols || symbols.length === 0) return { prices: {}, source: null, debug: [] };
+  if (!symbols || symbols.length === 0 || !PRICE_PROXY_URL) return { prices: {}, source: null, debug: [] };
 
   // Yahoo Finance (both direct and via CORS proxy) has been REMOVED as a
   // source — confirmed permanently dead, not a transient issue: direct
@@ -748,7 +748,8 @@ function toDateInputValue(dateStr) {
   // given date string actually means.
   const d = parseIndianDate(dateStr);
   if (isNaN(d)) return "";
-  return d.toISOString().slice(0, 10);
+  const p2 = v => String(v).padStart(2, "0");   // local parts: toISOString() moved IST dates back a day (review E4)
+  return `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}`;
 }
 
 function fromDateInputValue(isoStr) {
@@ -1501,7 +1502,7 @@ function AddDividendModal({ onClose, onAdd, onBulkAdd, positions, holdings }) {
   const [mode, setMode] = useState("paste");
   const [pasteText, setPasteText] = useState("");
   const [sym, setSym] = useState("");
-  const [exDate, setExDate] = useState(new Date().toISOString().slice(0, 10));
+  const [exDate, setExDate] = useState(istToday());
   const [perShare, setPerShare] = useState("");
   const [qty, setQty] = useState("");
 
@@ -1605,7 +1606,7 @@ function AddDividendModal({ onClose, onAdd, onBulkAdd, positions, holdings }) {
               </div>
             </div>
             <div style={{ color: T.muted, fontSize: 10, marginBottom: 4 }}>EX-DATE</div>
-            <input type="date" value={exDate} max={new Date().toISOString().slice(0, 10)} onChange={e => setExDate(e.target.value)}
+            <input type="date" value={exDate} max={istToday()} onChange={e => setExDate(e.target.value)}
               style={{ width: "100%", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, padding: "10px 12px", color: T.text, fontSize: 14, marginBottom: 14 }} />
             <div style={{ background: T.surface, borderRadius: 10, padding: 12, marginBottom: 16 }}>
               <Stat label="Dividend Received" value={total > 0 ? curr(total) : "—"} color={T.green} />
@@ -1646,7 +1647,7 @@ function AddHoldingModal({ onClose, onAdd, scanData }) {
       targetExit: targetExit ? Number(targetExit) : null,
       reentryPrice: reentry ? Number(reentry) : null,
       notes,
-      addedDate: new Date().toISOString().slice(0, 10),
+      addedDate: istToday(),
     });
     onClose();
   };
@@ -2027,7 +2028,7 @@ function NetPositionCard({ net, livePrice, onSell, onAdd, scanData, pricesStale 
   const [showAdd, setShowAdd] = useState(false);
   const [addQty, setAddQty] = useState("");
   const [addPrice, setAddPrice] = useState(livePrice ? String(livePrice) : "");
-  const [addDate, setAddDate] = useState(new Date().toISOString().slice(0, 10));
+  const [addDate, setAddDate] = useState(istToday());
 
   // NEVER fall back to net.avgEntry — that silently displayed a flat 0%
   // return whenever the live price was simply missing, indistinguishable
@@ -2131,7 +2132,7 @@ function NetPositionCard({ net, livePrice, onSell, onAdd, scanData, pricesStale 
           </div>
           <div style={{ marginTop: 8 }}>
             <div style={{ color: T.muted, fontSize: 10, marginBottom: 3 }}>Purchase date</div>
-            <input type="date" value={addDate} max={new Date().toISOString().slice(0, 10)} onChange={e => setAddDate(e.target.value)}
+            <input type="date" value={addDate} max={istToday()} onChange={e => setAddDate(e.target.value)}
               style={{ width: "100%", background: T.bg, border: `1px solid ${T.border}`, borderRadius: 6, padding: "7px 8px", color: T.text, fontSize: 13 }} />
           </div>
           <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
@@ -2417,7 +2418,8 @@ function MonitorPage({ scanData, positions, holdings, livePrices, priceUpdated, 
           // count weekdays after the scan date up to the price date (weekends don't count)
           let gap = 0;
           for (let t = new Date(sd + "T00:00:00Z").getTime() + 86400000; t <= new Date(pd + "T00:00:00Z").getTime(); t += 86400000) {
-            const wd = new Date(t).getUTCDay(); if (wd !== 0 && wd !== 6) gap++;
+            const k = new Date(t).toISOString().slice(0, 10);   // NSE holidays don't count either (review E4)
+            const wd = new Date(t).getUTCDay(); if (wd !== 0 && wd !== 6 && !NSE_HOLIDAYS[k]) gap++;
           }
           if (gap < 2) return null;
           return (
@@ -2885,9 +2887,13 @@ function cyAction(s, tl) {
 // It is the MEDIAN end-of-season level (reached in about half of past years), not a cap.
 // The phone alerts for cycle dips use the same target (notify.py cycle_target) and
 // only fire while at least 8% of it is still to go.
-function cyTarget(median, cycleRet, last, asOf) {
-  if (typeof median !== "number" || typeof cycleRet !== "number" || typeof last !== "number" || last <= 0 || cycleRet <= -100) return null;
-  const price = last / (1 + cycleRet / 100) * (1 + median / 100);
+function cyTarget(median, cycleRet, last, asOf, sumPhase) {
+  if (typeof median !== "number" || typeof last !== "number" || last <= 0) return null;
+  let entry;
+  if (typeof cycleRet === "number" && cycleRet > -100) entry = last / (1 + cycleRet / 100);
+  else if (sumPhase === "BUY_WINDOW") entry = last;   // summary from the entry month: as notify.cycle_target (review E4)
+  else return null;
+  const price = entry * (1 + median / 100);
   const asof = /^\d{4}-\d{2}-\d{2}/.test(asOf || "") ? `${+asOf.slice(8, 10)} ${CY_MON3[+asOf.slice(5, 7) - 1]}` : "last";
   return { price, room: (price / last - 1) * 100, asof };
 }
@@ -3374,7 +3380,8 @@ const ledgerPrice = (h, livePrices, ledger) => {
   if (live == null) return h.last_price ?? null;
   const liveAsOf = LIVE_PRICE_ASOF[key];
   const snap = ledger && ledger.sources && ledger.sources.holdings_snapshot;
-  const snapClose = snap ? `${snap} 15:30` : null;
+  // a snapshot captured during its day (ledger.py SNAP_INTRADAY) holds the previous close, not today's (review E4)
+  const snapClose = snap && !ledger.sources.holdings_intraday ? `${snap} 15:30` : null;
   if (h.last_price != null && snapClose && liveAsOf && liveAsOf < snapClose && istNowStamp() >= snapClose) return h.last_price;
   return live;
 };
@@ -3535,7 +3542,7 @@ function TodayOrders({ ledger, livePrices }) {
     const t = setInterval(load, 10 * 60 * 1000);
     return () => { on = false; clearInterval(t); };
   }, [acct]);
-  const today = new Date(Date.now() + new Date().getTimezoneOffset() * 60000 + 5.5 * 3600000).toISOString().slice(0, 10);
+  const today = istToday();
   if (!d || d.date !== today || !(d.orders || []).length || (ledger && ledger.account && ledger.account.family)) return null;
   const open = d.orders.filter(o => ORDER_OPEN.has(o.status));
   const done = d.orders.filter(o => o.status === "COMPLETE"), rej = d.orders.filter(o => o.status === "REJECTED");
@@ -3645,7 +3652,7 @@ function AutoPortfolio({ ledger, livePrices, scanData }) {
   const fys = [...new Set([...Object.keys(ledger.realized_by_fy || {}), ...(ledger.sales || []).map(s => s.fy)])].filter(Boolean).sort().reverse();
   const [fy, setFy] = useState(() => (fys.includes(currentFY()) ? currentFY() : (fys[0] || currentFY())));
   const [showAll, setShowAll] = useState(false);
-  const today = new Date().toISOString().slice(0, 10);
+  const today = istToday();
 
   const H = (ledger.holdings || []).map(h => {
     const px = ledgerPrice(h, livePrices, ledger);
@@ -4387,7 +4394,7 @@ function OfferTerms({ i, today, px, compact }) {
 function ActionsCard({ actions, compact, holdings }) {
   const [dismissed, setDismissed] = useState(() => { try { return JSON.parse(lsGet("ca_dismissed", "[]")) || []; } catch { return []; } });
   if (!actions && compact) return null;
-  const today = new Date().toISOString().slice(0, 10);
+  const today = istToday();
   const items = (actions && actions.items) || [];
   const need = items.filter(i => i.needs_action && !dismissed.includes(caKey(i)));
   const hiddenN = items.filter(i => i.needs_action && dismissed.includes(caKey(i))).length;
@@ -4616,7 +4623,7 @@ function TaxCard({ data, H, fy }) {
   const fyR = (data.realized_by_fy || {})[fy] || {};
   const st = fyR.stcg || 0, lt = fyR.ltcg || 0;
   const tax = cgTax(st, lt);
-  const today = new Date().toISOString().slice(0, 10);
+  const today = istToday();
   let uSt = 0, uLt = 0;
   const losers = [];
   H.forEach(h => {
@@ -4749,7 +4756,7 @@ function LedgerPanel({ livePrices }) {
   const effInv = priced.reduce((s, h) => s + h.net_invested, 0);
   const taxInv = priced.reduce((s, h) => s + h.tax_cost_total, 0);
   const fyR = (data?.realized_by_fy || {})[fy] || {};
-  const today = new Date().toISOString().slice(0, 10);
+  const today = istToday();
   const nextLT = h => (h.lots || []).filter(l => l.long_term_from > today).map(l => l.long_term_from).sort()[0];
   const stale = data && data.sources?.holdings_snapshot && data.sources.holdings_snapshot < today;
 
@@ -4953,7 +4960,7 @@ function LedgerPanel({ livePrices }) {
 }
 
 function CycleBuyModal({ row, sizeNote, onClose, onConfirm }) {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = istToday();
   const [qty, setQty] = useState("");
   const [price, setPrice] = useState(row.last_close ? String(row.last_close) : "");
   const [date, setDate] = useState(today);
@@ -5248,7 +5255,7 @@ function CyclesPage({ holdings, positions, onRecordBuy }) {
               <div style={{ color: T.muted, fontSize: 11, marginTop: 3 }}>
                 {cyRs(s.last_close)} · {cyPct(s.pct_from_52w_high, 0)} from 52w high{cyCr(s.mcap_cr) ? ` · mcap ${cyCr(s.mcap_cr)}` : ""}
                 {typeof s.cycle_return === "number" && tl.phase !== "OFF_SEASON" && <> · this cycle so far {cyPct(s.cycle_return, 0)}</>}
-                {(() => { const tg = tl.phase !== "OFF_SEASON" && cyTarget(s.median, s.cycle_return, s.last_close, s.as_of); return tg ? <> · median seasonal target ≈ {cyRs(tg.price)} {tg.room >= 0 ? `(+${tg.room.toFixed(0)}% to go from the ${tg.asof} close)` : `(already ${(-tg.room).toFixed(0)}% past it at the ${tg.asof} close)`}</> : null; })()}
+                {(() => { const tg = tl.phase !== "OFF_SEASON" && cyTarget(s.median, s.cycle_return, s.last_close, s.as_of, tl.phase === "IN_SEASON" || tl.phase === "SELL_WINDOW" ? s.phase : null); return tg ? <> · median seasonal target ≈ {cyRs(tg.price)} {tg.room >= 0 ? `(+${tg.room.toFixed(0)}% to go from the ${tg.asof} close)` : `(already ${(-tg.room).toFixed(0)}% past it at the ${tg.asof} close)`}</> : null; })()}
                 {low && <> · <span style={{ color: low.color }}>{low.text}</span></>}
               </div>
               {smallNote(s) && <div style={{ color: T.warn, fontSize: 11, marginTop: 3 }}>⚠ {smallNote(s)}</div>}
@@ -5516,6 +5523,8 @@ function App() {
       for (let back = 1; back <= 10; back++) {
         const prevDate = new Date(todayDate.getTime() - back * 86400000);
         const prevStr = prevDate.toISOString().slice(0, 10);
+        const pwd = prevDate.getUTCDay();
+        if (pwd === 0 || pwd === 6 || NSE_HOLIDAYS[prevStr]) continue;   // no scan file on those days
         const prevData = await fetchHistoricalScan(prevStr);
         if (cancelled) return;
         if (prevData) {
@@ -5964,15 +5973,24 @@ function App() {
 
           {tab === "scanner" && scanData && (
             <div>
-              {marketStatus && marketStatus.market_open === false && (
-                <div style={{ background: T.warnDim, border: `1px solid ${T.warn}44`, borderRadius: 10, padding: 12, marginBottom: 16, display: "flex", alignItems: "center", gap: 10 }}>
-                  <span style={{ fontSize: 18 }}>🏛️</span>
-                  <div>
-                    <div style={{ color: T.warn, fontWeight: 700, fontSize: 13 }}>Market closed today</div>
-                    <div style={{ color: T.muted, fontSize: 11, marginTop: 1 }}>{marketStatus.reason} · showing last available data</div>
-                  </div>
-                </div>
-              )}
+              {(() => {
+                // "today" from the IST calendar: market_status.json describes the scan session, so on its
+                // own it showed this banner the day AFTER a holiday (review E4)
+                const today = istToday();
+                const wd = new Date(today + "T00:00:00Z").getUTCDay();
+                const why = NSE_SPECIAL_SESSIONS[today] ? null
+                  : NSE_HOLIDAYS[today] ? `NSE holiday: ${NSE_HOLIDAYS[today]}`
+                  : (wd === 0 || wd === 6) ? "Weekend"
+                  : (marketStatus && marketStatus.market_open === false && marketStatus.date === today ? marketStatus.reason : null);
+                return why && (
+                  <div style={{ background: T.warnDim, border: `1px solid ${T.warn}44`, borderRadius: 10, padding: 12, marginBottom: 16, display: "flex", alignItems: "center", gap: 10 }}>
+                    <span style={{ fontSize: 18 }}>🏛️</span>
+                    <div>
+                      <div style={{ color: T.warn, fontWeight: 700, fontSize: 13 }}>Market closed today</div>
+                      <div style={{ color: T.muted, fontSize: 11, marginTop: 1 }}>{why} · showing the {scanSessionDate(scanData.scan_time)} session</div>
+                    </div>
+                  </div>);
+              })()}
                 <div style={{ marginBottom: 14 }}>
                 <div style={{ fontWeight: 800, fontSize: 16, color: T.accent }}>🟢 In Play — Post-Squeeze</div>
                 <div style={{ color: T.muted, fontSize: 11 }}>BB &lt;4.5% + Stoch turning up · GTT target/stop shown per card</div>
@@ -6467,13 +6485,13 @@ function App() {
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
               {[
                 { title: "📲 Using this on your phone", color: T.accent, body: "Tap the ↻ button top-right anytime. 'Reload latest data' is instant and free. 'Run a fresh scan now' opens GitHub to manually trigger a brand-new scan.\n\nYou can also pull down from the top to reload, like any phone app." },
-                { title: "🏠 Install as a home-screen app", color: T.warn, body: "In Chrome on Android: tap the ⋮ menu → 'Add to Home screen' or 'Install app'. This gives you an app icon that opens full-screen, no browser bar. Your portfolio is saved on this device only." },
+                { title: "🏠 Install as a home-screen app", color: T.warn, body: "In Chrome on Android: tap the ⋮ menu → 'Add to Home screen' or 'Install app'. This gives you an app icon that opens full-screen, no browser bar. Every device with your read-only key shows the same portfolio, built from the shared trade ledger." },
                 { title: "🟢 What is In Play?", color: T.accent, body: "A stock enters 'In Play' when it earns a confirmed squeeze signal: BB Width below 4.5% with Stochastic K turning up from below 50, AND price is not sitting below both EMAs. This is your ENTRY point. The ATR-based return target shown on each card is informational — it shows the expected near-term move based on current volatility, not a hard filter. Historical blast returns from these setups have ranged from 15–46%." },
                 { title: "⚠️ What is Countertrend — Lower Conviction?", color: T.red, body: "Same clean squeeze pattern as In Play, but price entered below BOTH EMA10 and EMA30 — a bet against the prevailing trend. A 6-year, 2382-stock backtest showed these carry about half the per-trade edge of trend-aligned entries (+0.4% vs +0.9%), and in weak markets like 2026 they stop out far more often (41% stop rate vs ~26%). They're split into their own collapsible list so they don't inflate the In Play count or get confused with clean signals — the exact situation where a card can read HIGH confidence but WEAK conviction at the same time. Treat these as smaller-size, wider-stop ideas you've consciously chosen, not as clean entries." },
                 { title: "🔴 What is End of Blast?", color: T.blast, body: "BB bands expand and Stochastic K exceeds 75 while price holds above EMA10. This is the EXIT signal — book profits before the next correction." },
                 { title: "👀 What is the Watchlist?", color: T.warn, body: "A looser, earlier tier for stocks that are visibly tightening (BB width under 9%) and turning up, but haven't yet cleared the strict 4.5% squeeze threshold or the 15% return target. Nothing here is a confirmed signal — it's a heads-up that a stock is forming. When a watchlist stock later earns a real squeeze signal, it's marked 'GRADUATED' with its full history." },
                 { title: "⛔ Below the −7% stop", color: T.red, body: "Every In Play card now measures its GTT target and −7% stop from the ENTRY price — the way the strategy was backtested. A stock that has fallen more than 7% below its entry stays on the scanner's list until a blast exit fires, but it is no longer a fresh entry: it is shown with a red banner and grouped under 'Below the −7% stop' at the bottom of the Long tab, and left out of the tab badges, 3%+ and H+S." },
-                { title: "📈 Returns, 🧾 tax and ⚠️ corporate actions", color: T.accent, body: "Ledger → Returns: each financial year values your holdings at NSE's 31 March closing prices and counts every buy, sale, buyback and dividend on its date. 'Your return a year (XIRR)' is the yearly rate your money actually grew at since the first trade; 'time-weighted' ignores when money was added, so compare that with Nifty.\nTax estimate: capital gains so far this year at 20% (short-term) and 12.5% above ₹1.25 lakh (long-term), and how much booking unrealised losses before 31 March would save. Cess, surcharge and brought-forward losses aren't included.\nCorporate actions: rights entitlements sitting in your demat are flagged on Monitor and Ledger automatically. Upcoming rights issues, buybacks, tender offers, OFS and call money aren't fetched (NSE and BSE block automated access) — Ledger links to Kite → Bids → Corporate actions, BSE's corporate-actions list and each holding's NSE page." },
+                { title: "📈 Returns, 🧾 tax and ⚠️ corporate actions", color: T.accent, body: "Ledger → Returns: each financial year values your holdings at NSE's 31 March closing prices and counts every buy, sale, buyback and dividend on its date. 'Your return a year (XIRR)' is the yearly rate your money actually grew at since the first trade; 'time-weighted' ignores when money was added, so compare that with Nifty.\nTax estimate: capital gains so far this year at 20% (short-term) and 12.5% above ₹1.25 lakh (long-term), and how much booking unrealised losses before 31 March would save. Cess, surcharge and brought-forward losses aren't included.\nCorporate actions: rights entitlements sitting in your demat are flagged on Monitor and Ledger automatically. Upcoming rights issues, buybacks, tender offers, OFS and call money show on the Ledger card when the daily corporate-actions check finds them; also check Kite → Bids → Corporate actions." },
                 { title: "💼 Portfolio, 🎯 Picks, 📦 Long-Term — automatic", color: T.accent, body: "All three are built from your trade ledger (Zerodha tradebooks + the evening Kite capture), so there is nothing to add or remove by hand and every device with your read-only key shows the same thing.\nPortfolio: holdings value, unrealised P&L, booked P&L by month, win rate and hold time on exits (tax-harvest sell-and-rebuys aren't counted as exits), every sale in the year. 📜 All trades at the bottom lists every buy, sell and corporate action — search, filter by side or year.\nPicks: only the stocks you bought on the dashboard's signals (a buy within a week of the stock showing on the squeeze, countertrend or watch list, or a 🔄 Cycles stock bought in its buy window), plus the ones added in ledger/picks.csv (DAVANGERE, AKASH) — each against the same money put into Nifty 50 on the same days, with total P&L, XIRR, win rate and how many beat Nifty. Holdings from before the dashboard started aren't counted.\nRanges: how far each holding typically moves in a day and a week, and tested levels to trade around it to bring the cost down — ⚡ 1–3 day orders (fresh every evening) or 📅 weekly ones; 🔼 sell the rise and buy back lower (uses your shares) or 🔽 buy the dip and sell higher (needs cash). Each level is shown only if it made money after charges over the whole history AND lately, with its fill rate, win rate, average, worst trade and the rupees a week on your chosen trade size.\nLong-Term: each holding with the scanner's exit / re-entry / forming read." },
                 { title: "🧭 Reading the Long tab order", color: T.accent, body: "Live cards are ranked best-first: validated signals (STRONG + weekly trend confirmed), then conviction and confidence, with a bonus for still being near entry. A card within 2% of its −7% stop shows an amber warning and drops to the bottom. If you already own the stock, the card shows your quantity and effective cost from the ledger.\nA scan that finishes after midnight belongs to the previous session — the header shows it as e.g. “scan 11-05 close (ran 11-06 00:57)”." },
                 { title: "🔻 Short tab", color: T.red, body: "Short Entries are bearish squeezes. Breaking Down lists stocks already falling — ranked by how much fall is left to the cover level. A short whose price has climbed back above its stop is marked STOP HIT (and hidden from Breaking Down), because the setup has failed." },
