@@ -83,7 +83,7 @@ def get_symbols():
         with open("data/cycles/summary.json") as f:
             for s in json.load(f).get("stocks", []):
                 if s.get("grade") == "STRONG" and s.get("entry") and \
-                        0 <= (month - s["entry"]) % 12 <= s.get("hold", 0) - 1:
+                        0 <= (month - s["entry"]) % 12 <= (s.get("hold") or 0) - 1:
                     symbols.add(s["symbol"])
     except Exception as e:
         print(f"  Warning reading cycles summary: {e}")
