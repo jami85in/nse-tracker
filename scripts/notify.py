@@ -67,9 +67,11 @@ DIP_PCT = -3.0             # 1-day rule: today's fall (was -2.0 until 24 Nov 202
 DIP3_FALL = (5.0, 12.0)    # 3-day rule: fall over the last 3 sessions, % (min, max)
 DIP3_PRIOR_PCT = -5.0      # ... after falling at least this much over the 20 sessions before them
 DIP3_TARGET_PCT, DIP3_DAYS = 4.0, 10   # plan: +4% after charges within 10 sessions, else exit at the day-10 close
-DIP3_GROUPS = {   # (grade, phase) -> backtest line for the alert (full history .. 2026 data the rule hadn't seen)
-    ("STRONG", "IN_SEASON"): "81–84% reached +4% within 10 days, +2.2–2.6% a trade",
-    ("STRONG", "BUY_WINDOW"): "78–80% reached +4% within 10 days, +1.4–1.7% a trade",
+DIP3_GROUPS = {   # (grade, phase) -> backtest line for the alert (full history .. 2026 test; the thresholds were
+                  # chosen with 2026 in view, so only the stock list is truly out-of-sample - review 24 Nov 2026)
+    ("STRONG", "IN_SEASON"): "81–84% reached +4% within 10 days, +2.2–2.6% a trade; misses avg about −4.5%",
+    ("STRONG", "BUY_WINDOW"): "78–80% reached +4% within 10 days, +1.0–1.7% a trade; misses avg about −7.5% "
+                              "and about 1 trade in 17 lost over 10%",
 }
 DIP_GRADES = ("STRONG",)
 DIP_MIN_ROOM_PCT = 12.0    # cycle dips: the seasonal target must be at least this far above the price
@@ -330,7 +332,7 @@ def dip_alerts(cycles, prices, prev, month, now, buy=None):
                            "cycle_target": round(ct[0], 2), "room_pct": round(ct[1], 1),
                            "plan": "+2% after charges within 5 sessions, else day-5 close"})
             out.append((f"dip-close:{sym}", f"📉 {sym} −{abs(chg):.1f}% near the close · STRONG cycle",
-                        f"Now {rupees(p)} (prev close {rupees(pc)}). {season} Plan: buy before the close, sell at {rupees(tgt)} (+2% after charges), else exit by day 5. Backtest: 76–81% reached +2% within 5 days (76% on 2026 data the rule hadn't seen); misses avg about −5%.{_no_buy_note(buy, p)}", 5, "chart_with_downwards_trend", _buy_spec(buy, sym, p)))
+                        f"Now {rupees(p)} (prev close {rupees(pc)}). {season} Plan: buy before the close, sell at {rupees(tgt)} (+2% after charges), else exit by day 5. Backtest: 76–81% reached +2% within 5 days, but only +0.2–0.7% a trade (+0.2% in 2026: a thin edge, paper-test first); misses avg about −5%.{_no_buy_note(buy, p)}", 5, "chart_with_downwards_trend", _buy_spec(buy, sym, p)))
         else:
             out.append((f"dip-early:{sym}", f"👀 {sym} −{abs(chg):.1f}% · STRONG cycle in season",
                         f"Now {rupees(p)}. {season} Heads-up only: the tested rule buys at the close if it's still down 3%+; you'll get a buzz after 3:10 pm if so.", 4, "eyes"))
@@ -426,8 +428,8 @@ def dip3_alerts(cycles, prices, prev, month, now, buy=None, closes=_daily_closes
         out.append((f"dip3-close:{sym}", f"📉 {sym} −{abs(fall):.1f}% over 3 days · {label}",
                     f"Now {rupees(p)} ({rupees(c3)} three sessions ago; it had already fallen {abs(prior):.0f}% over the 20 sessions before). "
                     f"Median seasonal target {rupees(ct[0])} (+{ct[1]:.0f}% from here). Plan: buy before the close, sell at {rupees(tgt)} "
-                    f"(+4% after charges) within 10 trading days, else exit at the day-10 close. Backtest ({label}): {group}; "
-                    f"misses avg about −5%.{_no_buy_note(buy, p)}",
+                    f"(+4% after charges) within 10 trading days, else exit at the day-10 close. Backtest ({label}): {group}."
+                    f"{_no_buy_note(buy, p)}",
                     5, "chart_with_downwards_trend", _buy_spec(buy, sym, p)))
     if missing:
         print(f"::notice::3-day rule: {missing} eligible stock(s) skipped - price history not up to the previous session")
