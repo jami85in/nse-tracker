@@ -134,6 +134,7 @@ def fetch_family_prices(kite, family, have):
 
 
 PREV_CLOSE = {}   # yesterday's close per symbol, from the same quote call (ohlc.close)
+TRADED_TODAY = set()   # symbols whose last trade is from today (an unlisted holiday leaves this empty)
 
 
 def fetch_prices_kite(kite, symbols):
@@ -152,6 +153,8 @@ def fetch_prices_kite(kite, symbols):
                 price = q.get("last_price")
                 if price and price > 0:
                     prices[sym] = round(float(price), 2)
+                    if str(q.get("last_trade_time") or "")[:10] == datetime.datetime.now(IST).date().isoformat():
+                        TRADED_TODAY.add(sym)
                     pc = (q.get("ohlc") or {}).get("close")
                     if pc and pc > 0:
                         PREV_CLOSE[sym] = round(float(pc), 2)
@@ -205,6 +208,13 @@ def main():
 
     if len(prices) == 0:
         print("  No prices fetched — preserving existing file.")
+        return
+    # An exchange holiday missing from scripts/market_session.py: Kite still answers, with the
+    # last session's trades. Don't publish those as today's prices (the dip alerts would read
+    # them as today's moves).
+    if now_ist.time() >= datetime.time(9, 20) and len(TRADED_TODAY) < 0.2 * len(prices):
+        print(f"::warning::Only {len(TRADED_TODAY)} of {len(prices)} quotes traded today - an exchange holiday missing "
+              "from scripts/market_session.py? Preserving existing file.")
         return
 
     output = {
