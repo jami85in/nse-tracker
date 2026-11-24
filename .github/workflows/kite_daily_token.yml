@@ -1,5 +1,8 @@
 name: Kite Daily Token Refresh
 
+# Fallback only: the kite-login worker page does the daily login and starts
+# the price loop. Use this workflow only if the worker is down.
+
 # Zerodha's Kite Connect access tokens expire daily (SEBI security rule —
 # every broker's API works this way, not a Zerodha limitation). This
 # workflow is the daily "activate today's token" step:

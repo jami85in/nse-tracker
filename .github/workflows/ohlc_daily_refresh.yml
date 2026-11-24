@@ -8,8 +8,10 @@ name: NSE Daily OHLC Refresh
 # trailing window for all symbols and merges the newest trading day(s) in,
 # independent of the backfill's chunk progress.
 #
-# Schedule: 19:00 IST on weekdays (13:30 UTC). NSE closes 15:30 IST and the
-# bhavcopy is published by early evening, so today's bar is available by then.
+# Schedule: 19:00 IST on weekdays (13:30 UTC), backup 04:45 IST; GitHub often
+# starts these hours late (Nov 2026: 02:00-06:40 IST). The 3-day dip alert needs
+# the previous session's bar by 15:10 next day: one missed night is filled from
+# Kite's previous close; two in a row and the rule skips the day (phone notice).
 # Holidays: the worker returns the previous session's file for them, so a
 # purge step below removes those copies (see scripts/purge_holiday_bars.py).
 

@@ -19,8 +19,9 @@ name: NSE Live Price Update (LEGACY — manual fallback only)
 # It also scrapes NSE directly, which is the unreliable source Kite Connect
 # was adopted to replace.
 #
-# Kept as a manual fallback (workflow_dispatch) in case Kite is ever
-# unavailable for an extended period. scripts/prices.py now also emits
+# Do not run: NSE endpoints are off-limits (user's choice), and its output
+# lacks prev_close/circuits, which would switch the cycle-dip checks off.
+# Kept for reference only. scripts/prices.py now also emits
 # source/data_date, so a manual run degrades gracefully instead of
 # corrupting the data contract.
 
