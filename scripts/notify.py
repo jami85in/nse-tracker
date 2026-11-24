@@ -912,9 +912,9 @@ def main():
                            3, "warning"))
     except Exception:
         pass
-    try:   # the holiday calendar must cover this year (and next year from mid-December)
-        import market_session as M
-        for y in [now.year] + ([now.year + 1] if (now.month, now.day) >= (12, 15) else []):
+    try:   # the holiday calendar must cover this year (and next year from mid-December); daytime only:
+        import market_session as M   # late scheduled loops can run after midnight (review E3)
+        for y in [] if now.time() < dt.time(8, 45) else [now.year] + ([now.year + 1] if (now.month, now.day) >= (12, 15) else []):
             if not any(k.startswith(str(y)) for k in M.HOLIDAYS):
                 alerts.append((f"sys:calendar-{y}", f"⚠️ NSE {y} holidays missing",
                                f"scripts/market_session.py has no {y} holidays: without them the price loop runs on exchange "
