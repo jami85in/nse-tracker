@@ -41,14 +41,37 @@ def get_kite_token(allow_overnight=False):
         with urllib.request.urlopen(req, timeout=15) as resp:
             envelope = json.loads(resp.read().decode())
         token_data = json.loads(base64.b64decode(envelope["content"]).decode())
-    except (urllib.error.HTTPError, urllib.error.URLError, KeyError, json.JSONDecodeError):
-        return None, None
+        _cache(token_data)
+    except (urllib.error.HTTPError, urllib.error.URLError, OSError, KeyError, ValueError) as e:
+        # GitHub API outage/timeout (not a missing file): keep using today's token from this
+        # runner's last good read, so a GitHub hiccup doesn't stop live prices (review E8)
+        token_data = None if isinstance(e, urllib.error.HTTPError) and e.code == 404 else _cache()
+        if not token_data or token_is_stale(token_data):
+            return None, None
+        print("::warning::Kite token file unreadable - using this run's copy from earlier today")
 
     access_token = token_data.get("access_token")
     stale = token_is_stale(token_data)
     if stale and allow_overnight and still_valid_overnight(token_data):
         stale = False
     return access_token, stale
+
+
+_CACHE = os.path.join(os.environ.get("RUNNER_TEMP") or "/tmp", "kite-token-cache.json")
+
+
+def _cache(token_data=None):
+    """Save (with an argument) or load this runner's last good copy of the token file."""
+    try:
+        if token_data is not None:
+            fd = os.open(_CACHE, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            with os.fdopen(fd, "w") as f:
+                json.dump(token_data, f)
+            return token_data
+        with open(_CACHE) as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return None
 
 
 # Zerodha cancels every Kite access token in its daily reset at about 06:00 IST,

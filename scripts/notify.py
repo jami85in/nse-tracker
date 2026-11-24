@@ -66,7 +66,7 @@ PRIVACY: this runs in the PUBLIC repo, so it prints nothing about alerts,
 holdings or orders, only failures by type. Notification text travels via
 ntfy.sh under the private topic name.
 """
-import datetime as dt, json, os, secrets, sys, urllib.request
+import datetime as dt, json, os, secrets, sys, urllib.error, urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from private_repo import PrivateRepo
@@ -174,11 +174,16 @@ def swing_alerts(priv, prices, plans=({}, {}), prev=None, plan_account="huf"):
     return out
 
 
+REFUSED = {}     # account id -> generated_at of the token Kite refused this round (review E8)
+TOKMADE = {}
+
+
 def _kite(priv, tok_path, key):
     from kite_token_reader import token_is_stale
     tok, _ = priv.get_json(tok_path, None)
     if not key or not tok or not tok.get("access_token") or token_is_stale(tok):
         return None
+    TOKMADE[tok_path] = str(tok.get("generated_at") or "")
     from kiteconnect import KiteConnect
     k = KiteConnect(api_key=key)
     k.set_access_token(tok["access_token"])
@@ -249,6 +254,8 @@ def gtt_alerts(priv, prices, today):
                                     f"Now {rupees(p)}, {abs(gap):.1f}% from the trigger ({what}).", 4, "eyes"))
         except Exception as e:                   # one account failing mustn't stop the others
             print(f"::warning::GTT check skipped for one account ({type(e).__name__})")
+            if type(e).__name__ == "TokenException":
+                REFUSED[aid] = TOKMADE.get(tok_path, "")
     return out
 
 
@@ -303,6 +310,8 @@ def order_alerts(priv, prices, today):
                                     f"Now {rupees(p)}, {abs(p / lvl - 1) * 100:.1f}% from the order's {what}.", 4, "eyes"))
         except Exception as e:
             print(f"::warning::order check skipped for one account ({type(e).__name__})")
+            if type(e).__name__ == "TokenException":
+                REFUSED[aid] = TOKMADE.get(tok_path, "")
     return out
 
 
@@ -745,12 +754,18 @@ def _save_links(priv, today, now, alerts):
         return {}
     try:
         path = f"notify/links-{today}.json"
-        data, sha = priv.get_json(path, {})
-        data = data if isinstance(data, dict) else {}
-        for a in alerts:
-            if a[0] in ids:
-                data[ids[a[0]]] = dict(a[5], made=now.strftime("%H:%M"))
-        priv.put_json(path, data, f"notify links {today}", sha)
+        for try_ in (1, 2, 3):   # re-read on a conflict: a blind retry would drop links saved since the read
+            data, sha = priv.get_json(path, {})
+            data = data if isinstance(data, dict) else {}
+            for a in alerts:
+                if a[0] in ids:
+                    data[ids[a[0]]] = dict(a[5], made=now.strftime("%H:%M"))
+            try:
+                priv.put_json(path, data, f"notify links {today}", sha, retries=1)
+                break
+            except urllib.error.HTTPError as e1:
+                if e1.code not in (409, 422) or try_ == 3:
+                    raise
     except Exception as e:
         print(f"::warning::order links not saved this round ({type(e).__name__})")
         return {}
@@ -778,6 +793,39 @@ def _local_sent(today, add=None):
     return have
 
 
+PAPERS = os.path.join(os.environ.get("RUNNER_TEMP") or "/tmp", "notify-papers.json")
+
+
+def _local_papers(today, upd=None):
+    """This run's paper records for today ({"dips": {...}, "dips3": {...}}), kept on the runner so a
+    failed state save in a closing round doesn't lose them or move their price to a later round."""
+    if upd is not None:
+        try:
+            json.dump({today: upd}, open(PAPERS, "w"))
+        except OSError:
+            pass
+        return upd
+    try:
+        got = json.load(open(PAPERS))
+        return got.get(today) or {} if isinstance(got, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def _merge_papers(a, b):
+    """Union of two {symbol: record} maps; per symbol the earliest round's record wins."""
+    out = json.loads(json.dumps(a or {}))
+    for sym, rec in (b or {}).items():
+        cur = out.get(sym)
+        if cur is None or str(rec.get("seen_at", "")) < str(cur.get("seen_at", "")):
+            keep = dict(rec)
+            last = max(str((cur or {}).get("last_seen_at") or (cur or {}).get("seen_at") or ""), str(rec.get("last_seen_at") or ""))
+            if cur is not None and last > str(keep.get("seen_at", "")):
+                keep["last_seen_at"] = last
+            out[sym] = keep
+    return out
+
+
 def private_repo_reachable(priv, topic, now):
     """If GitHub refuses the private-repo token (expired or revoked), nothing
     else can work: say so once a day by ntfy (which needs no GitHub) and stop."""
@@ -790,6 +838,19 @@ def private_repo_reachable(priv, topic, now):
         if e.code == 403 and (e.headers.get("X-RateLimit-Remaining") == "0" or e.headers.get("Retry-After")):
             # the account's API quota is used up (e.g. many hits on the public worker): not a broken token
             print("::warning::GitHub API rate limit reached for the private-repo token - skipping this round")
+            day_ = now.date().isoformat()
+            hits = sum(1 for k_ in _local_sent(day_) if k_.startswith("_rl:")) + 1
+            _local_sent(day_, [f"_rl:{now:%H:%M}"])
+            if topic and hits >= 2 and "sys:ratelimit" not in _local_sent(day_):   # ntfy needs no GitHub (review E8)
+                try:
+                    rs_ = dt.datetime.fromtimestamp(int(e.headers.get("X-RateLimit-Reset") or 0), IST)
+                    send(topic, "⚠️ Alerts paused: GitHub API limit reached",
+                         "The private-repo token has used up GitHub's hourly API allowance"
+                         + (f" (resets about {rs_:%H:%M})" if rs_ > now else "") + ": no prices, trade sync or alerts until then. "
+                         "Many hits on the worker's pages can cause this.", 4, "warning")
+                    _local_sent(day_, ["sys:ratelimit"])
+                except Exception as e3:
+                    print(f"::warning::couldn't send the rate-limit notice ({type(e3).__name__})")
             return False
         if e.code not in (401, 403, 404):
             return True                           # GitHub hiccup: let the round try as usual
@@ -878,6 +939,12 @@ def main():
             print(f"::warning::{name} check skipped this round ({type(e).__name__})")
     if not topic:
         return 0                                  # nowhere to send alerts (NTFY_TOPIC not set)
+    for aid_, made_ in REFUSED.items():           # today's login file is in, but Kite refuses it (logged out,
+        label_ = next(x[1] for x in ACCOUNTS if x[0] == aid_)   # or a newer login elsewhere) - review E8
+        alerts.append((f"login:refused:{aid_}:{made_}", f"🔑 Kite refused today's {label_} login",
+                       "Kite no longer accepts this morning's login (logged out, or a newer login elsewhere). Tap to log in again."
+                       + (" Until then there are no live prices, swing, cycle-dip or buy-at-close alerts." if aid_ == "huf" else ""),
+                       5 if aid_ == "huf" else 4, "key"))
     dips_ok = dips3_ok = False
     dip_off = None                               # why the dip rules couldn't run (for the phone notice)
     upd = str(live.get("updated_at") or "")
@@ -892,12 +959,11 @@ def main():
         # a weekend special session isn't in the price history or the backtest; its buys would also be
         # invisible to the open-plan check (review E7)
         print("::notice::cycle-dip checks off on a weekend special session")
-    elif fresh and (age is None or age > 25 * 60):
-        print("::warning::cycle-dip checks skipped - live prices are older than 25 minutes")
-    elif fresh and closing_now and upd[11:16] < "15:05":
+    elif fresh and ((age is None or age > 25 * 60) or (closing_now and upd[11:16] < "15:05")):
         # buy-at-close alerts and paper records need a price from the closing window
-        print("::warning::cycle-dip checks skipped - waiting for a price from the closing window")
-        if now.time() >= dt.time(15, 18):        # say so: silence after a heads-up reads as "no longer qualifies"
+        print("::warning::cycle-dip checks skipped - " + ("live prices are older than 25 minutes" if (age is None or age > 25 * 60)
+                                                          else "waiting for a price from the closing window"))
+        if closing_now and now.time() >= dt.time(15, 18):   # say so: silence after a heads-up reads as "no longer qualifies"
             alerts.append(("sys:close-wait", "⚠️ No closing prices yet",
                            f"Live prices last updated at {upd[11:16]}, so the buy-at-close checks haven't run today. No buy alert "
                            "does not mean today's heads-ups stopped qualifying. Check Kite and the price-loop run.", 4, "warning"))
@@ -953,7 +1019,7 @@ def main():
                 made = None
             if (tok and tok.get("access_token") and not token_is_stale(tok, now)
                     and (made is None or now - made >= dt.timedelta(minutes=20))):
-                alerts.append(("sys:prices-stale", "⚠️ Live prices not updating",
+                alerts.append((f"sys:prices-stale:{upd[11:16] or 'none'}", "⚠️ Live prices not updating",
                                f"Today's HUF login is in, but live prices last updated {upd or 'not today'}. "
                                "Cycle-dip alerts are paused; swing alerts may use an old price. Check Kite (outage or "
                                "subscription), the price-loop run, and whether today is an exchange holiday the tracker "
@@ -999,6 +1065,8 @@ def main():
                         raise ValueError("unexpected paper-record content")
                 sent_today = set(state.get(today, [])) | _local_sent(today)
                 sticky = set(levels.get("sent") or [])
+                if "_state_read" not in sent_today:
+                    _local_sent(today, ["_state_read"])   # this runner has seen today's record once
                 break
             except Exception:
                 if try_ == 2:
@@ -1018,6 +1086,13 @@ def main():
         return sym_ if kind in ("dip-close", "dip3-close") else None
     bought = {_buy_sym(k) for k in sent_today} - {None}
     new = [a for a in alerts if a[0] not in sent_today and a[0] not in sticky and _buy_sym(a[0]) not in bought]
+    if not state_ok and "_state_read" not in sent_today:
+        # a runner that has never read today's record (the 14:40 successor, a restarted run) would re-send
+        # the whole day: only closing-window buys, notices and login prompts go now, the rest waits (review E8)
+        held = [a for a in new if a[0].split(":", 1)[0] not in ("dip-close", "dip3-close", "sys", "login")]
+        if held:
+            print(f"::warning::{len(held)} alert(s) held back until today's alert record can be read")
+        new = [a for a in new if a not in held]
     # More than 4 new alerts of one kind in a round (e.g. the first round after a
     # login finds the day's fills): one summary per kind instead of a burst.
     BATCH = {"dip-close": ("📉", "STRONG cycle stocks down 3%+ near the close — buy-at-close candidates",
@@ -1078,7 +1153,7 @@ def main():
         batch_keys[f"dip-basket:{'+'.join(syms_)}"] = [a[0] for a in singles]
     links = _save_links(priv, today, now, new) if links_on else {}
     new = [a for a in new if not a[0].startswith("dip-basket:") or a[0] in links]   # its only point is the button
-    delivered = []
+    delivered, unsure = [], {}
     for a_ in new:
         key, title, body, prio, tags = a_[:5]
         try:
@@ -1088,6 +1163,20 @@ def main():
             delivered.append(key)
         except Exception as e:
             print(f"::warning::a notification could not be sent ({type(e).__name__})")
+            if not isinstance(e, urllib.error.HTTPError):   # timeout / dropped answer: ntfy may have it anyway
+                unsure[key] = (title, body)
+    if unsure:   # a re-send next round would carry a second order button for the same buy (review E8)
+        try:
+            with urllib.request.urlopen(f"https://ntfy.sh/{topic}/json?poll=1&since={int(now.timestamp()) - 120}",
+                                        timeout=20) as r_:
+                have_ = {(m_.get("title"), m_.get("message")) for m_ in
+                         (json.loads(l_) for l_ in r_.read().decode("utf-8").splitlines() if l_.strip())}
+            got_ = [k_ for k_, tb_ in unsure.items() if tb_ in have_]
+            delivered += got_
+            if got_:
+                print(f"::notice::{len(got_)} notification(s) reached ntfy although the answer was lost")
+        except Exception as e:
+            print(f"::warning::couldn't check ntfy for lost answers ({type(e).__name__})")
     for bk_, members in batch_keys.items():
         if bk_ in delivered:
             delivered += members
@@ -1095,14 +1184,15 @@ def main():
     delivered = [d for d in delivered if not d.endswith(":batch")]   # the members are what's remembered
     _local_sent(today, delivered)
     if delivered:
-        state[today] = sorted(sent_today | {d for d in delivered if not d.startswith("swing-")})
+        state[today] = sorted({k_ for k_ in sent_today if not k_.startswith("_")} | {d for d in delivered if not d.startswith("swing-")})
     new_levels = {d for d in delivered if d.startswith("swing-")}
     if new_levels and state_ok:
         try:
             priv.put_json("notify/levels.json", {"sent": sorted(sticky | new_levels)}, f"notify levels {today}", lsha)
         except Exception as e:
             print(f"::warning::alert levels not saved ({type(e).__name__})")
-    if state_ok and fresh and CLOSE_ROUND <= now.time() < MARKET_CLOSE:
+    local_p = _local_papers(today)
+    if fresh and CLOSE_ROUND <= now.time() < MARKET_CLOSE:
         # Paper records of the tested rules ("dips" = 1-day, "dips3" = 3-day): rebuilt every
         # round from 15:10: every stock that met the rule in any closing round is kept, at the
         # first such round's price (later rounds add last_seen_at), not the official close. A failed check keeps
@@ -1112,7 +1202,7 @@ def main():
                 continue
             # every stock that met the rule in a closing round stays (the alert went out then);
             # the first round's price is kept, later rounds only update last_seen_at
-            rebuilt = json.loads(json.dumps(state.get(key_, {}).get(today, {})))
+            rebuilt = _merge_papers(state.get(key_, {}).get(today, {}) if state_ok else {}, local_p.get(key_, {}))
             for pp in recs:
                 if pp["symbol"] in rebuilt:
                     rebuilt[pp["symbol"]]["last_seen_at"] = now.strftime("%H:%M")
@@ -1120,10 +1210,20 @@ def main():
                     rebuilt[pp["symbol"]] = dict(pp, seen_at=now.strftime("%H:%M"),
                                                  price_is="first 10-min round from 15:10 that met the rule")
             if rebuilt:
-                state.setdefault(key_, {})[today] = rebuilt
+                local_p[key_] = rebuilt
+                if state_ok:
+                    state.setdefault(key_, {})[today] = rebuilt
+        _local_papers(today, local_p)
+    elif state_ok:   # a closing round whose save failed: its records go in now (review E8)
+        for key_, recs_ in local_p.items():
+            m_ = _merge_papers(state.get(key_, {}).get(today, {}), recs_)
+            if m_:
+                state.setdefault(key_, {})[today] = m_
+    if state_ok and not {k_ for k_ in sent_today if not k_.startswith(("swing-", "_"))} <= set(state.get(today, [])):   # an earlier round's failed save
+        state[today] = sorted(set(state.get(today, [])) | {k_ for k_ in sent_today if not k_.startswith(("swing-", "_"))})
     if state_ok and json.dumps(state, sort_keys=True) != before:   # commit only when something changed
         try:
-            priv.put_json(state_path, state, f"notify: {today}", sha)
+            priv.put_json(state_path, state, f"notify: {today}", sha, retries=1)   # a conflict: next round merges
         except Exception as e:
             print(f"::warning::alert state not saved ({type(e).__name__})")
     return 0

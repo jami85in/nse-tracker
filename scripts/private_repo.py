@@ -55,5 +55,7 @@ class PrivateRepo:
                     continue
                 raise
 
-    def put_json(self, path, obj, message, sha=None):
-        return self.put_bytes(path, json.dumps(obj, indent=0).encode(), message, sha)
+    def put_json(self, path, obj, message, sha=None, retries=3):
+        """retries=1 for read-modify-write callers: a 409 then raises instead of overwriting
+        whatever changed since the read with content built on the old version (review E8)."""
+        return self.put_bytes(path, json.dumps(obj, indent=0).encode(), message, sha, retries)
