@@ -116,7 +116,10 @@ def in_season(s, month):
     return 1 <= since <= (s.get("hold") or 0) - 1      # up-leg months, excluding the month it usually ends
 
 
-def swing_alerts(priv, prices):
+def swing_alerts(priv, prices, plans=({}, {}), prev=None, plan_account="huf"):
+    """plans = open_plans(): a cycle-dip buy in the buy account follows its own plan, not the ledger's
+    automatic +-1.5% swing levels. prev = Kite's previous closes (bonus/split ex-date guard)."""
+    o1, o3 = plans
     out = []
     accts, _ = priv.get_json("ledger/accounts.json", {"accounts": []})
     for a in (accts or {}).get("accounts", []):
@@ -134,6 +137,20 @@ def swing_alerts(priv, prices):
             # The text carries no level: target/exit are fixed % from the buy price, so
             # printing them would reveal the cost (levels are on the dashboard).
             since = sw.get("since", "")
+            # a cycle-dip buy (bought on or after its plan's alert day) follows the dip plan: +2%/+4% after
+            # charges, else the day-5/day-10 close - not the +-1.5% levels, whose stop would fire inside
+            # the plan in about 2 trades of 3 (review E6)
+            pday = o3.get(sym) or o1.get(sym)
+            if aid == plan_account and pday and str(since) >= str(pday):
+                continue
+            pc = (prev or {}).get(sym) or (prev or {}).get(h.get("zerodha_symbol") or "")
+            if pc and p < 0.8 * pc:
+                # down >20% on yesterday (beyond any circuit band): a bonus/split ex-date the ledger
+                # hasn't applied yet - no sell button for the whole pre-bonus quantity (review E6)
+                out.append((f"swing-ca:{aid}:{sym}:{since}", f"ℹ️ {sym} far below yesterday's close ({label})",
+                            "Likely a bonus or split ex-date: swing levels resume once the ledger has it. No order button.",
+                            3, "information_source"))
+                continue
             # Sell link: the swing position (not shares from older rounds), on the symbol and
             # exchange Kite knows the holding by (SME "-SM", BSE-only scrips).
             q_ = int(min(sw.get("qty") or h.get("qty") or 0, h.get("qty") or 0))
@@ -821,7 +838,13 @@ def main():
     if topic:
         checks.append(("login", lambda: login_reminders(priv, now)))
         if fresh:
-            checks.insert(0, ("swing", lambda: swing_alerts(priv, prices)))
+            try:
+                plans_ = open_plans(priv, now.date())
+            except Exception as e:
+                plans_ = ({}, {})
+                print(f"::warning::open plans not read for swing alerts ({type(e).__name__})")
+            acct_ = (buy_cfg or {}).get("account") or "huf"
+            checks.insert(0, ("swing", lambda: swing_alerts(priv, prices, plans_, prev, acct_)))
     alerts, papers, papers3 = [], [], []
     for name, fn in checks:
         try:
