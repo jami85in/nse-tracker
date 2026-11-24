@@ -12,21 +12,36 @@ doesn't repeat it). Checks:
      1% of a trigger (heads-up), at/through a trigger, or triggered today.
      Regular (non-GTT) orders, which Kite lists for the current day only:
      filled, rejected, or a pending order within 0.5% of its price/trigger.
-  3. Cycle dips: a STRONG seasonal-cycle stock that is in its up-season, is
-     down 2% or more today, and still has at least 12% to go to its seasonal
-     target (the Cycles tab's median seasonal gain on top of this cycle's
-     entry-month close): a priority-4 heads-up during the day, and the
-     priority-5 "buy at the close" alert from 15:10 IST (the backtest buys at
-     the close, so the paper record uses the last price at/after 15:10).
-     Backtest (Sep 2020 - Nov 2026, daily bars, one position per stock, plan
-     +2% after charges within 5 trading days): today's STRONG list and medians
-     (in-sample) 78.7% hit, misses avg -4.6%, +0.60% a trade on 6,143
-     signals; medians from earlier years only 76.1%, +0.45%; 2026 with the
-     list refit on data to Dec 2025 72.6%, +0.21%. The room rule (8% until
-     24 Nov 2026, now 12%) removes stocks at or past their target; 8% vs 12%
-     changes the count by ~7% and the results hardly at all. Also logged to
-     the private repo as a paper
-     record, so the idea can be judged on new data before real money goes in.
+  3. Cycle dips (1-day rule): a STRONG seasonal-cycle stock that is in its
+     up-season, is down 3% or more today (2% until 24 Nov 2026), and still has
+     at least 12% to go to its seasonal target (the Cycles tab's median
+     seasonal gain on top of this cycle's entry-month close): a priority-4
+     heads-up during the day, and the priority-5 "buy at the close" alert from
+     15:10 IST (the backtest buys at the close, so the paper record uses the
+     last price at/after 15:10). Plan: +2% after charges within 5 trading
+     days, else exit at the day-5 close. Backtest (Sep 2020 - Nov 2026, daily
+     bars, one position per stock): today's STRONG list and medians
+     (in-sample) 81.3% hit, misses avg -4.9%, +0.71% a trade (3,504 trades);
+     medians from earlier years only 79.3%, +0.60%; 2026 with the list refit
+     on data to Dec 2025 75.7%, +0.21%. The room rule (8%, then 12% from 24
+     Nov 2026) removes stocks at or past their target; it changes the count
+     more than the results.
+  4. Cycle dips (3-day rule, added 24 Nov 2026): the same STRONG in-season
+     stocks, down 5-12% over the last 3 trading days (today's price vs the
+     close 3 sessions ago), after already falling 5%+ over the 20 sessions
+     before those 3, with the same 12% room: a priority-5 "buy at the close"
+     alert from 15:10 IST. Plan: +4% after charges within 10 trading days,
+     else exit at the day-10 close. Backtest (same data): in-sample 83.6%
+     hit, misses avg -4.5%, +2.61% a trade (641 trades, ~107 a year);
+     earlier-years medians 81.9%, +2.29%; 2026 refit 82.4%, +2.29% (85
+     trades). Gradual slides do as well as one big day; worst trade about
+     -20%; signals bunch up on sell-off days. Daily closes come from the
+     nightly price history (data/backtest/raw_ohlc, split/bonus-adjusted as in
+     cycles.py); a stock is skipped unless that history ends at Kite's
+     previous close (within 1%).
+     A stock that meets both rules gets one alert naming both. Both rules are
+     logged to the private repo as paper records (state "dips" and "dips3"),
+     so they can be judged on new data before real money goes in.
 
 Phone setup: install "ntfy" (Play Store), tap +, subscribe to the topic name
 saved as the NTFY_TOPIC secret. Action alerts use priority 5 (sound + long
@@ -42,7 +57,10 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from private_repo import PrivateRepo
 
 IST = dt.timezone(dt.timedelta(hours=5, minutes=30))
-DIP_PCT = -2.0
+DIP_PCT = -3.0             # 1-day rule: today's fall (was -2.0 until 24 Nov 2026)
+DIP3_FALL = (5.0, 12.0)    # 3-day rule: fall over the last 3 sessions, % (min, max)
+DIP3_PRIOR_PCT = -5.0      # ... after falling at least this much over the 20 sessions before them
+DIP3_TARGET_PCT, DIP3_DAYS = 4.0, 10   # plan: +4% after charges within 10 sessions, else exit at the day-10 close
 DIP_GRADES = ("STRONG",)
 DIP_MIN_ROOM_PCT = 12.0    # cycle dips: the seasonal target must be at least this far above the price
 GTT_NEAR_PCT = 1.0
@@ -297,13 +315,85 @@ def dip_alerts(cycles, prices, prev, month, now, buy=None):
         tgt = p * (1 + (2.0 + COST_PCT) / 100)
         if closing:
             papers.append({"symbol": sym, "change_pct": round(chg, 2), "price": p, "prev_close": pc, "target": round(tgt, 2),
-                           "cycle_target": round(ct[0], 2), "room_pct": round(ct[1], 1)})
+                           "cycle_target": round(ct[0], 2), "room_pct": round(ct[1], 1),
+                           "plan": "+2% after charges within 5 sessions, else day-5 close"})
             out.append((f"dip-close:{sym}", f"📉 {sym} −{abs(chg):.1f}% near the close · STRONG cycle",
-                        f"Now {rupees(p)} (prev close {rupees(pc)}). {season} Plan: buy before the close, sell at {rupees(tgt)} (+2% after charges), else exit by day 5. Backtest: 73–79% reached +2% within 5 days (73% without hindsight); misses avg −4.6%.{_no_buy_note(buy, p)}", 5, "chart_with_downwards_trend", _buy_spec(buy, sym, p)))
+                        f"Now {rupees(p)} (prev close {rupees(pc)}). {season} Plan: buy before the close, sell at {rupees(tgt)} (+2% after charges), else exit by day 5. Backtest: 76–81% reached +2% within 5 days (76% on 2026 data the rule hadn't seen); misses avg about −5%.{_no_buy_note(buy, p)}", 5, "chart_with_downwards_trend", _buy_spec(buy, sym, p)))
         else:
             out.append((f"dip-early:{sym}", f"👀 {sym} −{abs(chg):.1f}% · STRONG cycle in season",
-                        f"Now {rupees(p)}. {season} Heads-up only: the tested rule buys at the close if it's still down 2%+; you'll get a buzz after 3:10 pm if so.", 4, "eyes"))
+                        f"Now {rupees(p)}. {season} Heads-up only: the tested rule buys at the close if it's still down 3%+; you'll get a buzz after 3:10 pm if so.", 4, "eyes"))
     return out, papers
+
+
+def _daily_closes(sym, today):
+    """Daily closes before today, oldest first, from the nightly price history
+    (data/backtest/raw_ohlc), split/bonus-adjusted the same way as cycles.py."""
+    import cycles as C
+    raw = C.load_json(os.path.join(C.RAW_DIR, f"{sym}.json"), []) or []
+    bars = [b for b in C.clean_bars(raw[-90:]) if b["date"] < today]
+    bars, _, _ = C.adjust_corporate_actions(bars)
+    return [(b["date"], b["c"]) for b in bars]
+
+
+def dip3_alerts(cycles, prices, prev, month, now, buy=None, closes=_daily_closes):
+    """3-day rule: STRONG in-season stock down 5-12% over the last 3 sessions after
+    a 5%+ fall over the 20 sessions before them, still 12%+ below its seasonal
+    target. Buy-at-close alerts only (from 15:10 IST)."""
+    out, papers = [], []
+    if not CLOSE_ROUND <= now.time() < MARKET_CLOSE:
+        return out, papers
+    today = now.date().isoformat()
+    for s in cycles:
+        if s.get("grade") not in DIP_GRADES or not s.get("entry") or not in_season(s, month):
+            continue
+        sym = s["symbol"]
+        p, pc = prices.get(sym), prev.get(sym)
+        if not p or not pc or (p / pc - 1) * 100 < -15:     # below -15% today: likely a split/bonus ex-date
+            continue
+        try:
+            cl = closes(sym, today)
+            stale = (now.date() - dt.date.fromisoformat(cl[-1][0])).days > 5
+        except Exception:
+            continue
+        # the history must end at yesterday's close: Kite's previous close, within 1%
+        if len(cl) < 23 or stale or abs(cl[-1][1] / pc - 1) > 0.01:
+            continue
+        c3, c23 = cl[-3][1], cl[-23][1]
+        fall, prior = (p / c3 - 1) * 100, (c3 / c23 - 1) * 100
+        if not -DIP3_FALL[1] < fall <= -DIP3_FALL[0] or prior >= DIP3_PRIOR_PCT:
+            continue
+        ct = cycle_target(s, p)
+        if not ct or ct[1] < DIP_MIN_ROOM_PCT:
+            continue
+        r_ = p / s["last_close"]
+        if any(abs(r_ / f - 1) <= 0.015 and (ct[0] * f / p - 1) * 100 < DIP_MIN_ROOM_PCT for f in (5 / 6, 10 / 11)):
+            continue
+        tgt = p * (1 + (DIP3_TARGET_PCT + COST_PCT) / 100)
+        papers.append({"symbol": sym, "fall_3d_pct": round(fall, 2), "prior_20d_pct": round(prior, 2), "price": p,
+                       "close_3_sessions_ago": round(c3, 2), "prev_close": pc, "target": round(tgt, 2),
+                       "cycle_target": round(ct[0], 2), "room_pct": round(ct[1], 1),
+                       "plan": "+4% after charges within 10 sessions, else day-10 close"})
+        out.append((f"dip3-close:{sym}", f"📉 {sym} −{abs(fall):.1f}% over 3 days · STRONG cycle",
+                    f"Now {rupees(p)} ({rupees(c3)} three sessions ago; it had already fallen {abs(prior):.0f}% over the 20 sessions before). "
+                    f"Median seasonal target {rupees(ct[0])} (+{ct[1]:.0f}% from here). Plan: buy before the close, sell at {rupees(tgt)} "
+                    f"(+4% after charges) within 10 trading days, else exit at the day-10 close. Backtest: 82–84% reached +4% within 10 days "
+                    f"(82% on 2026 data the rule hadn't seen), +2.3–2.6% a trade; misses avg about −5%.{_no_buy_note(buy, p)}",
+                    5, "chart_with_downwards_trend", _buy_spec(buy, sym, p)))
+    return out, papers
+
+
+def merge_dips(a1, a3):
+    """A stock that meets both rules gets one alert (the 3-day one, naming the 1-day rule too)."""
+    one = {a[0].split(":", 1)[1]: a for a in a1 if a[0].startswith("dip-close:")}
+    out3 = []
+    for a in a3:
+        b = one.pop(a[0].split(":", 1)[1], None)
+        if b:
+            pct = b[1].split("−", 1)[1].split("%", 1)[0] if "−" in b[1] else "3+"
+            a = (a[0], a[1], a[2] + f" It is also down {pct}% today, so it meets the 1-day rule too "
+                                   f"(+2% within 5 days); both rules log it in the paper record.") + tuple(a[3:])
+        out3.append(a)
+    return [a for a in a1 if not a[0].startswith("dip-close:") or a[0].split(":", 1)[1] in one] + out3
 
 
 # ── One-tap order links ──────────────────────────────────────────────────────
@@ -541,7 +631,7 @@ def main():
         checks.append(("login", lambda: login_reminders(priv, now)))
         if fresh:
             checks.insert(0, ("swing", lambda: swing_alerts(priv, prices)))
-    alerts, papers = [], []
+    alerts, papers, papers3 = [], [], []
     for name, fn in checks:
         try:
             alerts += fn()
@@ -549,15 +639,18 @@ def main():
             print(f"::warning::{name} check skipped this round ({type(e).__name__})")
     if not topic:
         return 0                                  # nowhere to send alerts (NTFY_TOPIC not set)
-    dips_ok = False
+    dips_ok = dips3_ok = False
     if fresh:
+        a, a3 = [], []
         try:
             cycles = json.load(open("data/cycles/summary.json")).get("stocks", [])
             a, papers = dip_alerts(cycles, prices, prev, now.month, now, buy_cfg)
-            alerts += a
             dips_ok = True
+            a3, papers3 = dip3_alerts(cycles, prices, prev, now.month, now, buy_cfg)
+            dips3_ok = True
         except Exception as e:
             print(f"::warning::cycle-dip check skipped this round ({type(e).__name__})")
+        alerts += merge_dips(a, a3)
 
     state_path = f"notify/state-{today[:7]}.json"
     state, sha = priv.get_json(state_path, {})
@@ -569,9 +662,11 @@ def main():
     new = [a for a in alerts if a[0] not in sent_today and a[0] not in sticky]
     # More than 4 new alerts of one kind in a round (e.g. the first round after a
     # login finds the day's fills): one summary per kind instead of a burst.
-    BATCH = {"dip-close": ("📉", "STRONG cycle stocks down 2%+ near the close — buy-at-close candidates",
-                           " Sell target for each: +2.23% from your buy price."),
-             "dip-early": ("👀", "STRONG cycle stocks down 2%+ today (heads-up)", ""),
+    BATCH = {"dip-close": ("📉", "STRONG cycle stocks down 3%+ near the close — buy-at-close candidates",
+                           " Sell target for each: +2.23% from your buy price, within 5 trading days."),
+             "dip3-close": ("📉", "STRONG cycle stocks down 5–12% over 3 days — buy-at-close candidates",
+                            " Sell target for each: +4.23% from your buy price, within 10 trading days."),
+             "dip-early": ("👀", "STRONG cycle stocks down 3%+ today (heads-up)", ""),
              "swing-t": ("🎯", "swing targets reached", ""), "swing-s": ("🛑", "swing exit levels reached", ""),
              "gtt-fired": ("✅", "GTTs triggered", " Check the orders in Kite."),
              "gtt-hit": ("⚡", "stocks at their GTT trigger", " Check the orders in Kite."),
@@ -602,7 +697,8 @@ def main():
                 max(a[3] for a in group), group[0][4], basket)]
             batch_keys[f"{kind}:batch"] = [a[0] for a in group]
     # 2-4 buy-at-close stocks in one round: also one basket link that fills in all of them
-    singles = [a for a in new if a[0].startswith("dip-close:") and not a[0].endswith(":batch") and len(a) > 5 and a[5]]
+    singles = [a for a in new if a[0].split(":", 1)[0] in ("dip-close", "dip3-close") and not a[0].endswith(":batch")
+               and len(a) > 5 and a[5]]
     if len(singles) >= 2 and len({a[5]["account"] for a in singles}) == 1:
         syms_ = sorted(a[5]["orders"][0]["tradingsymbol"] for a in singles)
         new.append((f"dip-basket:{'+'.join(syms_)}", f"🧺 Buy-at-close basket: {len(singles)} stocks",
@@ -635,14 +731,18 @@ def main():
             priv.put_json("notify/levels.json", {"sent": sorted(sticky | new_levels)}, f"notify levels {today}", lsha)
         except Exception as e:
             print(f"::warning::alert levels not saved ({type(e).__name__})")
-    if fresh and dips_ok and CLOSE_ROUND <= now.time() < MARKET_CLOSE:   # a failed round keeps the last record
-        # Paper record of the tested rule: rebuilt every round from 15:10, so it ends up
-        # as the stocks still down 2%+ in the last round (the price is that round's, not
-        # the official close).
-        rebuilt = {pp["symbol"]: dict(pp, seen_at=now.strftime("%H:%M"), price_is="last 10-min round from 15:10")
-                   for pp in papers}
-        if rebuilt or today in state.get("dips", {}):
-            state.setdefault("dips", {})[today] = rebuilt
+    if fresh and CLOSE_ROUND <= now.time() < MARKET_CLOSE:
+        # Paper records of the tested rules ("dips" = 1-day, "dips3" = 3-day): rebuilt every
+        # round from 15:10, so each ends up as the stocks that still qualify in the last
+        # round (the price is that round's, not the official close). A failed check keeps
+        # that rule's last record.
+        for ok_, key_, recs in ((dips_ok, "dips", papers), (dips3_ok, "dips3", papers3)):
+            if not ok_:
+                continue
+            rebuilt = {pp["symbol"]: dict(pp, seen_at=now.strftime("%H:%M"), price_is="last 10-min round from 15:10")
+                       for pp in recs}
+            if rebuilt or today in state.get(key_, {}):
+                state.setdefault(key_, {})[today] = rebuilt
     if json.dumps(state, sort_keys=True) != before:   # commit only when something changed
         try:
             priv.put_json(state_path, state, f"notify: {today}", sha)
