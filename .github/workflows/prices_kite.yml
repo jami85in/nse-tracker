@@ -54,6 +54,8 @@ on:
         description: "Seconds between price fetches (default 600 = 10 min)"
         required: false
         default: "600"
+        type: choice                      # a fixed list: free text reached bash arithmetic (review 24 Nov 2026)
+        options: ["600", "300", "900", "120"]
       force:
         description: "Fetch even if the calendar says NSE is closed (an unlisted special session)"
         required: false
@@ -117,6 +119,7 @@ jobs:
           git config user.name "nse-tracker-bot"
           git config user.email "actions@github.com"
 
+          case "$INTERVAL_SECONDS" in ''|*[!0-9]*) INTERVAL_SECONDS=600 ;; esac   # digits only
           now()   { date +%s; }
           ist()   { TZ=Asia/Kolkata date +'%H:%M IST'; }
           END=$(python scripts/market_session.py end)

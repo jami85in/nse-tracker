@@ -34,7 +34,6 @@ jobs:
       - name: Build symbols_meta.json
         env:
           KITE_API_KEY: ${{ secrets.KITE_API_KEY }}
-          KITE_API_SECRET: ${{ secrets.KITE_API_SECRET }}
           SECRETS_REPO_PAT: ${{ secrets.SECRETS_REPO_PAT }}
           SECRETS_REPO: ${{ secrets.SECRETS_REPO }}
         run: python scripts/build_symbols_meta.py
@@ -42,7 +41,6 @@ jobs:
       - name: Sync Zerodha holdings
         env:
           KITE_API_KEY: ${{ secrets.KITE_API_KEY }}
-          KITE_API_SECRET: ${{ secrets.KITE_API_SECRET }}
           SECRETS_REPO_PAT: ${{ secrets.SECRETS_REPO_PAT }}
           SECRETS_REPO: ${{ secrets.SECRETS_REPO }}
         run: python scripts/fetch_zerodha_holdings.py

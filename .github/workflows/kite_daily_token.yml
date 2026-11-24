@@ -50,11 +50,14 @@ jobs:
           KITE_API_SECRET: ${{ secrets.KITE_API_SECRET }}
           SECRETS_REPO_PAT: ${{ secrets.SECRETS_REPO_PAT }}
           SECRETS_REPO: ${{ secrets.SECRETS_REPO }}
+          REQUEST_TOKEN: ${{ github.event.inputs.request_token }}   # via env, never pasted into the script
         run: |
-          if [ -z "${{ github.event.inputs.request_token }}" ]; then
+          if [ -z "$REQUEST_TOKEN" ]; then
             python3 scripts/kite_generate_token.py
+          elif [[ "$REQUEST_TOKEN" =~ ^[A-Za-z0-9]{8,64}$ ]]; then
+            python3 scripts/kite_generate_token.py "$REQUEST_TOKEN"
           else
-            python3 scripts/kite_generate_token.py "${{ github.event.inputs.request_token }}"
+            echo "::error::That doesn't look like a Kite request token (letters and digits only)."; exit 1
           fi
 
       - name: Start live prices now
