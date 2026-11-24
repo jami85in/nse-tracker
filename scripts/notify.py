@@ -33,13 +33,13 @@ doesn't repeat it). Checks:
      charges within 10 trading days, else exit at the day-10 close. Groups
      (backtest: full history | medians from earlier years | 2026 refit):
        STRONG in season      83.6% hit, +2.61% a trade (641) | 81.9%, +2.29% | 81.4%, +2.20%
-       MODERATE in season    76.8%, +2.00% (835) | 72.9%, +1.65% | 75.1%, +1.70%
        STRONG buy month      77.9%, +1.47% (371) | 78.0%, +1.44% | 79.5%, +1.70%
      (buy month = the Cycles tab's BUY WINDOW, the usual entry month; its
-     target is the median seasonal gain on the last weekly close). Left out
-     as weaker: the month before the buy month (STRONG +0.22% / -0.04% /
-     +0.45%) and MODERATE buy month (+0.82% / +1.46% / +2.16%). The 1-day rule
-     stays STRONG in season only: other groups made -0.5% to +0.5% a trade.
+     target is the median seasonal gain on the last weekly close). STRONG
+     only, by the user's choice (24 Nov 2026): MODERATE in season tested
+     +2.00% / +1.65% / +1.70% but is not alerted. Left out as weaker: the
+     month before the buy month (STRONG +0.22% / -0.04% / +0.45%). The 1-day
+     rule stays STRONG in season only: other groups made -0.5% to +0.5%.
      Gradual slides do as well as one big day; worst trade about -20%;
      signals bunch up on sell-off days. Daily closes come from the
      nightly price history (data/backtest/raw_ohlc, split/bonus-adjusted as in
@@ -69,7 +69,6 @@ DIP3_PRIOR_PCT = -5.0      # ... after falling at least this much over the 20 se
 DIP3_TARGET_PCT, DIP3_DAYS = 4.0, 10   # plan: +4% after charges within 10 sessions, else exit at the day-10 close
 DIP3_GROUPS = {   # (grade, phase) -> backtest line for the alert (full history .. 2026 data the rule hadn't seen)
     ("STRONG", "IN_SEASON"): "81–84% reached +4% within 10 days, +2.2–2.6% a trade",
-    ("MODERATE", "IN_SEASON"): "73–77% reached +4% within 10 days, +1.7–2.0% a trade",
     ("STRONG", "BUY_WINDOW"): "78–80% reached +4% within 10 days, +1.4–1.7% a trade",
 }
 DIP_GRADES = ("STRONG",)
@@ -347,8 +346,8 @@ def _daily_closes(sym, today):
 
 
 def dip3_alerts(cycles, prices, prev, month, now, buy=None, closes=_daily_closes):
-    """3-day rule: a cycle stock in one of DIP3_GROUPS (STRONG/MODERATE in season,
-    STRONG in its buy month) down 5-12% over the last 3 sessions after a 5%+ fall
+    """3-day rule: a cycle stock in one of DIP3_GROUPS (STRONG in season or in its
+    buy month) down 5-12% over the last 3 sessions after a 5%+ fall
     over the 20 sessions before them, still 12%+ below its seasonal target.
     Buy-at-close alerts only (from 15:10 IST)."""
     out, papers = [], []
@@ -686,7 +685,7 @@ def main():
     # login finds the day's fills): one summary per kind instead of a burst.
     BATCH = {"dip-close": ("📉", "STRONG cycle stocks down 3%+ near the close — buy-at-close candidates",
                            " Sell target for each: +2.23% from your buy price, within 5 trading days."),
-             "dip3-close": ("📉", "cycle stocks down 5–12% over 3 days — buy-at-close candidates",
+             "dip3-close": ("📉", "STRONG cycle stocks down 5–12% over 3 days — buy-at-close candidates",
                             " Sell target for each: +4.23% from your buy price, within 10 trading days."),
              "dip-early": ("👀", "STRONG cycle stocks down 3%+ today (heads-up)", ""),
              "swing-t": ("🎯", "swing targets reached", ""), "swing-s": ("🛑", "swing exit levels reached", ""),
