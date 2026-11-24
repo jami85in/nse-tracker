@@ -208,8 +208,12 @@ jobs:
           SESSION_END=$(python scripts/market_session.py end)
           if [ "$SESSION_END" != "0" ] && [ "$(now)" -lt "$((SESSION_END - 300))" ]; then
             echo "Stopped at the run's time limit before the close — starting a successor run."
-            gh workflow run prices_kite.yml --ref "${GITHUB_REF_NAME:-main}" -f interval_seconds="$INTERVAL_SECONDS" \
-              || { echo "::warning::Could not start the successor run — no prices or buy-at-close alerts for the rest of today unless it is started by hand."
+            started=""   # four tries: one Actions API hiccup must not end the day's prices (review E8)
+            for try in 1 2 3 4; do
+              gh workflow run prices_kite.yml --ref "${GITHUB_REF_NAME:-main}" -f interval_seconds="$INTERVAL_SECONDS" && { started=1; break; }
+              echo "successor dispatch attempt $try failed"; [ "$try" -lt 4 ] && sleep 30
+            done
+            [ -n "$started" ] || { echo "::warning::Could not start the successor run — no prices or buy-at-close alerts for the rest of today unless it is started by hand."
                    [ -n "$NTFY_TOPIC" ] && curl -s -m 20 -H "Title: Price loop stopped early" -H "Priority: 4" \
                      -d "The price loop couldn't start its successor run at $(ist): no prices or buy-at-close alerts for the rest of today. Start 'NSE Live Price Update (Kite Connect)' in GitHub Actions." \
                      "https://ntfy.sh/$NTFY_TOPIC" > /dev/null || true; }
@@ -290,3 +294,17 @@ jobs:
           except Exception as e:
               print(f"::warning::Could not request the capture ({type(e).__name__}); the evening schedule will still run it.")
           PY
+
+      # A run that fails during market hours (e.g. a successor whose setup step fails) would
+      # otherwise stop prices and alerts silently (review E8). A lost runner runs no step at all.
+      - name: Tell the phone if this run failed during market hours
+        if: failure()
+        env:
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+        run: |
+          h=$(TZ=Asia/Kolkata date +%H%M); d=$(TZ=Asia/Kolkata date +%u)
+          if [ "$d" -le 5 ] && [ "$h" -ge 0900 ] && [ "$h" -le 1530 ] && [ -n "$NTFY_TOPIC" ]; then
+            curl -s -m 20 -H "Title: Price loop run failed" -H "Priority: 4" \
+              -d "The price-loop run failed at $(TZ=Asia/Kolkata date +'%H:%M IST'): no prices or alerts until it is started again ('NSE Live Price Update (Kite Connect)' in GitHub Actions)." \
+              "https://ntfy.sh/$NTFY_TOPIC" > /dev/null || true
+          fi
