@@ -129,7 +129,11 @@ jobs:
               exit 0
             fi
           fi
-          LIMIT=$(( $(now) + 350*60 ))          # stay inside GitHub's 6-hour cap
+          LIMIT=$(( $(now) + 340*60 ))          # stay inside GitHub's 6-hour cap (job timeout 360 min)
+          # Hand over BEFORE the 15:10-15:30 buy-at-close rounds, not during them: a limit landing
+          # between 14:40 and 15:40 IST moves to 14:40, and the successor run covers the close.
+          Q1=$(TZ=Asia/Kolkata date -d "today 14:40" +%s); Q2=$(TZ=Asia/Kolkata date -d "today 15:40" +%s)
+          if [ "$LIMIT" -gt "$Q1" ] && [ "$LIMIT" -lt "$Q2" ] && [ "$(now)" -lt "$Q1" ]; then LIMIT=$Q1; fi
           [ "$LIMIT" -lt "$END" ] && END=$LIMIT
 
           if [ "$(now)" -ge "$END" ]; then
@@ -185,7 +189,11 @@ jobs:
             python scripts/trade_watch.py || true
             # Phone alerts (ntfy): swing levels, GTT triggers, STRONG cycle dips.
             python scripts/notify.py || true
-            sleep "$INTERVAL_SECONDS"
+            # never sleep past the end: an overrunning last sleep let GitHub's 6-hour kill land
+            # before the successor run was started (review 24 Nov 2026)
+            left=$(( END - $(now) ))
+            [ "$left" -le 0 ] && break
+            sleep $(( left < INTERVAL_SECONDS ? left : INTERVAL_SECONDS ))
           done
           echo "Loop done at $(ist): $fetched price updates committed."
           SESSION_END=$(python scripts/market_session.py end)

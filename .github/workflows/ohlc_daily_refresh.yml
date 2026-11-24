@@ -16,6 +16,8 @@ name: NSE Daily OHLC Refresh
 on:
   schedule:
     - cron: "30 13 * * 1-5"   # 19:00 IST, Mon-Fri
+    - cron: "15 23 * * 1-5"   # 04:45 IST next morning — backup (GitHub often runs schedules hours late;
+                              #   a run that finds nothing new commits nothing)
   workflow_dispatch:
     inputs:
       lookback_days:
@@ -33,7 +35,7 @@ concurrency:
 jobs:
   refresh:
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6
@@ -49,7 +51,33 @@ jobs:
           # surveillance keeps getting daily bars instead of going stale.
           BACKTEST_SERIES: "EQ,BE,BZ"
           BACKTEST_DAILY_LOOKBACK_DAYS: ${{ github.event.inputs.lookback_days || '12' }}
-        run: python scripts/backtest_fetch_ohlc.py
+        # The 3-day dip rule needs the latest session's bar: retry (3 min apart) until reference
+        # stocks have it, and fail the run (red) if they still don't, instead of passing silently.
+        run: |
+          for try in 1 2 3; do
+            python scripts/backtest_fetch_ohlc.py || echo "::warning::fetch attempt $try failed"
+            if python - <<'PY'
+          import datetime, json, sys
+          sys.path.insert(0, "scripts")
+          import market_session as M
+          now = datetime.datetime.now(M.IST)
+          s = M.session(now.date())
+          d = now.date() if (s and now.date().weekday() < 5 and now >= s[1] + datetime.timedelta(hours=2)) else now.date() - datetime.timedelta(days=1)
+          while d.weekday() >= 5 or d.isoformat() in M.HOLIDAYS:
+              d -= datetime.timedelta(days=1)
+          ok = 0
+          for sym in ("RELIANCE", "TCS", "HDFCBANK", "INFY", "ITC"):
+              try:
+                  ok += max(b.get("date", "") for b in json.load(open(f"data/backtest/raw_ohlc/{sym}.json"))) >= d.isoformat()
+              except Exception:
+                  pass
+          print(f"Latest session {d}: {ok}/5 reference stocks have its bar")
+          sys.exit(0 if ok >= 4 else 1)
+          PY
+            then exit 0; fi
+            [ "$try" -lt 3 ] && sleep 180
+          done
+          echo "::error::The latest session's bars are still missing after 3 tries"; exit 1
 
       # NSE hands back the previous session's file for a holiday, so each
       # holiday turned into a fake copy of the day before. Drop those.
@@ -65,5 +93,4 @@ jobs:
           git add data/backtest/raw_ohlc/ data/backtest/progress_ohlc.json
           if [ -d data/backtest/raw_ohlc_hist ]; then git add data/backtest/raw_ohlc_hist/; fi
           git diff --staged --quiet || git commit -m "ohlc-daily: refresh $(date -u +'%Y-%m-%d %H:%M UTC')"
-          git pull --rebase --autostash origin main || true
-          git push
+          for try in 1 2 3; do git pull -q --rebase --autostash origin main && git push -q && break; sleep 15; done
