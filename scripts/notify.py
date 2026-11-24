@@ -126,7 +126,7 @@ def swing_alerts(priv, prices):
         label = a.get("short") or aid
         for h in (led or {}).get("holdings", []):
             sw, sym = h.get("swing"), h.get("symbol")
-            p = prices.get(sym) or prices.get(f"{sym}-SM")
+            p = prices.get(sym) or prices.get(h.get("zerodha_symbol") or "") or prices.get(f"{sym}-SM")
             if not sw or not p:
                 continue
             # Keyed by the level and the buy date, not the day: a stock sitting above its target
@@ -141,7 +141,9 @@ def swing_alerts(priv, prices):
             k_ex = h.get("zerodha_exchange") or "NSE"
 
             def spec(px):
-                o = _order(k_sym, "SELL", q_, px, exchange=k_ex) if q_ >= 1 else None
+                # sell on NSE when Kite lists the stock there (prices and circuit bands are NSE's)
+                ex_ = "NSE" if k_ex != "NSE" and f"NSE:{k_sym}" in _instruments() else k_ex
+                o = _order(k_sym, "SELL", q_, px, exchange=ex_) if q_ >= 1 else None
                 return ({"account": aid, "client": a.get("client"), "who": label, "label": f"Sell {sym} ({label})",
                          "orders": [o]} if o else None)
             if p >= sw["target"]:
@@ -916,7 +918,16 @@ def main():
             if not any(k.startswith(str(y)) for k in M.HOLIDAYS):
                 alerts.append((f"sys:calendar-{y}", f"⚠️ NSE {y} holidays missing",
                                f"scripts/market_session.py has no {y} holidays: without them the price loop runs on exchange "
-                               f"holidays and the dip rules count sessions wrongly. Add NSE's {y} list.", 3, "warning"))
+                               f"holidays and the dip rules count sessions wrongly. Add NSE's {y} list there and to NSE_HOLIDAYS in "
+                               f"app.src.html (the dashboard's copy).", 3, "warning"))
+    except Exception:
+        pass
+    try:   # the cycle summary is rebuilt every Saturday; an old one silently misses stocks entering their season
+        as_of = dt.date.fromisoformat(str((json.load(open("data/cycles/summary.json")) or {}).get("as_of"))[:10])
+        if (now.date() - as_of).days > 10 and now.time() >= dt.time(9, 45):
+            alerts.append((f"sys:cycles-old-{as_of}", "⚠️ Cycle summary is out of date",
+                           f"data/cycles/summary.json is from {as_of:%d %b}: stocks whose season started since then get no "
+                           "dip checks. Check the 'cycles' workflow in GitHub Actions.", 3, "warning"))
     except Exception:
         pass
 

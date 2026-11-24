@@ -139,6 +139,26 @@ TRADED_TODAY = set()   # symbols whose last trade is from today (an unlisted hol
 CIRCUITS = {}   # today's [lower, upper] circuit limits per symbol (order links stay inside them)
 
 
+ALIAS = {}   # "SYM-BE" -> "SYM": a stock moved to trade-to-trade, quoted under Kite's name, filed under SYM
+
+
+def _take(quotes, prices):
+    for key, q in quotes.items():
+        sym = key.split(":", 1)[1]
+        sym = ALIAS.get(sym, sym)
+        price = q.get("last_price")
+        if price and price > 0:
+            prices[sym] = round(float(price), 2)
+            lo, hi = q.get("lower_circuit_limit"), q.get("upper_circuit_limit")
+            if lo and hi:
+                CIRCUITS[sym] = [round(float(lo), 2), round(float(hi), 2)]
+            if str(q.get("last_trade_time") or "")[:10] == datetime.datetime.now(IST).date().isoformat():
+                TRADED_TODAY.add(sym)
+            pc = (q.get("ohlc") or {}).get("close")
+            if pc and pc > 0:
+                PREV_CLOSE[sym] = round(float(pc), 2)
+
+
 def fetch_prices_kite(kite, symbols):
     """Kite's quote API wants 'EXCHANGE:SYMBOL' format and returns rich data
     (ohlc, depth, volume) — we only need last_price here. Supports up to
@@ -156,21 +176,22 @@ def fetch_prices_kite(kite, symbols):
                 import time
                 time.sleep(2)
                 quotes = kite.quote(batch)
-            for key, q in quotes.items():
-                sym = key.split(":", 1)[1]
-                price = q.get("last_price")
-                if price and price > 0:
-                    prices[sym] = round(float(price), 2)
-                    lo, hi = q.get("lower_circuit_limit"), q.get("upper_circuit_limit")
-                    if lo and hi:
-                        CIRCUITS[sym] = [round(float(lo), 2), round(float(hi), 2)]
-                    if str(q.get("last_trade_time") or "")[:10] == datetime.datetime.now(IST).date().isoformat():
-                        TRADED_TODAY.add(sym)
-                    pc = (q.get("ohlc") or {}).get("close")
-                    if pc and pc > 0:
-                        PREV_CLOSE[sym] = round(float(pc), 2)
+            _take(quotes, prices)
         except Exception as e:
             print(f"::warning::Quote batch of {len(batch)} symbols failed twice ({type(e).__name__}) - those prices are missing this round")
+    # A stock moved to trade-to-trade is SYM-BE / SYM-BZ at Kite: retry the few unpriced symbols under
+    # those names, filed under SYM (skipped when many are missing: that is an outage, not a series change).
+    missing = [s for s in symbols if s not in prices and not s.endswith(("-BE", "-BZ", "-SM", "-ST"))]
+    if 0 < len(missing) <= 40:
+        alt = {f"{s}-{x}": s for s in missing for x in ("BE", "BZ")}
+        ALIAS.update(alt)
+        try:
+            _take(kite.quote([f"NSE:{k}" for k in alt]), prices)
+        except Exception as e:
+            print(f"  -BE/-BZ retry failed ({type(e).__name__})")
+        moved = {v for v in alt.values() if v in prices}
+        if moved:
+            print(f"  Priced under their -BE/-BZ names: {len(moved)}")
     return prices
 
 
