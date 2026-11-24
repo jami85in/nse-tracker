@@ -1,6 +1,6 @@
 {
-  "date": "2026-11-23",
-  "market_open": true,
-  "reason": "Regular trading day (live NSE calendar)",
-  "checked_at": "2026-11-24 06:39 IST"
+  "date": "2026-11-24",
+  "market_open": false,
+  "reason": "NSE holiday (live NSE calendar): Prakash Gurpurb Sri Guru Nanak Dev",
+  "checked_at": "2026-11-25 04:42 IST"
 }
