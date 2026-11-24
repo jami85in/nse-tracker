@@ -143,7 +143,7 @@ def swing_alerts(priv, prices, plans=({}, {}), prev=None, plan_account="huf"):
             pday = o3.get(sym) or o1.get(sym)
             if aid == plan_account and pday and str(since) >= str(pday):
                 continue
-            pc = (prev or {}).get(sym) or (prev or {}).get(h.get("zerodha_symbol") or "")
+            pc = (prev or {}).get(sym) or (prev or {}).get(h.get("zerodha_symbol") or "") or (prev or {}).get(f"{sym}-SM")
             if pc and p < 0.8 * pc:
                 # down >20% on yesterday (beyond any circuit band): a bonus/split ex-date the ledger
                 # hasn't applied yet - no sell button for the whole pre-bonus quantity (review E6)
@@ -1132,7 +1132,8 @@ def main():
             if kind in ("dip-close", "dip3-close") and nb < len(group):
                 why = ((["Kite takes 10 at a time"] if len(orders_) > 10 else [])
                        + ([f"{reps} repeat{'s' if reps > 1 else ''}, still inside an earlier plan"] if reps else [])
-                       + (["one share costs more than the buy amount"] if len(specs) + reps < len(group) else []))
+                       + ((["order links are off or their settings couldn't be read"] if not buy_cfg else
+                           ["one share costs more than the buy amount"]) if len(specs) + reps < len(group) else []))
                 short = f" Order button: {nb} of {len(group)}" + (f" ({'; '.join(why)})." if why else ".")
             new = [a for a in new if a[0].split(":", 1)[0] != kind] + [(
                 f"{kind}:batch", f"{icon} {len(group)} {words}", ", ".join(syms) + "." + tail + short,
@@ -1206,6 +1207,8 @@ def main():
             for pp in recs:
                 if pp["symbol"] in rebuilt:
                     rebuilt[pp["symbol"]]["last_seen_at"] = now.strftime("%H:%M")
+                    if pp.get("repeat_of") and not rebuilt[pp["symbol"]].get("repeat_of"):
+                        rebuilt[pp["symbol"]]["repeat_of"] = pp["repeat_of"]   # a later round saw the open plan (review E10)
                 else:
                     rebuilt[pp["symbol"]] = dict(pp, seen_at=now.strftime("%H:%M"),
                                                  price_is="first 10-min round from 15:10 that met the rule")
