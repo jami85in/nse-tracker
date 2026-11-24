@@ -1914,6 +1914,11 @@ def update_ledger(ledger: dict, all_candidates: list, scan_date: str, scan_indic
                 cand_dict["blast_triggered_date"] = existing.get("blast_triggered_date", scan_date)
                 cand_dict["blast_entry_price"] = existing.get("blast_entry_price", cand_dict.get("blast_entry_price"))
                 cand_dict["blast_entry_date"] = existing.get("blast_entry_date", cand_dict.get("blast_entry_date"))
+                # the return must follow the kept entry price, not today's guess (it drives the list order
+                # and the card's "Up X%" - review E4)
+                bep = cand_dict.get("blast_entry_price")
+                if isinstance(bep, (int, float)) and bep > 0 and isinstance(cand_dict.get("price"), (int, float)):
+                    cand_dict["return_since_entry"] = round((cand_dict["price"] - bep) / bep * 100, 2)
                 # original_squeeze_entry_price/date: if this stock was
                 # tracked as a SQUEEZE before flipping, those are already
                 # carried on the existing record from the flip below — keep
