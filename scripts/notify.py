@@ -26,16 +26,22 @@ doesn't repeat it). Checks:
      on data to Dec 2025 75.7%, +0.21%. The room rule (8%, then 12% from 24
      Nov 2026) removes stocks at or past their target; it changes the count
      more than the results.
-  4. Cycle dips (3-day rule, added 24 Nov 2026): the same STRONG in-season
-     stocks, down 5-12% over the last 3 trading days (today's price vs the
-     close 3 sessions ago), after already falling 5%+ over the 20 sessions
-     before those 3, with the same 12% room: a priority-5 "buy at the close"
-     alert from 15:10 IST. Plan: +4% after charges within 10 trading days,
-     else exit at the day-10 close. Backtest (same data): in-sample 83.6%
-     hit, misses avg -4.5%, +2.61% a trade (641 trades, ~107 a year);
-     earlier-years medians 81.9%, +2.29%; 2026 refit 82.4%, +2.29% (85
-     trades). Gradual slides do as well as one big day; worst trade about
-     -20%; signals bunch up on sell-off days. Daily closes come from the
+  4. Cycle dips (3-day rule, added 24 Nov 2026): down 5-12% over the last 3
+     trading days (today's price vs the close 3 sessions ago), after already
+     falling 5%+ over the 20 sessions before those 3, with the same 12% room:
+     a priority-5 "buy at the close" alert from 15:10 IST. Plan: +4% after
+     charges within 10 trading days, else exit at the day-10 close. Groups
+     (backtest: full history | medians from earlier years | 2026 refit):
+       STRONG in season      83.6% hit, +2.61% a trade (641) | 81.9%, +2.29% | 81.4%, +2.20%
+       MODERATE in season    76.8%, +2.00% (835) | 72.9%, +1.65% | 75.1%, +1.70%
+       STRONG buy month      77.9%, +1.47% (371) | 78.0%, +1.44% | 79.5%, +1.70%
+     (buy month = the Cycles tab's BUY WINDOW, the usual entry month; its
+     target is the median seasonal gain on the last weekly close). Left out
+     as weaker: the month before the buy month (STRONG +0.22% / -0.04% /
+     +0.45%) and MODERATE buy month (+0.82% / +1.46% / +2.16%). The 1-day rule
+     stays STRONG in season only: other groups made -0.5% to +0.5% a trade.
+     Gradual slides do as well as one big day; worst trade about -20%;
+     signals bunch up on sell-off days. Daily closes come from the
      nightly price history (data/backtest/raw_ohlc, split/bonus-adjusted as in
      cycles.py); a stock is skipped unless that history ends at Kite's
      previous close (within 1%).
@@ -61,6 +67,11 @@ DIP_PCT = -3.0             # 1-day rule: today's fall (was -2.0 until 24 Nov 202
 DIP3_FALL = (5.0, 12.0)    # 3-day rule: fall over the last 3 sessions, % (min, max)
 DIP3_PRIOR_PCT = -5.0      # ... after falling at least this much over the 20 sessions before them
 DIP3_TARGET_PCT, DIP3_DAYS = 4.0, 10   # plan: +4% after charges within 10 sessions, else exit at the day-10 close
+DIP3_GROUPS = {   # (grade, phase) -> backtest line for the alert (full history .. 2026 data the rule hadn't seen)
+    ("STRONG", "IN_SEASON"): "81–84% reached +4% within 10 days, +2.2–2.6% a trade",
+    ("MODERATE", "IN_SEASON"): "73–77% reached +4% within 10 days, +1.7–2.0% a trade",
+    ("STRONG", "BUY_WINDOW"): "78–80% reached +4% within 10 days, +1.4–1.7% a trade",
+}
 DIP_GRADES = ("STRONG",)
 DIP_MIN_ROOM_PCT = 12.0    # cycle dips: the seasonal target must be at least this far above the price
 GTT_NEAR_PCT = 1.0
@@ -336,15 +347,20 @@ def _daily_closes(sym, today):
 
 
 def dip3_alerts(cycles, prices, prev, month, now, buy=None, closes=_daily_closes):
-    """3-day rule: STRONG in-season stock down 5-12% over the last 3 sessions after
-    a 5%+ fall over the 20 sessions before them, still 12%+ below its seasonal
-    target. Buy-at-close alerts only (from 15:10 IST)."""
+    """3-day rule: a cycle stock in one of DIP3_GROUPS (STRONG/MODERATE in season,
+    STRONG in its buy month) down 5-12% over the last 3 sessions after a 5%+ fall
+    over the 20 sessions before them, still 12%+ below its seasonal target.
+    Buy-at-close alerts only (from 15:10 IST)."""
     out, papers = [], []
     if not CLOSE_ROUND <= now.time() < MARKET_CLOSE:
         return out, papers
     today = now.date().isoformat()
     for s in cycles:
-        if s.get("grade") not in DIP_GRADES or not s.get("entry") or not in_season(s, month):
+        if not s.get("entry"):
+            continue
+        phase = "BUY_WINDOW" if (month - s["entry"]) % 12 == 0 else "IN_SEASON" if in_season(s, month) else None
+        group = DIP3_GROUPS.get((s.get("grade"), phase))
+        if not group:
             continue
         sym = s["symbol"]
         p, pc = prices.get(sym), prev.get(sym)
@@ -362,22 +378,28 @@ def dip3_alerts(cycles, prices, prev, month, now, buy=None, closes=_daily_closes
         fall, prior = (p / c3 - 1) * 100, (c3 / c23 - 1) * 100
         if not -DIP3_FALL[1] < fall <= -DIP3_FALL[0] or prior >= DIP3_PRIOR_PCT:
             continue
-        ct = cycle_target(s, p)
+        if phase == "BUY_WINDOW":   # the cycle starts this month: median gain on the last weekly close
+            med, lc = s.get("median"), s.get("last_close")
+            ct = ((lc * (1 + med / 100), (lc * (1 + med / 100) / p - 1) * 100)
+                  if isinstance(med, (int, float)) and isinstance(lc, (int, float)) and lc > 0 and 0.82 <= p / lc <= 1.22 else None)
+        else:
+            ct = cycle_target(s, p)
         if not ct or ct[1] < DIP_MIN_ROOM_PCT:
             continue
         r_ = p / s["last_close"]
         if any(abs(r_ / f - 1) <= 0.015 and (ct[0] * f / p - 1) * 100 < DIP_MIN_ROOM_PCT for f in (5 / 6, 10 / 11)):
             continue
         tgt = p * (1 + (DIP3_TARGET_PCT + COST_PCT) / 100)
+        label = f"{s['grade']} cycle" + (" · buy month" if phase == "BUY_WINDOW" else "")
         papers.append({"symbol": sym, "fall_3d_pct": round(fall, 2), "prior_20d_pct": round(prior, 2), "price": p,
                        "close_3_sessions_ago": round(c3, 2), "prev_close": pc, "target": round(tgt, 2),
-                       "cycle_target": round(ct[0], 2), "room_pct": round(ct[1], 1),
+                       "cycle_target": round(ct[0], 2), "room_pct": round(ct[1], 1), "grade": s["grade"], "phase": phase,
                        "plan": "+4% after charges within 10 sessions, else day-10 close"})
-        out.append((f"dip3-close:{sym}", f"📉 {sym} −{abs(fall):.1f}% over 3 days · STRONG cycle",
+        out.append((f"dip3-close:{sym}", f"📉 {sym} −{abs(fall):.1f}% over 3 days · {label}",
                     f"Now {rupees(p)} ({rupees(c3)} three sessions ago; it had already fallen {abs(prior):.0f}% over the 20 sessions before). "
                     f"Median seasonal target {rupees(ct[0])} (+{ct[1]:.0f}% from here). Plan: buy before the close, sell at {rupees(tgt)} "
-                    f"(+4% after charges) within 10 trading days, else exit at the day-10 close. Backtest: 82–84% reached +4% within 10 days "
-                    f"(82% on 2026 data the rule hadn't seen), +2.3–2.6% a trade; misses avg about −5%.{_no_buy_note(buy, p)}",
+                    f"(+4% after charges) within 10 trading days, else exit at the day-10 close. Backtest ({label}): {group}; "
+                    f"misses avg about −5%.{_no_buy_note(buy, p)}",
                     5, "chart_with_downwards_trend", _buy_spec(buy, sym, p)))
     return out, papers
 
@@ -664,7 +686,7 @@ def main():
     # login finds the day's fills): one summary per kind instead of a burst.
     BATCH = {"dip-close": ("📉", "STRONG cycle stocks down 3%+ near the close — buy-at-close candidates",
                            " Sell target for each: +2.23% from your buy price, within 5 trading days."),
-             "dip3-close": ("📉", "STRONG cycle stocks down 5–12% over 3 days — buy-at-close candidates",
+             "dip3-close": ("📉", "cycle stocks down 5–12% over 3 days — buy-at-close candidates",
                             " Sell target for each: +4.23% from your buy price, within 10 trading days."),
              "dip-early": ("👀", "STRONG cycle stocks down 3%+ today (heads-up)", ""),
              "swing-t": ("🎯", "swing targets reached", ""), "swing-s": ("🛑", "swing exit levels reached", ""),
