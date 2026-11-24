@@ -135,6 +135,7 @@ def fetch_family_prices(kite, family, have):
 
 PREV_CLOSE = {}   # yesterday's close per symbol, from the same quote call (ohlc.close)
 TRADED_TODAY = set()   # symbols whose last trade is from today (an unlisted holiday leaves this empty)
+CIRCUITS = {}   # today's [lower, upper] circuit limits per symbol (order links stay inside them)
 
 
 def fetch_prices_kite(kite, symbols):
@@ -153,6 +154,9 @@ def fetch_prices_kite(kite, symbols):
                 price = q.get("last_price")
                 if price and price > 0:
                     prices[sym] = round(float(price), 2)
+                    lo, hi = q.get("lower_circuit_limit"), q.get("upper_circuit_limit")
+                    if lo and hi:
+                        CIRCUITS[sym] = [round(float(lo), 2), round(float(hi), 2)]
                     if str(q.get("last_trade_time") or "")[:10] == datetime.datetime.now(IST).date().isoformat():
                         TRADED_TODAY.add(sym)
                     pc = (q.get("ohlc") or {}).get("close")
@@ -234,6 +238,8 @@ def main():
         "prices": prices,
         # previous session's close, for today's % change (cycle-dip alerts)
         "prev_close": {k: v for k, v in PREV_CLOSE.items() if k in prices},
+        # today's circuit band, so order links never carry a limit Kite would reject
+        "circuits": {k: v for k, v in CIRCUITS.items() if k in prices},
     }
     os.makedirs("data", exist_ok=True)
     with open("data/prices_live.json", "w") as f:
