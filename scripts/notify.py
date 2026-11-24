@@ -63,6 +63,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from private_repo import PrivateRepo
 
 IST = dt.timezone(dt.timedelta(hours=5, minutes=30))
+PREV_CLOSE_TOL = 0.003      # Kite's previous close vs the nightly history's last close (they match exactly on a normal day)
 DIP_PCT = -3.0             # 1-day rule: today's fall (was -2.0 until 24 Nov 2026)
 DIP3_FALL = (5.0, 12.0)    # 3-day rule: fall over the last 3 sessions, % (min, max)
 DIP3_PRIOR_PCT = -5.0      # ... after falling at least this much over the 20 sessions before them
@@ -300,11 +301,13 @@ def cycle_target(s, p):
     return t, (t / p - 1) * 100
 
 
-def dip_alerts(cycles, prices, prev, month, now, buy=None):
+def dip_alerts(cycles, prices, prev, month, now, buy=None, closes=None):
     out, papers = [], []
     if now.time() >= MARKET_CLOSE:
         return out, papers
     closing = now.time() >= CLOSE_ROUND
+    closes = closes or _daily_closes
+    want = _prev_session(now.date()).isoformat()
     for s in cycles:
         if s.get("grade") not in DIP_GRADES or not s.get("entry") or not in_season(s, month):
             continue
@@ -317,6 +320,12 @@ def dip_alerts(cycles, prices, prev, month, now, buy=None):
             continue
         if _bonus_like(p / pc):                  # ~-9.09% today: may be a 1:10 bonus ex-date, not a fall
             continue
+        try:   # Kite's previous close must agree with the price history when that is up to date
+            cl = closes(sym, now.date().isoformat())
+            if cl and cl[-1][0] == want and abs(cl[-1][1] / pc - 1) > PREV_CLOSE_TOL:
+                continue
+        except Exception:
+            pass
         ct = cycle_target(s, p)
         if not ct or ct[1] < DIP_MIN_ROOM_PCT:   # too close to (or past) its seasonal target, or unknown
             continue
@@ -346,14 +355,25 @@ def _bonus_like(r):
 
 
 def _prev_session(day):
-    """The last NSE trading day before `day` (holidays/weekends from market_session.py)."""
+    """The last regular NSE trading day before `day` (weekday, not in market_session.HOLIDAYS).
+    Weekend special sessions (Muhurat) are skipped: the nightly price history has no bar for
+    them, and the backtest windows didn't count them either."""
     import market_session as M
     d = day - dt.timedelta(days=1)
     for _ in range(15):
-        if M.session(d):
+        if d.weekday() < 5 and d.isoformat() not in M.HOLIDAYS:
             return d
         d -= dt.timedelta(days=1)
     return None
+
+
+def _recent_sessions(day, n):
+    """The n regular sessions before `day`, newest first."""
+    out, d = [], day
+    while len(out) < n:
+        d = _prev_session(d)
+        out.append(d)
+    return out
 
 
 def _daily_closes(sym, today):
@@ -376,7 +396,9 @@ def dip3_alerts(cycles, prices, prev, month, now, buy=None, closes=_daily_closes
         return out, papers
     import cycles as _C                          # fail the whole rule (keeping the last paper record) if missing
     today = now.date().isoformat()
-    want = _prev_session(now.date()).isoformat()  # the history must end at the previous trading session
+    want_d = _prev_session(now.date())
+    want = want_d.isoformat()                    # the history must end at the previous trading session
+    before_want = _prev_session(want_d).isoformat()
     missing = checked = 0
     for s in cycles:
         if not s.get("entry"):
@@ -395,9 +417,12 @@ def dip3_alerts(cycles, prices, prev, month, now, buy=None, closes=_daily_closes
         except Exception:
             missing += 1
             continue
-        # the history must end at the previous session, at Kite's previous close (within 1%):
+        filled = False
+        if last_day == before_want:   # the nightly refresh missed one session: Kite's previous close is that close
+            cl, last_day, filled = cl + [(want, pc)], want, True
+        # the history must end at the previous session, at Kite's previous close (within 0.3%):
         # a missed nightly refresh would otherwise shift the 3- and 20-session windows by a day
-        if len(cl) < 23 or last_day != want or abs(cl[-1][1] / pc - 1) > 0.01:
+        if len(cl) < 23 or last_day != want or abs(cl[-1][1] / pc - 1) > PREV_CLOSE_TOL:
             missing += 1
             continue
         checked += 1
@@ -424,6 +449,7 @@ def dip3_alerts(cycles, prices, prev, month, now, buy=None, closes=_daily_closes
         papers.append({"symbol": sym, "fall_3d_pct": round(fall, 2), "prior_20d_pct": round(prior, 2), "price": p,
                        "close_3_sessions_ago": round(c3, 2), "prev_close": pc, "target": round(tgt, 2),
                        "cycle_target": round(ct[0], 2), "room_pct": round(ct[1], 1), "grade": s["grade"], "phase": phase,
+                       **({"history_filled_from_kite": want} if filled else {}),
                        "plan": "+4% after charges within 10 sessions, else day-10 close"})
         out.append((f"dip3-close:{sym}", f"📉 {sym} −{abs(fall):.1f}% over 3 days · {label}",
                     f"Now {rupees(p)} ({rupees(c3)} three sessions ago; it had already fallen {abs(prior):.0f}% over the 20 sessions before). "
@@ -436,6 +462,49 @@ def dip3_alerts(cycles, prices, prev, month, now, buy=None, closes=_daily_closes
         if not checked:   # nothing could be checked: keep the last paper record instead of wiping it
             raise RuntimeError("no price history up to the previous session")
     return out, papers
+
+
+def open_plans(priv, day):
+    """Stocks still inside an earlier paper-record plan: ({sym: day} for the 1-day rule (last 5
+    sessions), {sym: day} for the 3-day rule (last 10 sessions)). Plans that hit their target
+    early still count until the window ends (no prices needed; errs towards fewer buy buttons)."""
+    days = [d.isoformat() for d in _recent_sessions(day, 10)]
+    recs = {"dips": {}, "dips3": {}}
+    for m in sorted({d[:7] for d in days}):
+        st, _ = priv.get_json(f"notify/state-{m}.json", {})
+        for k in recs:
+            recs[k].update((st or {}).get(k) or {})
+    o1, o3 = {}, {}
+    for i, d in enumerate(days):                 # newest first, so the earliest day wins
+        for sym in recs["dips"].get(d, {}):
+            if i < 5:
+                o1[sym] = d
+        for sym in recs["dips3"].get(d, {}):
+            o3[sym] = d
+    return o1, o3
+
+
+def mark_repeats(a1, papers1, a3, papers3, o1, o3):
+    """A buy alert for a stock already in an open plan (either rule) keeps its text but loses the
+    order button and says so; the paper record notes repeats per rule (the backtest held one
+    position per stock, so repeats are kept apart when judging the rules)."""
+    def fix(alerts, kind):
+        out = []
+        for a in alerts:
+            k, _, sym = a[0].partition(":")
+            since = o1.get(sym) or o3.get(sym)
+            if k == kind and since:
+                a = (a[0], a[1], a[2] + f" Repeat: already in an open plan from {since}, so no order button.",
+                     a[3], a[4], None)
+            out.append(a)
+        return out
+    for pp in papers1:
+        if pp["symbol"] in o1:
+            pp["repeat_of"] = o1[pp["symbol"]]
+    for pp in papers3:
+        if pp["symbol"] in o3:
+            pp["repeat_of"] = o3[pp["symbol"]]
+    return fix(a1, "dip-close"), fix(a3, "dip3-close")
 
 
 def merge_dips(a1, a3):
@@ -721,7 +790,25 @@ def main():
                 dips3_ok = True
             except Exception as e:
                 print(f"::warning::3-day cycle-dip check skipped this round ({type(e).__name__})")
+                if CLOSE_ROUND <= now.time() < MARKET_CLOSE:
+                    alerts.append(("sys:dip3-off", "⚠️ 3-day dip rule couldn't run today",
+                                   "The daily price history isn't up to the previous session (or couldn't be read), so the "
+                                   "3-day rule skipped its buy-at-close check. The 1-day rule is unaffected.", 3, "warning"))
+            try:
+                o1, o3 = open_plans(priv, now.date())
+                a, a3 = mark_repeats(a, papers, a3, papers3, o1, o3)   # also marks the paper records
+            except Exception as e:
+                print(f"::warning::open-plan check skipped ({type(e).__name__}) - repeats keep their order button")
         alerts += merge_dips(a, a3)
+    try:   # the holiday calendar must cover this year (and next year from mid-December)
+        import market_session as M
+        for y in [now.year] + ([now.year + 1] if (now.month, now.day) >= (12, 15) else []):
+            if not any(k.startswith(str(y)) for k in M.HOLIDAYS):
+                alerts.append((f"sys:calendar-{y}", f"⚠️ NSE {y} holidays missing",
+                               f"scripts/market_session.py has no {y} holidays: the price loop and the 3-day rule rely on "
+                               f"them. Add NSE's {y} list.", 3, "warning"))
+    except Exception:
+        pass
 
     state_path = f"notify/state-{today[:7]}.json"
     state, sha = priv.get_json(state_path, {})
@@ -816,9 +903,16 @@ def main():
         for ok_, key_, recs in ((dips_ok, "dips", papers), (dips3_ok, "dips3", papers3)):
             if not ok_:
                 continue
-            rebuilt = {pp["symbol"]: dict(pp, seen_at=now.strftime("%H:%M"), price_is="last 10-min round from 15:10")
-                       for pp in recs}
-            if rebuilt or today in state.get(key_, {}):
+            # every stock that met the rule in a closing round stays (the alert went out then);
+            # the first round's price is kept, later rounds only update last_seen_at
+            rebuilt = json.loads(json.dumps(state.get(key_, {}).get(today, {})))
+            for pp in recs:
+                if pp["symbol"] in rebuilt:
+                    rebuilt[pp["symbol"]]["last_seen_at"] = now.strftime("%H:%M")
+                else:
+                    rebuilt[pp["symbol"]] = dict(pp, seen_at=now.strftime("%H:%M"),
+                                                 price_is="first 10-min round from 15:10 that met the rule")
+            if rebuilt:
                 state.setdefault(key_, {})[today] = rebuilt
     if json.dumps(state, sort_keys=True) != before:   # commit only when something changed
         try:
