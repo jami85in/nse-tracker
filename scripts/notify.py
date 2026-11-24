@@ -843,6 +843,10 @@ def main():
     elif fresh and closing_now and upd[11:16] < "15:05":
         # buy-at-close alerts and paper records need a price from the closing window
         print("::warning::cycle-dip checks skipped - waiting for a price from the closing window")
+        if now.time() >= dt.time(15, 18):        # say so: silence after a heads-up reads as "no longer qualifies"
+            alerts.append(("sys:close-wait", "⚠️ No closing prices yet",
+                           f"Live prices last updated at {upd[11:16]}, so the buy-at-close checks haven't run today. No buy alert "
+                           "does not mean today's heads-ups stopped qualifying. Check Kite and the price-loop run.", 4, "warning"))
     elif fresh:
         a, a3 = [], []
         try:
@@ -888,7 +892,13 @@ def main():
         s_ = M.session(now.date())
         if s_ and s_[0] + dt.timedelta(minutes=30) <= now <= s_[1] and (not fresh or age is None or age > 25 * 60):
             tok, _ = priv.get_json(ACCOUNTS[0][2], None)
-            if tok and tok.get("access_token") and not token_is_stale(tok, now):
+            try:   # a login in the last 20 minutes: no full round has run with it yet (the login can land
+                   # between this round's token check and notify.py - review E1 25 Nov 2026)
+                made = dt.datetime.strptime(str((tok or {}).get("generated_at", ""))[:16], "%Y-%m-%d %H:%M").replace(tzinfo=IST)
+            except ValueError:
+                made = None
+            if (tok and tok.get("access_token") and not token_is_stale(tok, now)
+                    and (made is None or now - made >= dt.timedelta(minutes=20))):
                 alerts.append(("sys:prices-stale", "⚠️ Live prices not updating",
                                f"Today's HUF login is in, but live prices last updated {upd or 'not today'}. "
                                "Cycle-dip alerts are paused; swing alerts may use an old price. Check Kite (outage or "
