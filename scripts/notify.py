@@ -710,6 +710,10 @@ def private_repo_reachable(priv, topic, now):
                                timeout=30).close()
         return True
     except urllib.error.HTTPError as e:
+        if e.code == 403 and (e.headers.get("X-RateLimit-Remaining") == "0" or e.headers.get("Retry-After")):
+            # the account's API quota is used up (e.g. many hits on the public worker): not a broken token
+            print("::warning::GitHub API rate limit reached for the private-repo token - skipping this round")
+            return False
         if e.code not in (401, 403, 404):
             return True                           # GitHub hiccup: let the round try as usual
         code = e.code

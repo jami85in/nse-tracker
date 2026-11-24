@@ -92,4 +92,4 @@ if __name__ == "__main__":
         print("No token available (check SECRETS_REPO / SECRETS_REPO_PAT env vars).")
     else:
         print(f"Token found. Stale (not from today): {stale}")
-        print(f"Token (first 8 chars): {token[:8]}...")
+        print("Token present (not printed).")
