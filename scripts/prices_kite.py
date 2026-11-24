@@ -148,7 +148,13 @@ def fetch_prices_kite(kite, symbols):
     for i in range(0, len(instruments), BATCH):
         batch = instruments[i:i + BATCH]
         try:
-            quotes = kite.quote(batch)
+            try:
+                quotes = kite.quote(batch)
+            except Exception as e1:              # one retry, so a hiccup doesn't drop ~400 symbols
+                print(f"  Batch fetch error ({type(e1).__name__}) - retrying once")
+                import time
+                time.sleep(2)
+                quotes = kite.quote(batch)
             for key, q in quotes.items():
                 sym = key.split(":", 1)[1]
                 price = q.get("last_price")
@@ -163,7 +169,7 @@ def fetch_prices_kite(kite, symbols):
                     if pc and pc > 0:
                         PREV_CLOSE[sym] = round(float(pc), 2)
         except Exception as e:
-            print(f"  Batch fetch error: {e}")
+            print(f"::warning::Quote batch of {len(batch)} symbols failed twice ({type(e).__name__}) - those prices are missing this round")
     return prices
 
 
@@ -216,7 +222,7 @@ def main():
     # An exchange holiday missing from scripts/market_session.py: Kite still answers, with the
     # last session's trades. Don't publish those as today's prices (the dip alerts would read
     # them as today's moves).
-    if now_ist.time() >= datetime.time(9, 20) and len(TRADED_TODAY) < 0.2 * len(prices):
+    if now_ist.time() >= datetime.time(9, 17) and len(TRADED_TODAY) < 0.2 * len(prices):
         print(f"::warning::Only {len(TRADED_TODAY)} of {len(prices)} quotes traded today - an exchange holiday missing "
               "from scripts/market_session.py? Preserving existing file.")
         return

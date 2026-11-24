@@ -617,7 +617,10 @@ def _order(sym, side, qty, price, exchange="NSE", product="CNC"):
     if q < 1:
         return None
     px = _tick(price, side, tick)
-    lo, hi = (CIRCUITS.get(sym) or CIRCUITS.get(ts) or (None, None))[:2]
+    cb = CIRCUITS.get(sym) or CIRCUITS.get(ts)
+    lo, hi = cb[:2] if isinstance(cb, (list, tuple)) and len(cb) >= 2 else (None, None)
+    if not (isinstance(lo, (int, float)) and isinstance(hi, (int, float)) and 0 < lo < hi):
+        lo = hi = None                           # a malformed band is ignored
     if lo and px < lo:                           # Kite rejects limits outside today's circuit band
         px = _tick(lo, "BUY", tick)
     if hi and px > hi:
@@ -771,11 +774,13 @@ def main():
         live = json.load(open("data/prices_live.json"))
     except (OSError, ValueError):
         live = {}
+    if not isinstance(live, dict):               # "null" / "[]" in the file
+        live = {}
     fresh = live.get("data_date") == today       # price alerts only on today's prices
     CIRCUITS.clear()                             # today's circuit limits, to keep order links inside them
     CIRCUITS.update((live.get("circuits") or {}) if fresh else {})
-    prices = dict(live.get("prices", {})) if fresh else {}
-    prev = live.get("prev_close", {}) if fresh else {}
+    prices = dict(live.get("prices") or {}) if fresh else {}
+    prev = (live.get("prev_close") or {}) if fresh else {}
     links_on, buy_cfg = _links_config(priv)
 
     # GTT and order checks also refresh the private gtt/orders files the dashboard
@@ -794,19 +799,36 @@ def main():
     if not topic:
         return 0                                  # nowhere to send alerts (NTFY_TOPIC not set)
     dips_ok = dips3_ok = False
+    dip_off = None                               # why the dip rules couldn't run (for the phone notice)
+    upd = str(live.get("updated_at") or "")
     try:   # cycle-dip alerts and paper records only on prices from the last ~25 minutes
-        age = (now - dt.datetime.strptime(live.get("updated_at", "")[:16], "%Y-%m-%d %H:%M").replace(tzinfo=IST)).total_seconds()
-    except ValueError:
+        age = (now - dt.datetime.strptime(upd[:16], "%Y-%m-%d %H:%M").replace(tzinfo=IST)).total_seconds()
+        if age < -120:                           # a time in the future: not trustworthy
+            age = None
+    except (ValueError, TypeError):
         age = None
+    closing_now = CLOSE_ROUND <= now.time() < MARKET_CLOSE
     if fresh and (age is None or age > 25 * 60):
         print("::warning::cycle-dip checks skipped - live prices are older than 25 minutes")
+    elif fresh and closing_now and upd[11:16] < "15:05":
+        # buy-at-close alerts and paper records need a price from the closing window
+        print("::warning::cycle-dip checks skipped - waiting for a price from the closing window")
     elif fresh:
         a, a3 = [], []
         try:
-            cycles = json.load(open("data/cycles/summary.json")).get("stocks", [])
+            cycles = (json.load(open("data/cycles/summary.json")) or {}).get("stocks") or []
+            # rows with a malformed field are skipped one by one instead of failing a whole rule
+            cycles = [s for s in cycles if isinstance(s, dict) and isinstance(s.get("symbol"), str) and s["symbol"]
+                      and (s.get("entry") is None or isinstance(s.get("entry"), int))
+                      and (s.get("hold") is None or isinstance(s.get("hold"), int))]
+            if not cycles:
+                raise ValueError("no usable rows")
         except Exception as e:
             cycles = None
+            dip_off = "the cycle summary (data/cycles/summary.json) is missing, unreadable or empty"
             print(f"::warning::cycle-dip checks skipped this round ({type(e).__name__})")
+        if prices and not prev:
+            dip_off = "Kite's previous closes are missing from the live price file"
         if cycles is not None:
             try:
                 a, papers = dip_alerts(cycles, prices, prev, now.month, now, buy_cfg)
@@ -818,10 +840,12 @@ def main():
                 dips3_ok = True
             except Exception as e:
                 print(f"::warning::3-day cycle-dip check skipped this round ({type(e).__name__})")
-                if CLOSE_ROUND <= now.time() < MARKET_CLOSE:
+                if closing_now:
+                    why = ("The daily price history isn't up to the previous session (or couldn't be read)"
+                           if isinstance(e, RuntimeError) else f"The check failed ({type(e).__name__})")
                     alerts.append(("sys:dip3-off", "⚠️ 3-day dip rule couldn't run today",
-                                   "The daily price history isn't up to the previous session (or couldn't be read), so the "
-                                   "3-day rule skipped its buy-at-close check. The 1-day rule is unaffected.", 3, "warning"))
+                                   f"{why}, so the 3-day rule skipped its buy-at-close check"
+                                   + (". The 1-day rule ran." if dips_ok else ".") , 3, "warning"))
             try:
                 o1, o3 = open_plans(priv, now.date())
                 a, a3 = mark_repeats(a, papers, a3, papers3, o1, o3)   # also marks the paper records
@@ -832,13 +856,17 @@ def main():
         import market_session as M
         from kite_token_reader import token_is_stale
         s_ = M.session(now.date())
-        if s_ and s_[0] + dt.timedelta(minutes=30) <= now <= s_[1] and (not fresh or age is None or age > 30 * 60):
+        if s_ and s_[0] + dt.timedelta(minutes=30) <= now <= s_[1] and (not fresh or age is None or age > 25 * 60):
             tok, _ = priv.get_json(ACCOUNTS[0][2], None)
             if tok and tok.get("access_token") and not token_is_stale(tok, now):
                 alerts.append(("sys:prices-stale", "⚠️ Live prices not updating",
-                               f"Today's HUF login is in, but live prices last updated {live.get('updated_at') or 'not today'}. "
-                               "Alerts that need prices are paused. Check Kite (outage or subscription) and the price-loop run.",
+                               f"Today's HUF login is in, but live prices last updated {upd or 'not today'}. "
+                               "Alerts that need prices are paused. Check Kite (outage or subscription), the price-loop run, "
+                               "and whether today is an exchange holiday missing from scripts/market_session.py.",
                                4, "warning"))
+        if s_ and dip_off and s_[0] + dt.timedelta(minutes=30) <= now <= s_[1]:
+            alerts.append(("sys:dip-inputs", "⚠️ Cycle-dip checks are off", f"The dip rules can't run: {dip_off}.",
+                           3, "warning"))
     except Exception:
         pass
     try:   # the holiday calendar must cover this year (and next year from mid-December)
@@ -852,12 +880,25 @@ def main():
         pass
 
     state_path = f"notify/state-{today[:7]}.json"
-    state, sha = priv.get_json(state_path, {})
-    state = state or {}
-    sent_today = set(state.get(today, [])) | _local_sent(today)
-    levels, lsha = priv.get_json("notify/levels.json", {})   # swing level alerts: once per level, across months
-    levels = levels or {}
-    sticky = set(levels.get("sent", []))
+    state_ok = True
+    try:
+        state, sha = priv.get_json(state_path, {})
+        state = {} if state is None else state
+        levels, lsha = priv.get_json("notify/levels.json", {})   # swing level alerts: once per level, across months
+        levels = {} if levels is None else levels
+        if not isinstance(state, dict) or not isinstance(state.get(today, []), list) or not isinstance(levels, dict):
+            raise ValueError("unexpected content")
+        for k_ in ("dips", "dips3"):            # paper records: {day: {symbol: {...}}}
+            if not isinstance(state.get(k_, {}), dict) or not isinstance(state.get(k_, {}).get(today, {}), dict):
+                raise ValueError("unexpected paper-record content")
+        sent_today = set(state.get(today, [])) | _local_sent(today)
+        sticky = set(levels.get("sent") or [])
+    except Exception as e:
+        # A GitHub error/timeout here used to lose the whole round. Send anyway (the runner's own
+        # record still stops repeats) and save nothing, so the month's file is never overwritten.
+        print(f"::warning::alert state not readable this round ({type(e).__name__}) - sending, saving nothing")
+        state_ok, state, sha, levels, lsha = False, {}, None, {}, None
+        sent_today, sticky = set(_local_sent(today)), set()
     # One buy alert per stock per day across both dip rules: a stock already alerted by one
     # rule (or by the merged alert) earlier today gets no second order button from the other.
     def _buy_sym(k):
@@ -910,6 +951,9 @@ def main():
                     "One tap opens Kite with all of them filled in - use this or the single buttons, not both. Check quantities and prices, then place.",
                     5, "shopping_cart", dict(singles[0][5], label=f"Buy at the close: {', '.join(syms_)}",
                                              orders=[a[5]["orders"][0] for a in singles][:10])))
+        # a delivered basket counts for its stocks too: a single alert that failed to send is not
+        # re-sent next round with a second order button
+        batch_keys[f"dip-basket:{'+'.join(syms_)}"] = [a[0] for a in singles]
     links = _save_links(priv, today, now, new) if links_on else {}
     new = [a for a in new if not a[0].startswith("dip-basket:") or a[0] in links]   # its only point is the button
     delivered = []
@@ -931,12 +975,12 @@ def main():
     if delivered:
         state[today] = sorted(sent_today | {d for d in delivered if not d.startswith("swing-")})
     new_levels = {d for d in delivered if d.startswith("swing-")}
-    if new_levels:
+    if new_levels and state_ok:
         try:
             priv.put_json("notify/levels.json", {"sent": sorted(sticky | new_levels)}, f"notify levels {today}", lsha)
         except Exception as e:
             print(f"::warning::alert levels not saved ({type(e).__name__})")
-    if fresh and CLOSE_ROUND <= now.time() < MARKET_CLOSE:
+    if state_ok and fresh and CLOSE_ROUND <= now.time() < MARKET_CLOSE:
         # Paper records of the tested rules ("dips" = 1-day, "dips3" = 3-day): rebuilt every
         # round from 15:10, so each ends up as the stocks that still qualify in the last
         # round (the price is that round's, not the official close). A failed check keeps
@@ -955,7 +999,7 @@ def main():
                                                  price_is="first 10-min round from 15:10 that met the rule")
             if rebuilt:
                 state.setdefault(key_, {})[today] = rebuilt
-    if json.dumps(state, sort_keys=True) != before:   # commit only when something changed
+    if state_ok and json.dumps(state, sort_keys=True) != before:   # commit only when something changed
         try:
             priv.put_json(state_path, state, f"notify: {today}", sha)
         except Exception as e:
