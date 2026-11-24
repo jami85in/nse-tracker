@@ -64,7 +64,7 @@ jobs:
       # A plain checkout can silently land on the commit just before that
       # push. This makes it impossible to miss regardless of timing.
       - name: Ensure absolute latest commit (workflow_run timing safety)
-        run: git pull --ff-only origin main
+        run: git pull --ff-only origin main || { sleep 20; git pull --ff-only origin main; }   # one retry (review E3)
 
       - uses: actions/setup-python@v6
         with:
@@ -97,5 +97,9 @@ jobs:
           git config user.email "actions@github.com"
           git add data/
           git diff --staged --quiet || git commit -m "scan: $(date -u +'%Y-%m-%d %H:%M UTC')"
-          git pull --rebase --autostash origin main || true
-          git push
+          # three tries; a failed save goes red instead of losing the night's scan quietly (review E3)
+          for try in 1 2 3; do
+            git pull -q --rebase --autostash origin main && git push -q && exit 0
+            git rebase --abort 2>/dev/null || true; sleep 15
+          done
+          echo "::error::Could not push the scan results after 3 attempts"; exit 1
