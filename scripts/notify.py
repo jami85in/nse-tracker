@@ -38,7 +38,8 @@ doesn't repeat it). Checks:
        STRONG buy month      77.9%, +1.47% (371) | 78.0%, +1.44% | 79.5%, +1.70%
      (buy month = the Cycles tab's BUY WINDOW, the usual entry month; its
      target is the median seasonal gain on the last weekly close). STRONG
-     only, by the user's choice (24 Nov 2026): MODERATE in season tested
+     only, by the user's choice (24 Nov 2026), and only stocks that held their latest walk-forward test
+     (DIP_REQUIRE_HELD, also the user's choice; applies to the 1-day rule too): MODERATE in season tested
      +2.00% / +1.65% / +1.70% but is not alerted. Left out as weaker: the
      month before the buy month (STRONG +0.22% / -0.04% / +0.45%). The 1-day
      rule stays STRONG in season only: other groups made -0.5% to +0.5%.
@@ -79,11 +80,20 @@ DIP3_PRIOR_PCT = -5.0      # ... after falling at least this much over the 20 se
 DIP3_TARGET_PCT, DIP3_DAYS = 4.0, 10   # plan: +4% after charges within 10 sessions, else exit at the day-10 close
 DIP3_GROUPS = {   # (grade, phase) -> backtest line for the alert (full history .. 2026 test; the thresholds were
                   # chosen with 2026 in view, so only the stock list is truly out-of-sample - review 24 Nov 2026)
-    ("STRONG", "IN_SEASON"): "81–84% reached +4% within 10 days, +2.2–2.6% a trade; misses avg about −5% (−4.5 to −5.5%)",
-    ("STRONG", "BUY_WINDOW"): "78–80% reached +4% within 10 days, +1.0–1.7% a trade; misses avg about −7.5% "
-                              "and about 1 trade in 17 lost over 10%",
+    # figures for the stocks that held their latest walk-forward test (DIP_REQUIRE_HELD; 2026 uses the test as
+    # it read at the end of 2025)
+    ("STRONG", "IN_SEASON"): "80–85% reached +4% within 10 days, +2.2–2.7% a trade; misses avg about −5% (−4.6 to −5.4%)",
+    ("STRONG", "BUY_WINDOW"): "76–91% reached +4% within 10 days, +1.4–2.5% a trade; misses avg about −7% "
+                              "(2026: 2 misses, avg −13%) and 1 trade in 11–22 lost over 10%",
 }
 DIP_GRADES = ("STRONG",)
+# Cycle-dip alerts (heads-ups and buys, both rules) only for stocks whose Cycles card shows "✓ held in latest test"
+# (summary wf_worked is True); "✗ failed latest test" and untested stocks get none (user's choice, 24 Nov 2026).
+# Backtest (+2%/5d 1-day; +4%/10d 3-day), all STRONG -> held only, full history | earlier-years medians | 2026
+# with the test as of end-2025: 1-day +0.70 -> +0.74 | +0.60 -> +0.68 | +0.21 -> +0.24%; 3-day in season
+# +2.61 -> +2.42 | +2.29 -> +2.15 | +2.20 -> +2.69%; buy month +1.47 -> +1.36 | +1.44 -> +1.56 | +1.70 -> +2.48%.
+# About 45% fewer trades; the 2026 gain rests on 41 and 22 trades.
+DIP_REQUIRE_HELD = True
 DIP_MIN_ROOM_PCT = 12.0    # cycle dips: the seasonal target must be at least this far above the price
 GTT_NEAR_PCT = 1.0
 COST_PCT = 0.23
@@ -349,6 +359,8 @@ def dip_alerts(cycles, prices, prev, month, now, buy=None, closes=None):
     for s in cycles:
         if s.get("grade") not in DIP_GRADES or not s.get("entry") or not in_season(s, month):
             continue
+        if DIP_REQUIRE_HELD and s.get("wf_worked") is not True:   # "✗ failed latest test" / untested: no alert
+            continue
         sym = s["symbol"]
         p, pc = prices.get(sym), prev.get(sym)
         if not p or not pc:
@@ -387,7 +399,7 @@ def dip_alerts(cycles, prices, prev, month, now, buy=None, closes=None):
                            "cycle_target": round(ct[0], 2), "room_pct": round(ct[1], 1),
                            "plan": "+2% after charges within 5 sessions, else day-5 close"})
             out.append((f"dip-close:{sym}", f"📉 {sym} −{abs(chg):.1f}% near the close · STRONG cycle in season",
-                        f"Now {rupees(p)} (prev close {rupees(pc)}). {season} Plan: buy before the close, sell at {rupees(tgt)} (+2% after charges; 2.23% above your actual buy price) within 5 trading days, else at the day-5 close. Backtest: 76–81% reached +2% within 5 days, but only +0.2–0.7% a trade, and +0.2% in 2026, no better than buying these stocks on any in-season day. Paper-test first; misses avg about −5%.{_no_buy_note(buy, p)}", 5, "chart_with_downwards_trend", _buy_spec(buy, sym, p)))
+                        f"Now {rupees(p)} (prev close {rupees(pc)}). {season} Plan: buy before the close, sell at {rupees(tgt)} (+2% after charges; 2.23% above your actual buy price) within 5 trading days, else at the day-5 close. Backtest (✓ held stocks): 76–81% reached +2% within 5 days, but only +0.2–0.7% a trade and +0.2% in 2026, a thin edge at best. Paper-test first; misses avg about −5%.{_no_buy_note(buy, p)}", 5, "chart_with_downwards_trend", _buy_spec(buy, sym, p)))
         else:
             out.append((f"dip-early:{sym}", f"👀 {sym} −{abs(chg):.1f}% · STRONG cycle in season",
                         f"Now {rupees(p)}. {season} Heads-up only: the tested rule buys at the close if it's still down 3%+; you'll get a buzz after 3:10 pm if so.", 4, "eyes"))
@@ -465,6 +477,8 @@ def dip3_alerts(cycles, prices, prev, month, now, buy=None, closes=_daily_closes
             continue
         phase = "BUY_WINDOW" if (month - s["entry"]) % 12 == 0 else "IN_SEASON" if in_season(s, month) else None
         group = DIP3_GROUPS.get((s.get("grade"), phase))
+        if DIP_REQUIRE_HELD and s.get("wf_worked") is not True:   # "✗ failed latest test" / untested: no alert
+            continue
         if not group:
             continue
         sym = s["symbol"]
@@ -981,6 +995,9 @@ def main():
             cycles = None
             dip_off = "the cycle summary (data/cycles/summary.json) is missing, unreadable or empty"
             print(f"::warning::cycle-dip checks skipped this round ({type(e).__name__})")
+        if cycles is not None and DIP_REQUIRE_HELD and not any(s.get("wf_worked") is True for s in cycles):
+            # every alert needs "held in latest test": a summary without that field would silence them all
+            dip_off = "no stock in the cycle summary is marked as held in its latest test (wf_worked missing?)"
         if prices and not prev:
             dip_off = "Kite's previous closes are missing from the live price file"
         if cycles is not None:
@@ -1097,12 +1114,11 @@ def main():
     # login finds the day's fills): one summary per kind instead of a burst.
     BATCH = {"dip-close": ("📉", "STRONG cycle stocks down 3%+ near the close — buy-at-close candidates",
                            " Plan for each: sell at +2.23% over your buy price (+2% after charges) within 5 trading days, else at"
-                           " the day-5 close. Backtest +0.2–0.7% a trade, +0.2% in 2026 (no better than any in-season day):"
-                           " paper-test first."),
+                           " the day-5 close. Backtest (✓ held stocks) +0.2–0.7% a trade, +0.2% in 2026: paper-test first."),
              "dip3-close": ("📉", "STRONG cycle stocks down 5–12% over 3 days — buy-at-close candidates",
                             " Plan for each: sell at +4.23% over your buy price (+4% after charges) within 10 trading days, else"
-                            " at the day-10 close. * = buy month: weaker backtest (misses avg about −7.5%, about 1 in 17 lost"
-                            " over 10%)."),
+                            " at the day-10 close. All ✓ held in latest test. * = buy month: misses avg about −7%, 1 in 11–22"
+                            " lost over 10%."),
              "dip-early": ("👀", "STRONG cycle stocks down 3%+ today (heads-up)", ""),
              "swing-t": ("🎯", "swing targets reached", ""), "swing-s": ("🛑", "swing exit levels reached", ""),
              "gtt-fired": ("✅", "GTTs triggered", " Check the orders in Kite."),
