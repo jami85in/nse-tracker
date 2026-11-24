@@ -313,6 +313,8 @@ def dip_alerts(cycles, prices, prev, month, now, buy=None):
         chg = (p / pc - 1) * 100
         if chg > DIP_PCT or chg < -15:          # below -15%: likely a split/bonus ex-date, not a real fall
             continue
+        if _bonus_like(p / pc):                  # ~-9.09% today: may be a 1:10 bonus ex-date, not a fall
+            continue
         ct = cycle_target(s, p)
         if not ct or ct[1] < DIP_MIN_ROOM_PCT:   # too close to (or past) its seasonal target, or unknown
             continue
@@ -335,6 +337,23 @@ def dip_alerts(cycles, prices, prev, month, now, buy=None):
     return out, papers
 
 
+def _bonus_like(r):
+    """A day-to-day price ratio within 0.25% of a 1:5 (5/6) or 1:10 (10/11) bonus factor:
+    cycles.py only adjusts gaps deeper than -18%, so such a day may be a bonus, not a fall."""
+    return any(abs(r / f - 1) <= 0.0025 for f in (5 / 6, 10 / 11))
+
+
+def _prev_session(day):
+    """The last NSE trading day before `day` (holidays/weekends from market_session.py)."""
+    import market_session as M
+    d = day - dt.timedelta(days=1)
+    for _ in range(15):
+        if M.session(d):
+            return d
+        d -= dt.timedelta(days=1)
+    return None
+
+
 def _daily_closes(sym, today):
     """Daily closes before today, oldest first, from the nightly price history
     (data/backtest/raw_ohlc), split/bonus-adjusted the same way as cycles.py."""
@@ -353,7 +372,10 @@ def dip3_alerts(cycles, prices, prev, month, now, buy=None, closes=_daily_closes
     out, papers = [], []
     if not CLOSE_ROUND <= now.time() < MARKET_CLOSE:
         return out, papers
+    import cycles as _C                          # fail the whole rule (keeping the last paper record) if missing
     today = now.date().isoformat()
+    want = _prev_session(now.date()).isoformat()  # the history must end at the previous trading session
+    missing = checked = 0
     for s in cycles:
         if not s.get("entry"):
             continue
@@ -367,12 +389,19 @@ def dip3_alerts(cycles, prices, prev, month, now, buy=None, closes=_daily_closes
             continue
         try:
             cl = closes(sym, today)
-            stale = (now.date() - dt.date.fromisoformat(cl[-1][0])).days > 5
+            last_day = cl[-1][0]
         except Exception:
+            missing += 1
             continue
-        # the history must end at yesterday's close: Kite's previous close, within 1%
-        if len(cl) < 23 or stale or abs(cl[-1][1] / pc - 1) > 0.01:
+        # the history must end at the previous session, at Kite's previous close (within 1%):
+        # a missed nightly refresh would otherwise shift the 3- and 20-session windows by a day
+        if len(cl) < 23 or last_day != want or abs(cl[-1][1] / pc - 1) > 0.01:
+            missing += 1
             continue
+        checked += 1
+        window = [x[1] for x in cl[-23:]] + [p]
+        if any(_bonus_like(b / a) for a, b in zip(window, window[1:])):
+            continue                             # possible unadjusted 1:5 / 1:10 bonus inside the windows
         c3, c23 = cl[-3][1], cl[-23][1]
         fall, prior = (p / c3 - 1) * 100, (c3 / c23 - 1) * 100
         if not -DIP3_FALL[1] < fall <= -DIP3_FALL[0] or prior >= DIP3_PRIOR_PCT:
@@ -400,6 +429,10 @@ def dip3_alerts(cycles, prices, prev, month, now, buy=None, closes=_daily_closes
                     f"(+4% after charges) within 10 trading days, else exit at the day-10 close. Backtest ({label}): {group}; "
                     f"misses avg about −5%.{_no_buy_note(buy, p)}",
                     5, "chart_with_downwards_trend", _buy_spec(buy, sym, p)))
+    if missing:
+        print(f"::notice::3-day rule: {missing} eligible stock(s) skipped - price history not up to the previous session")
+        if not checked:   # nothing could be checked: keep the last paper record instead of wiping it
+            raise RuntimeError("no price history up to the previous session")
     return out, papers
 
 
@@ -468,8 +501,9 @@ def _instruments():
         except Exception as e:
             print(f"::warning::Kite instrument list not read ({type(e).__name__}) - tick from price bands")
     _INSTR = out
+    nse_ok = any(k.startswith("NSE:") for k in out)   # NSE is what the orders use: retry hourly without it
     try:
-        json.dump(out if out else {"_failed_at": time.time()}, open(cache, "w"))
+        json.dump(out if nse_ok else dict(out, _failed_at=time.time()), open(cache, "w"))
     except OSError:
         pass
     return _INSTR
@@ -661,16 +695,30 @@ def main():
     if not topic:
         return 0                                  # nowhere to send alerts (NTFY_TOPIC not set)
     dips_ok = dips3_ok = False
-    if fresh:
+    try:   # cycle-dip alerts and paper records only on prices from the last ~25 minutes
+        age = (now - dt.datetime.strptime(live.get("updated_at", "")[:16], "%Y-%m-%d %H:%M").replace(tzinfo=IST)).total_seconds()
+    except ValueError:
+        age = None
+    if fresh and (age is None or age > 25 * 60):
+        print("::warning::cycle-dip checks skipped - live prices are older than 25 minutes")
+    elif fresh:
         a, a3 = [], []
         try:
             cycles = json.load(open("data/cycles/summary.json")).get("stocks", [])
-            a, papers = dip_alerts(cycles, prices, prev, now.month, now, buy_cfg)
-            dips_ok = True
-            a3, papers3 = dip3_alerts(cycles, prices, prev, now.month, now, buy_cfg)
-            dips3_ok = True
         except Exception as e:
-            print(f"::warning::cycle-dip check skipped this round ({type(e).__name__})")
+            cycles = None
+            print(f"::warning::cycle-dip checks skipped this round ({type(e).__name__})")
+        if cycles is not None:
+            try:
+                a, papers = dip_alerts(cycles, prices, prev, now.month, now, buy_cfg)
+                dips_ok = True
+            except Exception as e:
+                print(f"::warning::1-day cycle-dip check skipped this round ({type(e).__name__})")
+            try:
+                a3, papers3 = dip3_alerts(cycles, prices, prev, now.month, now, buy_cfg)
+                dips3_ok = True
+            except Exception as e:
+                print(f"::warning::3-day cycle-dip check skipped this round ({type(e).__name__})")
         alerts += merge_dips(a, a3)
 
     state_path = f"notify/state-{today[:7]}.json"
@@ -680,7 +728,13 @@ def main():
     levels, lsha = priv.get_json("notify/levels.json", {})   # swing level alerts: once per level, across months
     levels = levels or {}
     sticky = set(levels.get("sent", []))
-    new = [a for a in alerts if a[0] not in sent_today and a[0] not in sticky]
+    # One buy alert per stock per day across both dip rules: a stock already alerted by one
+    # rule (or by the merged alert) earlier today gets no second order button from the other.
+    def _buy_sym(k):
+        kind, _, sym_ = k.partition(":")
+        return sym_ if kind in ("dip-close", "dip3-close") else None
+    bought = {_buy_sym(k) for k in sent_today} - {None}
+    new = [a for a in alerts if a[0] not in sent_today and a[0] not in sticky and _buy_sym(a[0]) not in bought]
     # More than 4 new alerts of one kind in a round (e.g. the first round after a
     # login finds the day's fills): one summary per kind instead of a burst.
     BATCH = {"dip-close": ("📉", "STRONG cycle stocks down 3%+ near the close — buy-at-close candidates",
