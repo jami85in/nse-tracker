@@ -116,6 +116,10 @@ jobs:
           INTERVAL_SECONDS: ${{ github.event.inputs.interval_seconds || '600' }}
           FORCE_SESSION: ${{ github.event.inputs.force || 'false' }}
           GH_TOKEN: ${{ github.token }}
+          # abort a git transfer slower than 1 KB/s for 60 s, so a stalled pull/push can't hang
+          # the loop until the job is killed (the fallbacks handle the failure - review E3)
+          GIT_HTTP_LOW_SPEED_LIMIT: "1000"
+          GIT_HTTP_LOW_SPEED_TIME: "60"
         run: |
           git config user.name "nse-tracker-bot"
           git config user.email "actions@github.com"
@@ -260,15 +264,16 @@ jobs:
               sha = cur.get("sha")
               # GitHub starts late scheduled runs hours after the close (11 Nov 2026: four
               # backups at 16:54-22:33 IST), and each one asked for another capture.
-              # Skip if today's capture was requested in the last 3 hours; an older
-              # request is repeated once in a while in case that ledger run failed.
+              # Skip if today's capture was requested in the last 12 hours (the private repo's
+              # scheduled ledger runs cover a failed capture; each extra run costs ~7 private
+              # Actions minutes - review E3).
               prev = json.loads(base64.b64decode(cur.get("content", "") or b"e30="))
               if prev.get("session") == now.date().isoformat():
                   try:
                       at = datetime.datetime.strptime(prev.get("requested_at", "")[:16], "%Y-%m-%d %H:%M").replace(tzinfo=market_session.IST)
                   except ValueError:
                       at = None
-                  if at and now - at < datetime.timedelta(hours=3):
+                  if at and now - at < datetime.timedelta(hours=12):
                       print(f"Today's capture was requested at {at:%H:%M} IST — not asking again yet."); sys.exit(0)
           except SystemExit:
               raise

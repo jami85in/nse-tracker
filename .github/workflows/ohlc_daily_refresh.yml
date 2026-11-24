@@ -53,18 +53,22 @@ jobs:
           # surveillance keeps getting daily bars instead of going stale.
           BACKTEST_SERIES: "EQ,BE,BZ"
           BACKTEST_DAILY_LOOKBACK_DAYS: ${{ github.event.inputs.lookback_days || '12' }}
+          # The 04:45 backup lands 5-16 h late: it only has to find the previous session's bar
+          # (landing 17:30-19:00 it would otherwise demand today's before NSE publishes it).
+          BACKUP: ${{ github.event.schedule == '15 23 * * 1-5' }}
         # The 3-day dip rule needs the latest session's bar: retry (3 min apart) until reference
         # stocks have it, and fail the run (red) if they still don't, instead of passing silently.
         run: |
           for try in 1 2 3; do
             python scripts/backtest_fetch_ohlc.py || echo "::warning::fetch attempt $try failed"
             if python - <<'PY'
-          import datetime, json, sys
+          import datetime, json, os, sys
           sys.path.insert(0, "scripts")
           import market_session as M
           now = datetime.datetime.now(M.IST)
           s = M.session(now.date())
-          d = now.date() if (s and now.date().weekday() < 5 and now >= s[1] + datetime.timedelta(hours=2)) else now.date() - datetime.timedelta(days=1)
+          late = s and now.date().weekday() < 5 and now >= s[1] + datetime.timedelta(hours=2)
+          d = now.date() if (late and os.environ.get("BACKUP") != "true") else now.date() - datetime.timedelta(days=1)
           while d.weekday() >= 5 or d.isoformat() in M.HOLIDAYS:
               d -= datetime.timedelta(days=1)
           ok = 0
@@ -95,4 +99,9 @@ jobs:
           git add data/backtest/raw_ohlc/ data/backtest/progress_ohlc.json
           if [ -d data/backtest/raw_ohlc_hist ]; then git add data/backtest/raw_ohlc_hist/; fi
           git diff --staged --quiet || git commit -m "ohlc-daily: refresh $(date -u +'%Y-%m-%d %H:%M UTC')"
-          for try in 1 2 3; do git pull -q --rebase --autostash origin main && git push -q && break; sleep 15; done
+          # (the loop's last command was sleep, so three failed pushes passed green - review E3)
+          for try in 1 2 3; do
+            git pull -q --rebase --autostash origin main && git push -q && exit 0
+            git rebase --abort 2>/dev/null || true; sleep 15
+          done
+          echo "::error::Could not push the refreshed OHLC after 3 attempts"; exit 1
