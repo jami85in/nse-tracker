@@ -4,8 +4,9 @@ Shared helper: fetch today's Kite access token from the private secrets
 repo at runtime. Import this from scan.py / prices.py.
 
 Required environment variables (set as GitHub Actions secrets on the
-PUBLIC repo — read-only access to the private repo, never write):
-  SECRETS_REPO_PAT   — GitHub PAT with read access to the private repo
+PUBLIC repo):
+  SECRETS_REPO_PAT   — GitHub PAT for the private repo (contents read AND write:
+                       the price loop also saves alert state, links and trades there)
   SECRETS_REPO       — "yourusername/nse-tracker-secrets"
   KITE_API_KEY       — needed alongside the access_token to auth with Kite
 """
@@ -57,14 +58,19 @@ def get_kite_token(allow_overnight=False):
     return access_token, stale
 
 
-_CACHE = os.path.join(os.environ.get("RUNNER_TEMP") or "/tmp", "kite-token-cache.json")
+_RT = os.environ.get("RUNNER_TEMP")
+_CACHE = os.path.join(_RT, "kite-token-cache.json") if _RT else None   # no on-disk copy outside Actions
 
 
 def _cache(token_data=None):
-    """Save (with an argument) or load this runner's last good copy of the token file."""
+    """Save (with an argument) or load this runner's last good copy of the token file
+    (only on an Actions runner, in its job temp dir, mode 0600, never through a symlink - review E9)."""
+    if not _CACHE:
+        return token_data
     try:
         if token_data is not None:
-            fd = os.open(_CACHE, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            fd = os.open(_CACHE, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_NOFOLLOW", 0), 0o600)
+            os.fchmod(fd, 0o600)
             with os.fdopen(fd, "w") as f:
                 json.dump(token_data, f)
             return token_data
