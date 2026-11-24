@@ -12,8 +12,10 @@ name: NSE Live Price Update (Kite Connect)
 #   - every INTERVAL_SECONDS (default 10 min) it fetches prices and commits;
 #   - if today's Kite token isn't refreshed yet it simply waits and re-checks,
 #     so prices start flowing within minutes of your daily login, unattended;
-#   - it stops 5 minutes after today's close (or before GitHub's 6-hour job
-#     limit). The close comes from scripts/market_session.py, which also knows
+#   - it stops 5 minutes after today's close, or earlier at its own limit:
+#     340 min (GitHub's cap is 6 h); a limit falling between 14:40 and 15:40 IST
+#     moves to 14:40, so the hand-over to a successor run happens before the
+#     15:10-15:30 buy-at-close rounds (review 24 Nov 2026). The close comes from scripts/market_session.py, which also knows
 #     special sessions such as Diwali Muhurat trading on a Sunday and weekday
 #     holidays — before 9 Nov 2026 the loop assumed 15:35 and prices_kite.py
 #     treated every weekend as closed, so the Muhurat session got no prices.
@@ -23,31 +25,30 @@ name: NSE Live Price Update (Kite Connect)
 #     logged in today (HUF, wife, mother) and saves them to the private ledger
 #     (scripts/trade_watch.py), so a buy or sell shows on the dashboard within
 #     about 15-20 minutes instead of after the evening capture, and sends phone
-#     alerts through ntfy (scripts/notify.py): swing target/exit levels, GTT
-#     triggers, and STRONG seasonal-cycle stocks down 2%+ in their up-season.
+#     alerts through ntfy (scripts/notify.py): swing target/exit levels, GTT and
+#     order updates, login reminders, status notices, and STRONG seasonal-cycle
+#     dips (down 3%+ today, or 5-12% over 3 days after a 5%+ slide, with the
+#     seasonal target still 12%+ above the price).
 #   - after the close it starts the daily archive of 1-minute candles for all
 #     NSE stocks (minute_archive.yml -> private repo) for intraday research.
-#   - if it reaches GitHub's 6-hour cap while the market is still open, it
+#   - if it stops at that limit while the market is still open, it
 #     starts its own successor run (workflow_dispatch, which GitHub doesn't
 #     drop). On Fri 6 Nov 2026 the login at 07:38 started the loop early, it
 #     hit the cap at ~13:28, and the scheduled backups were delayed until the
 #     evening — so prices froze at 13:20 for the rest of the day.
-# Only one scheduled start has to fire per day; the later cron times are
-# backups in case the morning one is dropped. If a loop is already running, a
-# later start queues behind it and simply continues the session when the first
-# loop hits GitHub's 6-hour job cap (~14:58), or exits at once after 15:35.
-#
-# The "Kite Daily Token Refresh" workflow also starts this run the moment a
-# new token is saved (workflow_dispatch, which GitHub does not drop).
+# In practice the kite-login worker starts this run: on the HUF login, and from
+# its Cloudflare cron at 09:10 IST (skipped if a loop is running or queued).
+# GitHub's schedules below often arrive hours late (Nov 2026: 5-16 h), so they
+# are only backups; a start after 15:35 exits at once. The older manual "Kite
+# Daily Token Refresh" workflow also starts this run when a token is saved.
 
 on:
   schedule:
-    - cron: "38 3 * * 1-5"    # 09:08 IST — primary start, before the 09:15 open
+    - cron: "38 3 * * 1-5"    # 09:08 IST — backup start (often hours late; the worker normally starts the loop)
     - cron: "13 5 * * 1-5"    # 10:43 IST — backup if the morning start was dropped
     - cron: "47 6 * * 1-5"    # 12:17 IST — backup
-    - cron: "7 9 * * 1-5"     # 14:37 IST — relay: a GitHub job can run at most 6 h, so the
-                              #   09:08 loop stops ~14:58; this start queues behind it and
-                              #   covers the last half hour to 15:35
+    - cron: "7 9 * * 1-5"     # 14:37 IST — backup only: a running loop hands over itself at
+                              #   14:40 by starting a successor run
   workflow_dispatch:
     inputs:
       interval_seconds:
@@ -201,9 +202,12 @@ jobs:
           echo "Loop done at $(ist): $fetched price updates committed."
           SESSION_END=$(python scripts/market_session.py end)
           if [ "$SESSION_END" != "0" ] && [ "$(now)" -lt "$((SESSION_END - 300))" ]; then
-            echo "Hit the 6-hour cap before the close — starting a successor run."
+            echo "Stopped at the run's time limit before the close — starting a successor run."
             gh workflow run prices_kite.yml --ref "${GITHUB_REF_NAME:-main}" -f interval_seconds="$INTERVAL_SECONDS" \
-              || echo "::warning::Could not start the successor run — prices may stop until the next scheduled start."
+              || { echo "::warning::Could not start the successor run — no prices or buy-at-close alerts for the rest of today unless it is started by hand."
+                   [ -n "$NTFY_TOPIC" ] && curl -s -m 20 -H "Title: Price loop stopped early" -H "Priority: 4" \
+                     -d "The price loop couldn't start its successor run at $(ist): no prices or buy-at-close alerts for the rest of today. Start 'NSE Live Price Update (Kite Connect)' in GitHub Actions." \
+                     "https://ntfy.sh/$NTFY_TOPIC" > /dev/null || true; }
           fi
 
       # After the close: start the daily archive of 1-minute candles for all
