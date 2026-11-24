@@ -8,13 +8,14 @@ API — it works reliably from GitHub Actions.
 
 Reads today's access_token from the private secrets repo (see
 kite_token_reader.py). If no valid (non-stale) token is found — i.e. you
-haven't done today's manual login yet — this exits cleanly without
+haven't done today's Kite login on the kite-login page yet — this exits cleanly without
 touching prices_live.json, preserving whatever was there before.
 
-Run every ~5 min during market hours via prices.yml (can be more frequent
-than the old NSE-scraping version since Kite Connect has generous rate
-limits: ~3 requests/second, quote endpoint supports up to 500 instruments
-per call).
+Runs every 10 minutes (INTERVAL_SECONDS) inside the price loop of
+.github/workflows/prices_kite.yml (Kite Connect allows ~3 requests/second;
+the quote endpoint takes up to 500 instruments per call). An exchange
+holiday missing from scripts/market_session.py is caught from 09:17 by the
+traded-today check, which keeps the old prices file.
 """
 import json, os, sys, datetime
 from kiteconnect import KiteConnect
@@ -133,7 +134,7 @@ def fetch_family_prices(kite, family, have):
     return out
 
 
-PREV_CLOSE = {}   # yesterday's close per symbol, from the same quote call (ohlc.close)
+PREV_CLOSE = {}   # previous session's close per symbol, from the same quote call (ohlc.close)
 TRADED_TODAY = set()   # symbols whose last trade is from today (an unlisted holiday leaves this empty)
 CIRCUITS = {}   # today's [lower, upper] circuit limits per symbol (order links stay inside them)
 
@@ -190,7 +191,7 @@ def main():
         return
     if is_stale:
         print("  WARNING: today's Kite token hasn't been generated yet — "
-              "do the daily manual login (see kite_generate_token.py). "
+              "do today's Kite login on the kite-login page. "
               "Preserving existing prices_live.json for now.")
         return
 

@@ -17,13 +17,15 @@ doesn't repeat it). Checks:
      at least 12% to go to its seasonal target (the Cycles tab's median
      seasonal gain on top of this cycle's entry-month close): a priority-4
      heads-up during the day, and the priority-5 "buy at the close" alert from
-     15:10 IST (the backtest buys at the close, so the paper record uses the
-     last price at/after 15:10). Plan: +2% after charges within 5 trading
+     15:10 IST (the backtest buys at the close, so the paper record keeps the
+     price of the first 10-minute round from 15:10 that met the rule). Plan: +2% after charges within 5 trading
      days, else exit at the day-5 close. Backtest (Sep 2020 - Nov 2026, daily
      bars, one position per stock): today's STRONG list and medians
-     (in-sample) 81.3% hit, misses avg -4.9%, +0.71% a trade (3,504 trades);
-     medians from earlier years only 79.3%, +0.60%; 2026 with the list refit
-     on data to Dec 2025 75.7%, +0.21%. The room rule (8%, then 12% from 24
+     (in-sample) 81.3% hit, misses avg -4.9%, +0.70% a trade (3,492 trades,
+     with the 1:10-bonus skip); medians from earlier years only 79.3%, +0.60%;
+     2026 with the list refit on data to Dec 2025 75.7%, +0.21%, against
+     +0.20% for any in-season day of the same stocks: no measurable edge in
+     2026 (review 24 Nov 2026). The room rule (8%, then 12% from 24
      Nov 2026) removes stocks at or past their target; it changes the count
      more than the results.
   4. Cycle dips (3-day rule, added 24 Nov 2026): down 5-12% over the last 3
@@ -43,9 +45,16 @@ doesn't repeat it). Checks:
      Gradual slides do as well as one big day; worst trade about -20%;
      signals bunch up on sell-off days. Daily closes come from the
      nightly price history (data/backtest/raw_ohlc, split/bonus-adjusted as in
-     cycles.py); a stock is skipped unless that history ends at Kite's
-     previous close (within 1%).
-     A stock that meets both rules gets one alert naming both. Both rules are
+     cycles.py); a stock is skipped unless that history ends at the previous
+     regular session at Kite's previous close (within 0.3%); one missed
+     nightly update is filled from Kite's previous close.
+     A stock that meets both rules gets one alert naming both. One buy alert
+     per stock per day across both rules; a stock still in an earlier plan
+     (5 / 10 sessions) gets its alert without an order button. 5+ alerts of
+     one kind become one summary; 2-4 buy-at-close stocks also get one basket
+     button.
+  5. Status notices (priority 3-4): live prices not updating, cycle-dip
+     checks off, 3-day rule couldn't run, NSE holidays missing. Both rules are
      logged to the private repo as paper records (state "dips" and "dips3"),
      so they can be judged on new data before real money goes in.
 
@@ -70,7 +79,7 @@ DIP3_PRIOR_PCT = -5.0      # ... after falling at least this much over the 20 se
 DIP3_TARGET_PCT, DIP3_DAYS = 4.0, 10   # plan: +4% after charges within 10 sessions, else exit at the day-10 close
 DIP3_GROUPS = {   # (grade, phase) -> backtest line for the alert (full history .. 2026 test; the thresholds were
                   # chosen with 2026 in view, so only the stock list is truly out-of-sample - review 24 Nov 2026)
-    ("STRONG", "IN_SEASON"): "81–84% reached +4% within 10 days, +2.2–2.6% a trade; misses avg about −4.5%",
+    ("STRONG", "IN_SEASON"): "81–84% reached +4% within 10 days, +2.2–2.6% a trade; misses avg about −5% (−4.5 to −5.5%)",
     ("STRONG", "BUY_WINDOW"): "78–80% reached +4% within 10 days, +1.0–1.7% a trade; misses avg about −7.5% "
                               "and about 1 trade in 17 lost over 10%",
 }
@@ -340,8 +349,8 @@ def dip_alerts(cycles, prices, prev, month, now, buy=None, closes=None):
             papers.append({"symbol": sym, "change_pct": round(chg, 2), "price": p, "prev_close": pc, "target": round(tgt, 2),
                            "cycle_target": round(ct[0], 2), "room_pct": round(ct[1], 1),
                            "plan": "+2% after charges within 5 sessions, else day-5 close"})
-            out.append((f"dip-close:{sym}", f"📉 {sym} −{abs(chg):.1f}% near the close · STRONG cycle",
-                        f"Now {rupees(p)} (prev close {rupees(pc)}). {season} Plan: buy before the close, sell at {rupees(tgt)} (+2% after charges), else exit by day 5. Backtest: 76–81% reached +2% within 5 days, but only +0.2–0.7% a trade (+0.2% in 2026: a thin edge, paper-test first); misses avg about −5%.{_no_buy_note(buy, p)}", 5, "chart_with_downwards_trend", _buy_spec(buy, sym, p)))
+            out.append((f"dip-close:{sym}", f"📉 {sym} −{abs(chg):.1f}% near the close · STRONG cycle in season",
+                        f"Now {rupees(p)} (prev close {rupees(pc)}). {season} Plan: buy before the close, sell at {rupees(tgt)} (+2% after charges; 2.23% above your actual buy price) within 5 trading days, else at the day-5 close. Backtest: 76–81% reached +2% within 5 days, but only +0.2–0.7% a trade, and +0.2% in 2026, no better than buying these stocks on any in-season day. Paper-test first; misses avg about −5%.{_no_buy_note(buy, p)}", 5, "chart_with_downwards_trend", _buy_spec(buy, sym, p)))
         else:
             out.append((f"dip-early:{sym}", f"👀 {sym} −{abs(chg):.1f}% · STRONG cycle in season",
                         f"Now {rupees(p)}. {season} Heads-up only: the tested rule buys at the close if it's still down 3%+; you'll get a buzz after 3:10 pm if so.", 4, "eyes"))
@@ -389,7 +398,7 @@ def _daily_closes(sym, today):
 def dip3_alerts(cycles, prices, prev, month, now, buy=None, closes=_daily_closes):
     """3-day rule: a cycle stock in one of DIP3_GROUPS (STRONG in season or in its
     buy month) down 5-12% over the last 3 sessions after a 5%+ fall
-    over the 20 sessions before them, still 12%+ below its seasonal target.
+    over the 20 sessions before them, with its seasonal target still 12%+ above the price.
     Buy-at-close alerts only (from 15:10 IST)."""
     out, papers = [], []
     if not CLOSE_ROUND <= now.time() < MARKET_CLOSE:
@@ -447,7 +456,7 @@ def dip3_alerts(cycles, prices, prev, month, now, buy=None, closes=_daily_closes
         if any(abs(r_ / f - 1) <= 0.015 and (ct[0] * f / p - 1) * 100 < DIP_MIN_ROOM_PCT for f in (5 / 6, 10 / 11)):
             continue
         tgt = p * (1 + (DIP3_TARGET_PCT + COST_PCT) / 100)
-        label = f"{s['grade']} cycle" + (" · buy month" if phase == "BUY_WINDOW" else "")
+        label = f"{s['grade']} cycle" + (" · buy month" if phase == "BUY_WINDOW" else " in season")
         papers.append({"symbol": sym, "fall_3d_pct": round(fall, 2), "prior_20d_pct": round(prior, 2), "price": p,
                        "close_3_sessions_ago": round(c3, 2), "prev_close": pc, "target": round(tgt, 2),
                        "cycle_target": round(ct[0], 2), "room_pct": round(ct[1], 1), "grade": s["grade"], "phase": phase,
@@ -455,8 +464,11 @@ def dip3_alerts(cycles, prices, prev, month, now, buy=None, closes=_daily_closes
                        "plan": "+4% after charges within 10 sessions, else day-10 close"})
         out.append((f"dip3-close:{sym}", f"📉 {sym} −{abs(fall):.1f}% over 3 days · {label}",
                     f"Now {rupees(p)} ({rupees(c3)} three sessions ago; it had already fallen {abs(prior):.0f}% over the 20 sessions before). "
-                    f"Median seasonal target {rupees(ct[0])} (+{ct[1]:.0f}% from here). Plan: buy before the close, sell at {rupees(tgt)} "
-                    f"(+4% after charges) within 10 trading days, else exit at the day-10 close. Backtest ({label}): {group}."
+                    + (f"Seasonal target ≈ {rupees(ct[0])} (+{ct[1]:.0f}% from here: last weekly close + the median seasonal gain; "
+                       f"the Cycles tab shows a target once the season starts). " if phase == "BUY_WINDOW" else
+                       f"Median seasonal target {rupees(ct[0])} (+{ct[1]:.0f}% from here). ")
+                    + f"Plan: buy before the close, sell at {rupees(tgt)} "
+                    f"(+4% after charges; 4.23% above your actual buy price) within 10 trading days, else at the day-10 close. Backtest ({label}): {group}."
                     f"{_no_buy_note(buy, p)}",
                     5, "chart_with_downwards_trend", _buy_spec(buy, sym, p)))
     if missing:
@@ -496,8 +508,13 @@ def mark_repeats(a1, papers1, a3, papers3, o1, o3):
             k, _, sym = a[0].partition(":")
             since = o1.get(sym) or o3.get(sym)
             if k == kind and since:
-                a = (a[0], a[1], a[2] + f" Repeat: already in an open plan from {since}, so no order button.",
-                     a[3], a[4], None)
+                try:
+                    since_ = dt.date.fromisoformat(str(since)[:10]).strftime("%d %b")
+                except ValueError:
+                    since_ = str(since)
+                a = (a[0], a[1], a[2] + f" Repeat: still inside the plan from its {since_} alert; the tested rule holds one "
+                                        f"position per stock, so this is not a new buy and there is no order button.",
+                     4, a[4], None)
             out.append(a)
         return out
     for pp in papers1:
@@ -517,8 +534,8 @@ def merge_dips(a1, a3):
         b = one.pop(a[0].split(":", 1)[1], None)
         if b:
             pct = b[1].split("−", 1)[1].split("%", 1)[0] if "−" in b[1] else "3+"
-            a = (a[0], a[1], a[2] + f" It is also down {pct}% today, so it meets the 1-day rule too "
-                                   f"(+2% within 5 days); both rules log it in the paper record.") + tuple(a[3:])
+            a = (a[0], a[1], a[2] + f" It is also down {pct}% today, so it meets the 1-day rule too. One buy covers both: "
+                                   f"the plan above is the 3-day one (the paper record tracks each rule).") + tuple(a[3:])
         out3.append(a)
     return [a for a in a1 if not a[0].startswith("dip-close:") or a[0].split(":", 1)[1] in one] + out3
 
@@ -645,7 +662,7 @@ def _buy_spec(buy, sym, p):
 def _no_buy_note(buy, p):
     """Why a buy-at-close alert has no order button, when the amount is the reason."""
     amt = float((buy or {}).get("amount") or 0)
-    return f" No order button: the ₹{amt:,.0f} buy amount is less than one share." if buy and p and amt < float(p) * 1.003 else ""
+    return " No order button: one share costs more than the set buy amount." if buy and p and amt < float(p) * 1.003 else ""
 
 
 def _links_config(priv):
@@ -755,7 +772,7 @@ def login_reminders(priv, now):
         if tok and tok.get("access_token") and not token_is_stale(tok, now):
             continue
         out.append((f"login:{aid}", f"🔑 Kite login needed today ({label})",
-                    "Tap to open the login page." + (" Prices, alerts and the trade sync wait for this login."
+                    "Tap to open the login page." + (" Live prices, swing and cycle-dip alerts and the HUF trade sync wait for this login."
                                                      if aid == "huf" else " Today's trades sync once logged in."),
                     5 if aid == "huf" else 4, "key"))
     return out
@@ -841,10 +858,10 @@ def main():
             except Exception as e:
                 print(f"::warning::3-day cycle-dip check skipped this round ({type(e).__name__})")
                 if closing_now:
-                    why = ("The daily price history isn't up to the previous session (or couldn't be read)"
+                    why = ("Last night's price-history update is missing (or couldn't be read)"
                            if isinstance(e, RuntimeError) else f"The check failed ({type(e).__name__})")
                     alerts.append(("sys:dip3-off", "⚠️ 3-day dip rule couldn't run today",
-                                   f"{why}, so the 3-day rule skipped its buy-at-close check"
+                                   f"{why}, so the 3-day rule made no buy-at-close check today"
                                    + (". The 1-day rule ran." if dips_ok else ".") , 3, "warning"))
             try:
                 o1, o3 = open_plans(priv, now.date())
@@ -861,8 +878,9 @@ def main():
             if tok and tok.get("access_token") and not token_is_stale(tok, now):
                 alerts.append(("sys:prices-stale", "⚠️ Live prices not updating",
                                f"Today's HUF login is in, but live prices last updated {upd or 'not today'}. "
-                               "Alerts that need prices are paused. Check Kite (outage or subscription), the price-loop run, "
-                               "and whether today is an exchange holiday missing from scripts/market_session.py.",
+                               "Cycle-dip alerts are paused; swing alerts may use an old price. Check Kite (outage or "
+                               "subscription), the price-loop run, and whether today is an exchange holiday the tracker "
+                               "doesn't know (add it to scripts/market_session.py).",
                                4, "warning"))
         if s_ and dip_off and s_[0] + dt.timedelta(minutes=30) <= now <= s_[1]:
             alerts.append(("sys:dip-inputs", "⚠️ Cycle-dip checks are off", f"The dip rules can't run: {dip_off}.",
@@ -874,8 +892,8 @@ def main():
         for y in [now.year] + ([now.year + 1] if (now.month, now.day) >= (12, 15) else []):
             if not any(k.startswith(str(y)) for k in M.HOLIDAYS):
                 alerts.append((f"sys:calendar-{y}", f"⚠️ NSE {y} holidays missing",
-                               f"scripts/market_session.py has no {y} holidays: the price loop and the 3-day rule rely on "
-                               f"them. Add NSE's {y} list.", 3, "warning"))
+                               f"scripts/market_session.py has no {y} holidays: without them the price loop runs on exchange "
+                               f"holidays and the dip rules count sessions wrongly. Add NSE's {y} list.", 3, "warning"))
     except Exception:
         pass
 
@@ -909,9 +927,13 @@ def main():
     # More than 4 new alerts of one kind in a round (e.g. the first round after a
     # login finds the day's fills): one summary per kind instead of a burst.
     BATCH = {"dip-close": ("📉", "STRONG cycle stocks down 3%+ near the close — buy-at-close candidates",
-                           " Sell target for each: +2.23% from your buy price, within 5 trading days."),
+                           " Plan for each: sell at +2.23% over your buy price (+2% after charges) within 5 trading days, else at"
+                           " the day-5 close. Backtest +0.2–0.7% a trade, +0.2% in 2026 (no better than any in-season day):"
+                           " paper-test first."),
              "dip3-close": ("📉", "STRONG cycle stocks down 5–12% over 3 days — buy-at-close candidates",
-                            " Sell target for each: +4.23% from your buy price, within 10 trading days."),
+                            " Plan for each: sell at +4.23% over your buy price (+4% after charges) within 10 trading days, else"
+                            " at the day-10 close. * = buy month: weaker backtest (misses avg about −7.5%, about 1 in 17 lost"
+                            " over 10%)."),
              "dip-early": ("👀", "STRONG cycle stocks down 3%+ today (heads-up)", ""),
              "swing-t": ("🎯", "swing targets reached", ""), "swing-s": ("🛑", "swing exit levels reached", ""),
              "gtt-fired": ("✅", "GTTs triggered", " Check the orders in Kite."),
@@ -925,7 +947,7 @@ def main():
         if len(group) > 4:
             syms = []
             for a in group:                     # titles read "<icon> SYMBOL ..."
-                s_ = a[1].split(" ")[1] if " " in a[1] else "?"
+                s_ = (a[1].split(" ")[1] if " " in a[1] else "?") + ("*" if kind == "dip3-close" and "buy month" in a[1] else "")
                 if s_ not in syms:
                     syms.append(s_)
             specs = [a[5] for a in group if len(a) > 5 and a[5]]
@@ -937,7 +959,7 @@ def main():
             short = ""                # say when the basket holds fewer stocks than the alert lists
             if basket and len(basket["orders"]) < len(group):
                 short = (f" Order button: {len(basket['orders'])} of {len(group)}"
-                         + (" (Kite takes 10 at a time)." if len(group) > 10 else " (the rest have no button: a repeat, or one share costs more than the buy amount)."))
+                         + (" (Kite takes 10 at a time)." if len(orders_) > 10 else " (the rest have no button: a repeat, or one share costs more than the buy amount)."))
             new = [a for a in new if a[0].split(":", 1)[0] != kind] + [(
                 f"{kind}:batch", f"{icon} {len(group)} {words}", ", ".join(syms) + "." + tail + short,
                 max(a[3] for a in group), group[0][4], basket)]
@@ -948,7 +970,8 @@ def main():
     if len(singles) >= 2 and len({a[5]["account"] for a in singles}) == 1:
         syms_ = sorted(a[5]["orders"][0]["tradingsymbol"] for a in singles)
         new.append((f"dip-basket:{'+'.join(syms_)}", f"🧺 Buy-at-close basket: {len(singles)} stocks",
-                    "One tap opens Kite with all of them filled in - use this or the single buttons, not both. Check quantities and prices, then place.",
+                    f"{', '.join(syms_)}. One tap opens Kite with all {len(singles)} filled in - use this or the single buttons, "
+                    "not both. Check quantities and prices in Kite, then place.",
                     5, "shopping_cart", dict(singles[0][5], label=f"Buy at the close: {', '.join(syms_)}",
                                              orders=[a[5]["orders"][0] for a in singles][:10])))
         # a delivered basket counts for its stocks too: a single alert that failed to send is not
@@ -982,8 +1005,8 @@ def main():
             print(f"::warning::alert levels not saved ({type(e).__name__})")
     if state_ok and fresh and CLOSE_ROUND <= now.time() < MARKET_CLOSE:
         # Paper records of the tested rules ("dips" = 1-day, "dips3" = 3-day): rebuilt every
-        # round from 15:10, so each ends up as the stocks that still qualify in the last
-        # round (the price is that round's, not the official close). A failed check keeps
+        # round from 15:10: every stock that met the rule in any closing round is kept, at the
+        # first such round's price (later rounds add last_seen_at), not the official close. A failed check keeps
         # that rule's last record.
         for ok_, key_, recs in ((dips_ok, "dips", papers), (dips3_ok, "dips3", papers3)):
             if not ok_:
