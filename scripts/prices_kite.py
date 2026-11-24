@@ -75,18 +75,19 @@ def get_symbols():
     except Exception as e:
         print(f"  Warning reading zerodha_holdings.json: {e}")
     print(f"  +{len(symbols) - n_before} symbols added from Zerodha holdings.")
-    # STRONG seasonal-cycle stocks in their up-season, for the cycle-dip alerts
-    # (scripts/notify.py) and the intraday archive.
+    # STRONG and MODERATE seasonal-cycle stocks in their up-season or buy month, for
+    # the cycle-dip alerts (scripts/notify.py) and the intraday archive.
     n_before = len(symbols)
     try:
         month = datetime.datetime.now(IST).month
         with open("data/cycles/summary.json") as f:
             for s in json.load(f).get("stocks", []):
-                if s.get("grade") == "STRONG" and s.get("entry") and 1 <= (month - s["entry"]) % 12 <= s.get("hold", 0) - 1:
+                if s.get("grade") in ("STRONG", "MODERATE") and s.get("entry") and \
+                        0 <= (month - s["entry"]) % 12 <= s.get("hold", 0) - 1:
                     symbols.add(s["symbol"])
     except Exception as e:
         print(f"  Warning reading cycles summary: {e}")
-    print(f"  +{len(symbols) - n_before} symbols added from in-season STRONG cycles.")
+    print(f"  +{len(symbols) - n_before} symbols added from STRONG/MODERATE cycles in season or in their buy month.")
     return sorted(symbols)
 
 
