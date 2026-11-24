@@ -489,32 +489,45 @@ def open_plans(priv, day):
         for k in recs:
             recs[k].update((st or {}).get(k) or {})
     o1, o3 = {}, {}
+    new_ = lambda r: not (isinstance(r, dict) and r.get("repeat_of"))   # a repeat was not a new position
     for i, d in enumerate(days):                 # newest first, so the earliest day wins
-        for sym in recs["dips"].get(d, {}):
-            if i < 5:
+        for sym, r in (recs["dips"].get(d) or {}).items():
+            if i < 5 and new_(r):
                 o1[sym] = d
-        for sym in recs["dips3"].get(d, {}):
-            o3[sym] = d
+        for sym, r in (recs["dips3"].get(d) or {}).items():
+            if new_(r):
+                o3[sym] = d
     return o1, o3
 
 
+def _dmy(d):
+    try:
+        return dt.date.fromisoformat(str(d)[:10]).strftime("%d %b")
+    except ValueError:
+        return str(d)
+
+
 def mark_repeats(a1, papers1, a3, papers3, o1, o3):
-    """A buy alert for a stock already in an open plan (either rule) keeps its text but loses the
-    order button and says so; the paper record notes repeats per rule (the backtest held one
+    """A buy alert for a stock already in an open plan keeps its text but loses the order button and
+    says so (1-day alerts: a 1-day or 3-day plan; 3-day alerts: a 3-day plan only, with a note when a
+    1-day plan is open, since the rules are paper-tested side by side; review 24 Nov 2026); the paper record notes repeats per rule (the backtest held one
     position per stock, so repeats are kept apart when judging the rules)."""
     def fix(alerts, kind):
         out = []
         for a in alerts:
             k, _, sym = a[0].partition(":")
-            since = o1.get(sym) or o3.get(sym)
+            if kind == "dip3-close":            # the 3-day rule is judged on its own plans
+                since, other = o3.get(sym), o1.get(sym)
+            else:                               # no 1-day buy on top of an open 3-day plan
+                since, other = o1.get(sym) or o3.get(sym), None
             if k == kind and since:
-                try:
-                    since_ = dt.date.fromisoformat(str(since)[:10]).strftime("%d %b")
-                except ValueError:
-                    since_ = str(since)
-                a = (a[0], a[1], a[2] + f" Repeat: still inside the plan from its {since_} alert; the tested rule holds one "
+                which = "the 3-day plan" if kind == "dip-close" and not o1.get(sym) else "the plan"
+                a = (a[0], a[1], a[2] + f" Repeat: still inside {which} from its {_dmy(since)} alert; the tested rule holds one "
                                         f"position per stock, so this is not a new buy and there is no order button.",
                      4, a[4], None)
+            elif k == kind and other:
+                a = (a[0], a[1], a[2] + f" A 1-day plan from its {_dmy(other)} alert is open on paper: if you bought that one, "
+                                        f"skip this to avoid doubling up.") + tuple(a[3:])
             out.append(a)
         return out
     for pp in papers1:
@@ -900,17 +913,25 @@ def main():
     state_path = f"notify/state-{today[:7]}.json"
     state_ok = True
     try:
-        state, sha = priv.get_json(state_path, {})
-        state = {} if state is None else state
-        levels, lsha = priv.get_json("notify/levels.json", {})   # swing level alerts: once per level, across months
-        levels = {} if levels is None else levels
-        if not isinstance(state, dict) or not isinstance(state.get(today, []), list) or not isinstance(levels, dict):
-            raise ValueError("unexpected content")
-        for k_ in ("dips", "dips3"):            # paper records: {day: {symbol: {...}}}
-            if not isinstance(state.get(k_, {}), dict) or not isinstance(state.get(k_, {}).get(today, {}), dict):
-                raise ValueError("unexpected paper-record content")
-        sent_today = set(state.get(today, [])) | _local_sent(today)
-        sticky = set(levels.get("sent") or [])
+        for try_ in (1, 2):   # one retry: a successor run (after 14:40) has no local record of the morning
+            try:
+                state, sha = priv.get_json(state_path, {})
+                state = {} if state is None else state
+                levels, lsha = priv.get_json("notify/levels.json", {})   # swing level alerts: once per level, across months
+                levels = {} if levels is None else levels
+                if not isinstance(state, dict) or not isinstance(state.get(today, []), list) or not isinstance(levels, dict):
+                    raise ValueError("unexpected content")
+                for k_ in ("dips", "dips3"):            # paper records: {day: {symbol: {...}}}
+                    if not isinstance(state.get(k_, {}), dict) or not isinstance(state.get(k_, {}).get(today, {}), dict):
+                        raise ValueError("unexpected paper-record content")
+                sent_today = set(state.get(today, [])) | _local_sent(today)
+                sticky = set(levels.get("sent") or [])
+                break
+            except Exception:
+                if try_ == 2:
+                    raise
+                import time
+                time.sleep(5)
     except Exception as e:
         # A GitHub error/timeout here used to lose the whole round. Send anyway (the runner's own
         # record still stops repeats) and save nothing, so the month's file is never overwritten.
@@ -947,19 +968,24 @@ def main():
         if len(group) > 4:
             syms = []
             for a in group:                     # titles read "<icon> SYMBOL ..."
-                s_ = (a[1].split(" ")[1] if " " in a[1] else "?") + ("*" if kind == "dip3-close" and "buy month" in a[1] else "")
+                s_ = ((a[1].split(" ")[1] if " " in a[1] else "?") + ("*" if kind == "dip3-close" and "buy month" in a[1] else "")
+                      + (" (repeat)" if "Repeat:" in a[2] else ""))
                 if s_ not in syms:
                     syms.append(s_)
             specs = [a[5] for a in group if len(a) > 5 and a[5]]
             basket = None             # one basket link for the whole group (same account, up to 10)
+            orders_ = [o for s_ in specs for o in s_["orders"]]
             if specs and len({s_["account"] for s_ in specs}) == 1:
-                orders_ = [o for s_ in specs for o in s_["orders"]]
                 basket = dict(specs[0], orders=orders_[:10],
                               label=(f"First 10 of {len(orders_)}: " if len(orders_) > 10 else f"{len(orders_)}: ") + words)
             short = ""                # say when the basket holds fewer stocks than the alert lists
-            if basket and len(basket["orders"]) < len(group):
-                short = (f" Order button: {len(basket['orders'])} of {len(group)}"
-                         + (" (Kite takes 10 at a time)." if len(orders_) > 10 else " (the rest have no button: a repeat, or one share costs more than the buy amount)."))
+            reps = sum(1 for a in group if "Repeat:" in a[2])
+            nb = len(basket["orders"]) if basket else 0
+            if kind in ("dip-close", "dip3-close") and nb < len(group):
+                why = ((["Kite takes 10 at a time"] if len(orders_) > 10 else [])
+                       + ([f"{reps} repeat{'s' if reps > 1 else ''}, still inside an earlier plan"] if reps else [])
+                       + (["one share costs more than the buy amount"] if len(specs) + reps < len(group) else []))
+                short = f" Order button: {nb} of {len(group)}" + (f" ({'; '.join(why)})." if why else ".")
             new = [a for a in new if a[0].split(":", 1)[0] != kind] + [(
                 f"{kind}:batch", f"{icon} {len(group)} {words}", ", ".join(syms) + "." + tail + short,
                 max(a[3] for a in group), group[0][4], basket)]

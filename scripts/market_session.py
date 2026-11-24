@@ -2,8 +2,11 @@
 """
 market_session.py — when is NSE actually trading today?
 
-One place for the trading calendar, used by prices_kite.py and the price-loop
-workflow. Normal days are Monday–Friday 09:15–15:30 IST. Exchange special
+One place for the trading calendar, used by prices_kite.py, notify.py
+(previous-session checks of both dip rules, login reminders, stale-price and
+calendar notices), the price-loop workflow and the nightly OHLC check. HOLIDAYS
+must hold every NSE weekday holiday of the current year, and next year's
+before 1 January (notify.py warns from 15 December). Normal days are Monday–Friday 09:15–15:30 IST. Exchange special
 sessions on other days (Diwali Muhurat trading, budget-day Saturdays, mock or
 special live sessions) go in SPECIAL_SESSIONS; weekday exchange holidays go in
 HOLIDAYS.
