@@ -588,30 +588,50 @@ def _tick(p, side, tick=None):
     a band edge (a whole multiple of the smaller). Buys round up, sells round down."""
     import math
     p = float(p)
-    t = tick if tick and tick > 0 else (0.01 if p < 245 else 0.05 if p < 980 else 0.10 if p < 4900
-                                        else 0.50 if p < 9800 else 1.0 if p < 19600 else 5.0)
+    band = lambda x: (0.01 if x < 245 else 0.05 if x < 980 else 0.10 if x < 4900
+                      else 0.50 if x < 9800 else 1.0 if x < 19600 else 5.0)
+    # without Kite's tick: the coarser of today's band and the band ~30% higher (NSE sets the tick
+    # from the last month-end close; a coarser grid is always also valid on a finer one)
+    t = tick if tick and tick > 0 else max(band(p), band(p * 1.3))
     n = p / t
     n = math.ceil(n - 1e-9) if side == "BUY" else math.floor(n + 1e-9)
     return round(n * t, 2)
 
 
+CIRCUITS = {}   # {symbol: [lower, upper]} circuit limits from the live price file (prices_kite.py)
+
+
 def _order(sym, side, qty, price, exchange="NSE", product="CNC"):
-    """One LIMIT order, or None when the quantity is under one share (or one lot for SME stocks)."""
-    tick, lot = (_instruments().get(f"{exchange}:{sym}") or (None, 1))[:2]
+    """One LIMIT order, or None when the quantity is under one share (or one lot for SME stocks),
+    or when Kite's instrument list doesn't know the symbol (in any series)."""
+    inst = _instruments()
+    ts = sym
+    if any(k.startswith(exchange + ":") for k in inst) and f"{exchange}:{sym}" not in inst:
+        ts = next((sym + s for s in ("-SM", "-ST", "-BE", "-BZ") if f"{exchange}:{sym}{s}" in inst), None)
+        if not ts:                               # a link Kite would reject: better no button
+            return None
+    tick, lot = (inst.get(f"{exchange}:{ts}") or (None, 1))[:2]
     q = int(qty) // lot * lot if lot and lot > 1 else int(qty)
     if q < 1:
         return None
-    return {"exchange": exchange, "tradingsymbol": sym, "transaction_type": side, "order_type": "LIMIT",
-            "quantity": q, "price": _tick(price, side, tick), "product": product, "variety": "regular",
-            "validity": "DAY", "tag": "nsetrk"}       # Kite: tag max 8 characters
+    px = _tick(price, side, tick)
+    lo, hi = (CIRCUITS.get(sym) or CIRCUITS.get(ts) or (None, None))[:2]
+    if lo and px < lo:                           # Kite rejects limits outside today's circuit band
+        px = _tick(lo, "BUY", tick)
+    if hi and px > hi:
+        px = _tick(hi, "SELL", tick)
+    return {"exchange": exchange, "tradingsymbol": ts, "transaction_type": side, "order_type": "LIMIT",
+            "quantity": q, "price": px, "product": product, "variety": "regular",
+            "validity": "DAY", "tag": "nsetrk"}       # Kite allows up to 20 characters
 
 
 def _buy_spec(buy, sym, p):
     """Buy-at-close link: quantity = the configured amount / today's price."""
     if not buy or not p:
         return None
-    q = int(float(buy.get("amount") or 0) // float(p))
-    # limit 0.3% over the price, so the order fills if the stock ticks up into the close
+    # limit 0.3% over the price, so the order fills if the stock ticks up into the close;
+    # quantity from the limit price, so the order never exceeds the amount
+    q = int(float(buy.get("amount") or 0) // (float(p) * 1.003))
     o = _order(sym, "BUY", q, p * 1.003, product=buy.get("product") or "CNC") if q >= 1 else None
     return {"account": buy["account"], "client": buy.get("client"), "who": buy.get("who"),
             "label": f"Buy {sym} at the close ({buy.get('who')})", "orders": [o]} if o else None
@@ -620,7 +640,7 @@ def _buy_spec(buy, sym, p):
 def _no_buy_note(buy, p):
     """Why a buy-at-close alert has no order button, when the amount is the reason."""
     amt = float((buy or {}).get("amount") or 0)
-    return f" No order button: the ₹{amt:,.0f} buy amount is less than one share." if buy and p and amt < float(p) else ""
+    return f" No order button: the ₹{amt:,.0f} buy amount is less than one share." if buy and p and amt < float(p) * 1.003 else ""
 
 
 def _links_config(priv):
@@ -746,6 +766,8 @@ def main():
     except (OSError, ValueError):
         live = {}
     fresh = live.get("data_date") == today       # price alerts only on today's prices
+    CIRCUITS.clear()                             # today's circuit limits, to keep order links inside them
+    CIRCUITS.update((live.get("circuits") or {}) if fresh else {})
     prices = dict(live.get("prices", {})) if fresh else {}
     prev = live.get("prev_close", {}) if fresh else {}
     links_on, buy_cfg = _links_config(priv)
@@ -855,7 +877,7 @@ def main():
             short = ""                # say when the basket holds fewer stocks than the alert lists
             if basket and len(basket["orders"]) < len(group):
                 short = (f" Order button: {len(basket['orders'])} of {len(group)}"
-                         + (" (Kite takes 10 at a time)." if len(group) > 10 else " (the rest cost more than the buy amount per share)."))
+                         + (" (Kite takes 10 at a time)." if len(group) > 10 else " (the rest have no button: a repeat, or one share costs more than the buy amount)."))
             new = [a for a in new if a[0].split(":", 1)[0] != kind] + [(
                 f"{kind}:batch", f"{icon} {len(group)} {words}", ", ".join(syms) + "." + tail + short,
                 max(a[3] for a in group), group[0][4], basket)]
@@ -866,7 +888,7 @@ def main():
     if len(singles) >= 2 and len({a[5]["account"] for a in singles}) == 1:
         syms_ = sorted(a[5]["orders"][0]["tradingsymbol"] for a in singles)
         new.append((f"dip-basket:{'+'.join(syms_)}", f"🧺 Buy-at-close basket: {len(singles)} stocks",
-                    "One tap opens Kite with all of them filled in. Check quantities and prices, then place.",
+                    "One tap opens Kite with all of them filled in - use this or the single buttons, not both. Check quantities and prices, then place.",
                     5, "shopping_cart", dict(singles[0][5], label=f"Buy at the close: {', '.join(syms_)}",
                                              orders=[a[5]["orders"][0] for a in singles][:10])))
     links = _save_links(priv, today, now, new) if links_on else {}
