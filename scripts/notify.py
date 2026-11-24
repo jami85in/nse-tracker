@@ -13,20 +13,19 @@ doesn't repeat it). Checks:
      Regular (non-GTT) orders, which Kite lists for the current day only:
      filled, rejected, or a pending order within 0.5% of its price/trigger.
   3. Cycle dips: a STRONG seasonal-cycle stock that is in its up-season, is
-     down 2% or more today, and still has at least 8% to go to its seasonal
+     down 2% or more today, and still has at least 12% to go to its seasonal
      target (the Cycles tab's median seasonal gain on top of this cycle's
      entry-month close): a priority-4 heads-up during the day, and the
      priority-5 "buy at the close" alert from 15:10 IST (the backtest buys at
      the close, so the paper record uses the last price at/after 15:10).
-     Backtest (Sep 2020 - Nov 2026, daily bars, today's STRONG list and
-     medians, so in-sample): without the 8% rule 79.5% reached +2% after
-     charges within 5 trading days (misses avg -4.8%, avg trade +0.60%); with
-     it 79.7% (misses avg -4.5%, avg trade +0.68%) on 9,158 of 12,517
-     signals. The rule mainly trims the misses (stocks already at or past
-     their target); results are similar for any threshold from 0% to 20%.
-     Without hindsight (medians/grades from earlier years only) the edge is
-     about half: ~74-77% hit, +0.3-0.5% a trade; 2026 alone 74%, +0.28%
-     (review 24 Nov 2026). Also logged to the private repo as a paper
+     Backtest (Sep 2020 - Nov 2026, daily bars, one position per stock, plan
+     +2% after charges within 5 trading days): today's STRONG list and medians
+     (in-sample) 78.7% hit, misses avg -4.6%, +0.60% a trade on 6,143
+     signals; medians from earlier years only 76.1%, +0.45%; 2026 with the
+     list refit on data to Dec 2025 72.6%, +0.21%. The room rule (8% until
+     24 Nov 2026, now 12%) removes stocks at or past their target; 8% vs 12%
+     changes the count by ~7% and the results hardly at all. Also logged to
+     the private repo as a paper
      record, so the idea can be judged on new data before real money goes in.
 
 Phone setup: install "ntfy" (Play Store), tap +, subscribe to the topic name
@@ -45,7 +44,7 @@ from private_repo import PrivateRepo
 IST = dt.timezone(dt.timedelta(hours=5, minutes=30))
 DIP_PCT = -2.0
 DIP_GRADES = ("STRONG",)
-DIP_MIN_ROOM_PCT = 8.0     # cycle dips: the seasonal target must be at least this far above the price
+DIP_MIN_ROOM_PCT = 12.0    # cycle dips: the seasonal target must be at least this far above the price
 GTT_NEAR_PCT = 1.0
 COST_PCT = 0.23
 ACCOUNTS = [  # (id, label, token file, API-key env var)
@@ -300,7 +299,7 @@ def dip_alerts(cycles, prices, prev, month, now, buy=None):
             papers.append({"symbol": sym, "change_pct": round(chg, 2), "price": p, "prev_close": pc, "target": round(tgt, 2),
                            "cycle_target": round(ct[0], 2), "room_pct": round(ct[1], 1)})
             out.append((f"dip-close:{sym}", f"📉 {sym} −{abs(chg):.1f}% near the close · STRONG cycle",
-                        f"Now {rupees(p)} (prev close {rupees(pc)}). {season} Plan: buy before the close, sell at {rupees(tgt)} (+2% after charges), else exit by day 5. Backtest: 74–80% reached +2% within 5 days (74% without hindsight); misses avg −4.5%.{_no_buy_note(buy, p)}", 5, "chart_with_downwards_trend", _buy_spec(buy, sym, p)))
+                        f"Now {rupees(p)} (prev close {rupees(pc)}). {season} Plan: buy before the close, sell at {rupees(tgt)} (+2% after charges), else exit by day 5. Backtest: 73–79% reached +2% within 5 days (73% without hindsight); misses avg −4.6%.{_no_buy_note(buy, p)}", 5, "chart_with_downwards_trend", _buy_spec(buy, sym, p)))
         else:
             out.append((f"dip-early:{sym}", f"👀 {sym} −{abs(chg):.1f}% · STRONG cycle in season",
                         f"Now {rupees(p)}. {season} Heads-up only: the tested rule buys at the close if it's still down 2%+; you'll get a buzz after 3:10 pm if so.", 4, "eyes"))
