@@ -9,6 +9,11 @@ name: Minute candles — history backfill (all NSE stocks, since 2015)
 # so it completes over roughly a week of login days. Each run needs that day's HUF Kite
 # login and stops before the ~06:00 IST token reset. Once everything is done
 # the runs find nothing left and exit within a minute.
+# A run is capped at 320 min (job limit), so when it ends with months still to
+# go and at least an hour of the login left, it starts the next run itself —
+# the whole login window is used, not just the three scheduled slots. It skips
+# that when another Kite job is already waiting (GitHub keeps one waiting run per
+# concurrency group, so a new one would push the daily archive out).
 
 on:
   schedule:
@@ -19,6 +24,7 @@ on:
 
 permissions:
   contents: read
+  actions: write     # the run starts the next one itself (gh workflow run)
 
 concurrency:
   group: kite-historical
@@ -35,6 +41,7 @@ jobs:
           python-version: "3.11"
       - run: pip install --quiet kiteconnect pyarrow
       - name: Backfill the next months
+        id: hist
         env:
           KITE_API_KEY: ${{ secrets.KITE_API_KEY }}
           SECRETS_REPO_PAT: ${{ secrets.SECRETS_REPO_PAT }}
@@ -53,4 +60,29 @@ jobs:
           )
           echo "Time budget: ${BUDGET} min"
           if [ "$BUDGET" -lt 30 ]; then echo "Too close to the 06:00 login reset — skipping."; exit 0; fi
-          python scripts/minute_bars.py history "$BUDGET"
+          set -o pipefail    # keep the script's own failure through tee
+          python scripts/minute_bars.py history "$BUDGET" | tee history.log
+      - name: Carry on while the login lasts
+        if: success() && steps.hist.outputs.remaining != '' && steps.hist.outputs.remaining != '0'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          MINS=$(python - <<'PY'
+          import datetime
+          ist = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
+          now = datetime.datetime.now(ist)
+          reset = now.replace(hour=5, minute=40, second=0, microsecond=0)
+          if reset <= now:
+              reset += datetime.timedelta(days=1)
+          print(int((reset - now).total_seconds() // 60))
+          PY
+          )
+          DID=$(sed -n 's/^Done \([0-9]*\) month.*/\1/p' history.log | tail -1)
+          WAITING=$(gh run list -R "$GITHUB_REPOSITORY" --limit 30 --json workflowName,status \
+            --jq '[.[] | select((.workflowName | startswith("Minute candles")) and (.status == "queued" or .status == "pending" or .status == "waiting" or .status == "requested"))] | length')
+          echo "Months left: ${{ steps.hist.outputs.remaining }} · done this run: ${DID:-0} · minutes until the 05:40 IST cut-off: ${MINS} · Kite jobs waiting: ${WAITING}"
+          if [ "${DID:-0}" -lt 1 ]; then echo "No month finished this run (login or rate-limit trouble?) — leaving it to the next scheduled run."; exit 0; fi
+          if [ "$MINS" -lt 60 ]; then echo "Less than an hour of the login left — stopping for today."; exit 0; fi
+          if [ "${WAITING:-0}" -gt 0 ]; then echo "Another Kite job is waiting — it goes first; the next scheduled run carries on."; exit 0; fi
+          gh workflow run minute_history.yml -R "$GITHUB_REPOSITORY" --ref main
+          echo "Started the next run."
