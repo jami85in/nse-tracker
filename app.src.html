@@ -359,7 +359,7 @@ const RAW_BASE    = `https://raw.githubusercontent.com/${GITHUB_USER}/${GITHUB_R
 // instead of requiring a manual file diff to find out. This exists because
 // PWA/service-worker caching has repeatedly made "is this actually deployed
 // yet" the hardest part of diagnosing issues in this app.
-const BUILD_VERSION = "2026-11-26.1";
+const BUILD_VERSION = "2026-11-26.2";
 
 // NSE trading calendar — keep in step with scripts/market_session.py.
 // Special sessions on a weekend (Diwali Muhurat) and weekday holidays.
@@ -4559,8 +4559,8 @@ function ReturnsCard({ r }) {
             {cell("Return a year (XIRR)", s.xirr_pct, s.nifty_same_money_xirr_pct, pcTxt)}
             <div style={{ color: T.muted, fontSize: 10, marginTop: 6, lineHeight: 1.5 }}>
               {s.bench_basis === "invested"
-                ? "Each buy's money earns Nifty 50's return only while it is invested — from the day you bought to the day you sold those shares (a same-day trade counts one day); the days between selling and buying again earn nothing."
-                : "Every rupee you put in or took out — and every dividend you received — moved in or out of Nifty 50 on the same day instead."}
+                ? "Each buy's money earns Nifty 50's return only while it is invested — from the day you bought to the day you sold those shares (a same-day trade counts one day); the days between selling and buying again earn nothing. "
+                : "Every rupee you put in or took out — and every dividend you received — moved in or out of Nifty 50 on the same day instead. "}
               Nifty's own dividends are added at an estimated {((s.nifty_dividend_yield_assumed || 0) * 100).toFixed(1)}% a year
               {s.nifty_same_money_xirr_pct_price_only != null ? ` (index alone: ${pcTxt(s.nifty_same_money_xirr_pct_price_only)} a year, ${sgnRs(s.nifty_same_money_gain_price_only)})` : ""}.
               {s.nifty_mirror_went_negative ? " At times you'd taken out more than the Nifty copy held, so treat its figures as approximate." : ""}
