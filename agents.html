@@ -1,0 +1,635 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Agents · NSE Tracker</title>
+<meta name="theme-color" content="#0A0E1A" />
+<!-- Agents page: live status of every scheduled job of the NSE tracker.
+     Public file: holds no trade data and no keys. Private status (ledger, logins,
+     check-in) is read in the browser with the read-only key saved by the
+     dashboard's Ledger tab (localStorage "ledger_pat"), the same as the dashboard. -->
+<style>
+/* VOICE: calm control room; IDEA: a station departures board for the jobs;
+   PICTURE: today's run line with one lamp per stage; COLOUR/TYPE: the dashboard's navy,
+   teal accent, system sans; LAYOUT: finding first, line, then grouped boards. */
+:root{--bg:#0A0E1A;--surface:#111827;--card:#161D2E;--border:#1E2D45;--ink:#E8EDF5;--muted:#8A97B3;
+ --accent:#00D4AA;--ok:#22C55E;--run:#4FA3FF;--warn:#FFB800;--fail:#EF4444;--act:#FF6B35;--idle:#8C99B5}
+*{box-sizing:border-box;min-width:0}
+html,body{margin:0;background:var(--bg);color:var(--ink)}
+body{font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;overflow-x:clip;-webkit-tap-highlight-color:transparent}
+a{color:var(--accent)}
+.wrap{max-width:1100px;margin:0 auto;padding:16px max(4vw,14px) 40px}
+.top{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.back{color:var(--muted);text-decoration:none;font-size:14px;padding:10px 0}
+.top .sp{flex:1}
+.btn{background:var(--card);color:var(--ink);border:1px solid var(--border);border-radius:10px;padding:10px 14px;font:inherit;font-size:14px;cursor:pointer;min-height:44px}
+.btn:focus-visible,.row:focus-visible,textarea:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.btn.primary{background:var(--accent);color:#04110E;border-color:var(--accent);font-weight:600}
+h1{font-size:clamp(28px,6vw,40px);line-height:1.05;margin:6px 0 4px;text-wrap:balance}
+.finding{font-size:17px;margin:0 0 4px}
+.sub{color:var(--muted);font-size:13px;margin:0}
+.banner{background:#1d1606;border:1px solid #5a4510;color:#ffd77a;border-radius:12px;padding:10px 14px;margin:14px 0 0;font-size:14px}
+.banner[hidden]{display:none}
+/* the run line */
+.line{margin:20px 0 6px;background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:16px 14px 12px}
+.line h2{font-size:13px;color:var(--muted);font-weight:600;margin:0 0 12px}
+.track{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));position:relative}
+.track::before{content:"";position:absolute;left:8%;right:8%;top:15px;height:3px;background:var(--border);border-radius:2px}
+.stop{position:relative;text-align:center;padding:0 2px;cursor:pointer;background:none;border:0;color:inherit;font:inherit}
+.lamp{width:32px;height:32px;border-radius:50%;margin:0 auto 6px;display:grid;place-items:center;font-weight:700;font-size:15px;border:3px solid var(--bg);position:relative}
+.stop b{display:block;font-size:12.5px;font-weight:600;line-height:1.2}
+.stop span{display:block;font-size:11.5px;color:var(--muted);line-height:1.25;margin-top:2px}
+/* boards */
+.group{margin-top:22px}
+.group h2{font-size:15px;margin:0 0 8px;display:flex;gap:8px;align-items:baseline}
+.group h2 small{color:var(--muted);font-weight:400;font-size:13px}
+.board{background:var(--surface);border:1px solid var(--border);border-radius:14px;overflow:hidden}
+.row{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:4px 12px;align-items:center;padding:12px 14px;border-top:1px solid var(--border);cursor:pointer;width:100%;text-align:left;background:none;color:inherit;font:inherit;border-left:0;border-right:0;border-bottom:0}
+.row:first-child{border-top:0}
+.row:hover{background:#141c2c}
+.dot{width:12px;height:12px;border-radius:50%;grid-row:span 2}
+.name{font-weight:600;font-size:15px}
+.what{color:var(--muted);font-size:13px;grid-column:2}
+.chip{justify-self:end;font-size:12px;font-weight:700;padding:3px 9px;border-radius:999px;white-space:nowrap}
+.when{grid-column:3;justify-self:end;color:var(--muted);font-size:12px;white-space:nowrap;text-align:right}
+.s-ok{--c:var(--ok)}.s-run{--c:var(--run)}.s-warn{--c:var(--warn)}.s-fail{--c:var(--fail)}.s-act{--c:var(--act)}.s-wait{--c:var(--run)}.s-idle{--c:var(--idle)}.s-unk{--c:var(--idle)}
+.dot,.lamp{background:var(--c)}
+.lamp{color:#07101c}
+.chip{color:var(--c);background:color-mix(in srgb,var(--c) 16%,transparent);border:1px solid color-mix(in srgb,var(--c) 45%,transparent)}
+.s-run .dot,.s-run .lamp{animation:pulse 1.6s ease-in-out infinite}
+@keyframes pulse{50%{opacity:.45}}
+@media (prefers-reduced-motion:reduce){.s-run .dot,.s-run .lamp{animation:none}}
+/* ask */
+.ask{margin-top:26px;background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:14px}
+.ask h2{font-size:15px;margin:0 0 4px}
+textarea{width:100%;min-height:76px;background:var(--bg);color:var(--ink);border:1px solid var(--border);border-radius:10px;padding:10px 12px;font:inherit;font-size:16px;resize:vertical}
+.acts{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+.note{color:var(--muted);font-size:12.5px;margin:8px 0 0}
+/* detail sheet */
+.shade{position:fixed;inset:0;background:#0009;z-index:10}
+.sheet{position:fixed;z-index:11;background:var(--card);border:1px solid var(--border);overflow:auto;
+ left:0;right:0;bottom:0;max-height:88vh;max-height:88dvh;border-radius:18px 18px 0 0;padding:16px max(4vw,14px) 24px}
+@media (min-width:860px){.sheet{left:auto;top:0;bottom:0;width:470px;max-height:none;border-radius:0;padding:20px 22px}}
+.sheet[hidden],.shade[hidden]{display:none}
+.sheet h3{font-size:22px;margin:4px 0 6px;line-height:1.15}
+.sheet .why{font-size:15px;margin:8px 0 12px}
+.sheet h4{font-size:13px;color:var(--muted);margin:16px 0 6px;font-weight:600}
+.sheet p{margin:0 0 8px}
+.facts{margin:0;padding:0;list-style:none}
+.facts li{padding:6px 0;border-top:1px solid var(--border);font-size:14px}
+.facts li:first-child{border-top:0}
+.runs{width:100%;border-collapse:collapse;font-size:13.5px}
+.runs td{padding:6px 4px;border-top:1px solid var(--border);vertical-align:top}
+.runs td:last-child{text-align:right;white-space:nowrap}
+.close{position:sticky;top:0;float:right;background:var(--surface)}
+@media (max-width:600px){.track .stop span{font-size:11px}.stop b{font-size:11.5px}.lamp{width:28px;height:28px;font-size:13px}.track::before{top:13px}.when{display:none}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <a class="back" href="./">← Dashboard</a>
+    <span class="sp"></span>
+    <button class="btn" id="refresh" type="button">Refresh</button>
+  </div>
+  <h1 id="title">Agents</h1>
+  <p class="finding" id="finding">Loading status…</p>
+  <p class="sub" id="updated"></p>
+  <div class="banner" id="banner" hidden></div>
+  <section class="group" id="attn" hidden aria-labelledby="attnh"><h2 id="attnh">Needs attention</h2><div class="board" id="attn-board"></div></section>
+
+  <section class="line" aria-labelledby="lineh">
+    <h2 id="lineh">Today's run line</h2>
+    <div class="track" id="track"></div>
+  </section>
+
+  <div id="groups"></div>
+
+  <section class="ask" id="askall" aria-labelledby="askh">
+    <h2 id="askh">Ask Claude about your agents</h2>
+    <p class="sub">Your question goes with the current status of every agent (no amounts, no keys).</p>
+    <textarea id="q-all" placeholder="e.g. Why is the ledger late? What runs tonight?"></textarea>
+    <div class="acts">
+      <button class="btn primary" type="button" data-ask="copy" data-q="q-all">Copy &amp; open my Stock market chat</button>
+      <button class="btn" type="button" data-ask="new" data-q="q-all">Ask in a new Claude chat</button>
+    </div>
+    <p class="note" id="copied-all" aria-live="polite"></p>
+  </section>
+</div>
+
+<div class="shade" id="shade" hidden></div>
+<aside class="sheet" id="sheet" role="dialog" aria-modal="true" aria-labelledby="d-title" hidden>
+  <button class="btn close" type="button" id="d-close">Close</button>
+  <div id="d-body"></div>
+</aside>
+
+<script>
+{
+const PUB = "jami85in/nse-tracker";
+const lsGet = (k, d) => { try { const v = localStorage.getItem(k); return v == null ? d : v; } catch (e) { return d; } };
+const PAT = lsGet("ledger_pat", "");
+const PRIV = lsGet("ledger_repo", "jami85in/nse-tracker-secrets");
+const PROJECT_URL = "https://claude.ai/project/019e24b8-6ea8-76c1-a35d-0f1aad75cc54";
+const IST = 19800000, H = 3600e3, MIN = 60e3;
+// NSE calendar: keep in step with scripts/market_session.py
+const HOLIDAYS = new Set(["2026-11-10", "2026-11-24", "2026-12-25"]);
+const SPECIAL = { "2026-11-08": [14 * 60 + 20, 15 * 60 + 30] };   // date: [open, close] minutes IST
+
+const pad = n => String(n).padStart(2, "0");
+const ist = d => { const x = new Date(d.getTime() + IST); return { y: x.getUTCFullYear(), m: x.getUTCMonth() + 1, d: x.getUTCDate(), h: x.getUTCHours(), mi: x.getUTCMinutes(), dow: x.getUTCDay() }; };
+const atIST = (y, m, d, h, mi) => new Date(Date.UTC(y, m - 1, d, h, mi) - IST);
+const dayKey = p => `${p.y}-${pad(p.m)}-${pad(p.d)}`;
+const isTrading = p => !!SPECIAL[dayKey(p)] || (p.dow !== 0 && p.dow !== 6 && !HOLIDAYS.has(dayKey(p)));
+const session = p => SPECIAL[dayKey(p)] || [9 * 60 + 15, 15 * 60 + 30];
+const dayOf = (date, k) => { const p = ist(date); return ist(atIST(p.y, p.m, p.d + k, 12, 0)); };
+const DOW = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"], MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const hhmm = d => { const p = ist(d); return `${pad(p.h)}:${pad(p.mi)}`; };
+function when(d, now) {
+  if (!d) return "never";
+  const a = ist(d), t = ist(now), y = dayOf(now, -1), tm = dayOf(now, 1);
+  if (dayKey(a) === dayKey(t)) return `today ${hhmm(d)}`;
+  if (dayKey(a) === dayKey(y)) return `yesterday ${hhmm(d)}`;
+  if (dayKey(a) === dayKey(tm)) return `tomorrow ${hhmm(d)}`;
+  return `${DOW[a.dow]} ${a.d} ${MON[a.m - 1]} ${hhmm(d)}`;
+}
+function ago(d, now) {
+  const m = Math.round((now - d) / MIN);
+  if (m < 1) return "just now"; if (m < 60) return `${m} min ago`;
+  const h = Math.round(m / 60); if (h < 48) return `${h} h ago`;
+  return `${Math.round(h / 24)} days ago`;
+}
+const parseIstText = s => { const m = /^(\d{4})-(\d\d)-(\d\d)[ T](\d\d):(\d\d)/.exec(s || ""); return m ? atIST(+m[1], +m[2], +m[3], +m[4], +m[5]) : null; };
+const parseAny = s => { if (!s) return null; if (/IST$/.test(s)) return parseIstText(s); const d = new Date(s); return isNaN(d) ? null : d; };
+
+// ── cron (UTC, as GitHub reads it) ──
+function cronField(f, lo, hi) {
+  if (f === "*") return null;
+  const s = new Set();
+  for (const part of f.split(",")) {
+    const [r, st0] = part.split("/"); const st = st0 ? +st0 : 1;
+    let a, b;
+    if (r === "*") { a = lo; b = hi; } else if (r.includes("-")) { [a, b] = r.split("-").map(Number); } else { a = +r; b = st0 ? hi : a; }
+    for (let v = a; v <= b; v += st) s.add(v);
+  }
+  return s;
+}
+function nextFire(crons, from) {
+  const cs = crons.map(c => { const f = c.trim().split(/\s+/); return { mi: cronField(f[0], 0, 59), h: cronField(f[1], 0, 23), dom: cronField(f[2], 1, 31), mon: cronField(f[3], 1, 12), dow: cronField(f[4], 0, 6) }; });
+  const ok = (s, v) => !s || s.has(v);
+  let t = new Date(Math.ceil((from.getTime() + 1) / MIN) * MIN);
+  for (let i = 0; i < 8 * 1440; i++, t = new Date(t.getTime() + MIN)) {
+    for (const c of cs) {
+      const dd = c.dom && c.dow ? (ok(c.dom, t.getUTCDate()) || ok(c.dow, t.getUTCDay())) : (ok(c.dom, t.getUTCDate()) && ok(c.dow, t.getUTCDay()));
+      if (ok(c.mi, t.getUTCMinutes()) && ok(c.h, t.getUTCHours()) && ok(c.mon, t.getUTCMonth() + 1) && dd) return t;
+    }
+  }
+  return null;
+}
+
+// ── the agents ──
+// due: {days: trading|daily|sat|sun, at:[h,m] IST, allow: hours after "at" by which a run should have finished}
+const AGENTS = [
+  { id: "login", g: "day", name: "Kite login (HUF)", short: "Login", repo: "priv", when: "You, each trading morning (one tap)",
+    what: "Gives the price loop and the ledger today's access to Kite.",
+    how: "You tap the login link; the Cloudflare worker saves today's session in the private repo and starts the price loop. Family accounts log in the same way on the days they trade. The key itself is never shown here: this page only reads when it was last saved." },
+  { id: "prices", g: "day", name: "Live prices & alerts", short: "Prices", file: "prices_kite.yml", repo: "pub",
+    crons: ["38 3 * * 1-5", "13 5 * * 1-5", "47 6 * * 1-5", "7 9 * * 1-5"],
+    when: "09:10–15:35 on trading days, every 5 minutes",
+    what: "Fetches Kite prices every 5 minutes and sends dip, swing and GTT alerts to your phone.",
+    how: "Started by your login or by the Cloudflare worker at 09:10 (GitHub backups at 09:08, 10:43, 12:17 and 14:37). Each run lasts up to 340 minutes and hands over to a fresh one before the 15:10 buy-at-close rounds. No alert goes out on prices more than 25 minutes old." },
+  { id: "morning", g: "day", name: "Morning summary", short: "Morning", repo: "priv", when: "From 08:45 on trading days (inside the price loop)",
+    what: "One phone message before the open: “Ready for the open”, or the first thing to do.",
+    how: "Each round of the price loop checks the login, the overnight scan, the ledger, the watchdog and the 1-minute backfill, and sends the summary once a day." },
+  { id: "ledger", g: "day", name: "Trade capture & ledger", short: "Ledger", file: "ledger.yml", repo: "priv",
+    crons: ["47 10 * * 1-5", "52 12 * * 1-5", "22 15 * * 1-5", "37 17 * * 1-5"], due: { days: "trading", at: [15, 30], allow: 10 },
+    when: "Right after the close (started by the price loop); backups 16:17, 18:22, 20:52, 23:07",
+    what: "Captures the day's trades and holdings from Kite for every account, refreshes dividends and bonuses, and rebuilds every ledger and the family view.",
+    how: "Runs in the private repo, so trade data and logs never become public. Also runs when you upload a tradebook or change adjustments. Writes a small digest of open items that the watchdog and the evening check-in read." },
+  { id: "checkin", g: "day", name: "Evening check-in (Claude)", short: "Check-in", file: "evening_checkin.yml", repo: "priv",
+    crons: ["43 15 * * 1-5", "13 18 * * 1-5"], due: { days: "trading", at: [21, 13], allow: 6 },
+    when: "21:13 on trading days (backup 23:43)",
+    what: "Claude reads the ledger digest, explains any new issue, proposes a fix, saves a note and sends one line to your phone.",
+    how: "Runs Claude inside a private GitHub job with read-only tools; it can only write its own note. A privacy filter checks the phone line, which never carries amounts." },
+  { id: "watchdog", g: "day", name: "Watchdog", short: "Watchdog", file: "watchdog.yml", repo: "pub", crons: ["23 */2 * * *"],
+    when: "Every 2 hours, all week",
+    what: "Checks the ledger, the daily scan and the 1-minute backfill, and alerts once per new problem.",
+    how: "Runs in the public repo (free minutes) and reads private status with a key kept as a GitHub secret. It remembers what it has already alerted, so you hear about each problem once." },
+  { id: "archive", g: "day", name: "1-minute candles: daily archive", short: "Archive", file: "minute_archive.yml", repo: "pub",
+    crons: ["47 10 * * 1-5", "22 13 * * 1-5", "7 16 * * 1-5"], due: { days: "trading", at: [16, 17], allow: 10 },
+    when: "16:17 on weekdays (backups 18:52, 21:37)", what: "Saves the day's 1-minute candles for all NSE stocks.",
+    how: "Needs that day's Kite login. Stored as a private release in the secrets repo." },
+  { id: "backfill", g: "day", name: "1-minute candles: history", short: "Backfill", file: "minute_history.yml", repo: "pub",
+    crons: ["1 4 * * *", "17 11 * * *", "7 17 * * *"],
+    when: "While the day's login lasts; each run starts the next until 05:40",
+    what: "Downloads 1-minute history for all NSE stocks since Feb 2015, a month at a time.",
+    how: "Uses the HUF login, so it only moves on days you log in. Progress is kept in the private repo." },
+
+  { id: "ohlc", g: "eve", name: "Daily OHLC refresh", file: "ohlc_daily_refresh.yml", repo: "pub", crons: ["30 13 * * 1-5", "15 23 * * 1-5"],
+    due: { days: "trading", at: [19, 0], allow: 12 }, when: "19:00 on weekdays (backup 04:45)", what: "Updates the daily price history of every stock.",
+    how: "Feeds the scan, the ranges, the cycles and the 3-day dip rule." },
+  { id: "scan", g: "eve", name: "Squeeze & blast scan", short: "Scan", file: "scan.yml", repo: "pub", due: { days: "trading", at: [19, 0], allow: 13 },
+    when: "After the OHLC refresh", what: "Finds the squeeze, blast and short setups the dashboard lists.",
+    how: "Starts by itself when the OHLC refresh finishes." },
+  { id: "ranges", g: "eve", name: "Price ranges", file: "ranges.yml", repo: "pub", due: { days: "trading", at: [19, 0], allow: 13 },
+    when: "After the scan", what: "Works out daily and weekly trading ranges.", how: "Starts by itself after the scan." },
+  { id: "index", g: "eve", name: "Index & sector data", file: "index_collect.yml", repo: "pub", crons: ["41 13 * * 1-5"],
+    due: { days: "trading", at: [19, 11], allow: 11 }, when: "19:11 on weekdays", what: "Collects Nifty and sector index history.", how: "Used by relative strength and the benchmarks." },
+  { id: "meta", g: "eve", name: "Symbols metadata", file: "symbols_meta.yml", repo: "pub", crons: ["0 14 * * 1-5"],
+    due: { days: "trading", at: [19, 30], allow: 11 }, when: "19:30 on weekdays", what: "Rebuilds names, sectors and listing details for every symbol.", how: "Used across the dashboard." },
+  { id: "sme", g: "eve", name: "SME prices (EMERGE)", file: "sme_collect.yml", repo: "pub", crons: ["0 15 * * 1-5"],
+    due: { days: "trading", at: [20, 30], allow: 10 }, when: "20:30 on weekdays", what: "Collects SME platform prices.", how: "Kept apart from the main board." },
+  { id: "rs", g: "eve", name: "Relative strength & sectors", file: "relative_strength.yml", repo: "pub", crons: ["0 19 * * *"],
+    due: { days: "daily", at: [0, 30], allow: 8 }, when: "00:30 every night", what: "Ranks stocks and sectors by relative strength.", how: "Runs after the day's scan." },
+  { id: "bta", g: "eve", name: "Backtest analysis", file: "backtest_analyze.yml", repo: "pub", crons: ["30 18 * * *"],
+    due: { days: "daily", at: [0, 0], allow: 8 }, when: "00:00 every night", what: "Updates the backtest statistics behind the signals.", how: "Reads the collected history." },
+
+  { id: "cycles", g: "week", name: "Seasonal cycles", file: "cycles.yml", repo: "pub", crons: ["17 4 * * 6"],
+    due: { days: "sat", at: [9, 47], allow: 14 }, when: "Saturday 09:47", what: "Market caps and the seasonal cycle analysis behind the Cycles tab and the dip alerts.", how: "Runs on Saturday when markets are closed." },
+  { id: "sqbt", g: "week", name: "Squeeze backtest", file: "backtest_squeeze.yml", repo: "pub", crons: ["30 4 * * 6"],
+    due: { days: "sat", at: [10, 0], allow: 14 }, when: "Saturday 10:00", what: "Re-tests the squeeze strategy on the week's data.", how: "Resumable: a long run continues where it stopped." },
+  { id: "names", g: "week", name: "Security names", file: "security_names.yml", repo: "pub", crons: ["30 4 * * 0"],
+    due: { days: "sun", at: [10, 0], allow: 12 }, when: "Sunday 10:00", what: "Refreshes the list of security names (ETF detection).", how: "Quiet-day job." },
+
+  { id: "build", g: "tools", name: "Dashboard build", file: "build_dashboard.yml", repo: "pub", manual: true, when: "When the dashboard code changes",
+    what: "Compiles the dashboard into the fast page GitHub Pages serves.", how: "If a build fails, the previous page stays up." },
+  { id: "setup", g: "tools", name: "Setup check", file: "setup_check.yml", repo: "pub", manual: true, when: "When you run it", what: "Sends a test phone alert and checks the Kite logins.", how: "" },
+  { id: "ca", g: "tools", name: "Corporate action history", file: "ca_history.yml", repo: "priv", manual: true, when: "When you run it", what: "Audits bonus, split and dividend history for the ledger.", how: "" },
+  { id: "collect", g: "tools", name: "Backtest collectors", file: "backtest_collect.yml", repo: "pub", manual: true, when: "When you run them", what: "One-off history collection (also OHLC history, gap fill, shares outstanding).", how: "" },
+  { id: "legacy", g: "tools", name: "Legacy price update", file: "prices.yml", repo: "pub", manual: true, when: "Manual fallback only", what: "The old price job, kept as a fallback to the Kite loop.", how: "" },
+
+  { id: "worker", g: "other", name: "Login & order-link worker (Cloudflare)", static: true, when: "Always on; starts the price loop at 09:10 on weekdays",
+    what: "Runs your one-tap logins and the “Review order in Kite” links in alerts.", how: "Lives in your Cloudflare account. This page can't read its status; a missing 09:10 start shows up as the price loop not running." },
+  { id: "jyothy", g: "other", name: "JYOTHYLAB buyback check (Claude)", static: true, when: "Once, Tue 1 Dec 20:00 — needs your laptop on",
+    what: "Books the accepted buyback shares once the buyback settles.", how: "A one-off Claude reminder in your Stock market chat." },
+  { id: "retired", g: "other", name: "Old Claude morning & evening tasks", static: true, retired: true, when: "Off since 26–27 Nov 2026",
+    what: "Replaced by the GitHub morning summary and the evening check-in, which don't need your laptop.", how: "" },
+];
+const GROUPS = [
+  ["day", "Every trading day", "login to the evening check-in"],
+  ["eve", "Evening data & scan", "after the close and overnight"],
+  ["week", "Weekly", "weekend jobs"],
+  ["tools", "On demand", "run by hand or on a code change"],
+  ["other", "Outside GitHub", "Cloudflare and Claude"],
+];
+const TRACK = ["login", "prices", "ledger", "scan", "checkin", "backfill"];
+const LABEL = { ok: "Working", run: "Running", warn: "Late", fail: "Failed", act: "Needs you", wait: "Waiting", idle: "Idle", unk: "Unknown" };
+const ICON = { ok: "✓", run: "▸", warn: "!", fail: "×", act: "!", wait: "…", idle: "–", unk: "?" };
+
+// ── fetching ──
+let KEY_REJECTED = false;
+async function gh(path, auth) {
+  const h = { Accept: "application/vnd.github+json" };
+  if (auth && PAT) h.Authorization = `Bearer ${PAT}`;
+  try {
+    const r = await fetch(`https://api.github.com${path}`, { headers: h, cache: "no-store" });
+    if (r.status === 401 && h.Authorization) KEY_REJECTED = true;
+    return { ok: r.ok, status: r.status, json: r.ok ? await r.json() : null };
+  } catch (e) { return { ok: false, status: 0, json: null }; }
+}
+async function ghPub(path) { let r = await gh(path, true); if (!r.ok && PAT) r = await gh(path, false); return r; }
+async function raw(repo, path) {
+  if (!PAT) return null;
+  try {
+    const r = await fetch(`https://api.github.com/repos/${repo}/contents/${path}?t=${Date.now()}`, { headers: { Authorization: `Bearer ${PAT}`, Accept: "application/vnd.github.raw+json" }, cache: "no-store" });
+    if (r.status === 401) KEY_REJECTED = true;
+    return r.ok ? await r.text() : null;
+  } catch (e) { return null; }
+}
+const jparse = s => { try { return s == null ? null : JSON.parse(s); } catch (e) { return null; } };
+const fileOf = r => (r.path || "").split("/").pop().split("@")[0];
+const tRun = r => new Date(r.run_started_at || r.created_at);
+
+async function load() {
+  KEY_REJECTED = false;
+  const S = { runs: {}, privRunsOk: false, limited: false, now: new Date() };
+  const add = (repo, list) => { for (const r of list || []) { const k = `${repo}:${fileOf(r)}`; (S.runs[k] = S.runs[k] || []).push(r); } };
+  const pub = await ghPub(`/repos/${PUB}/actions/runs?per_page=100`);
+  if (pub.ok) add("pub", pub.json.workflow_runs); else S.limited = pub.status === 403 || pub.status === 429;
+  const jobs = [];
+  if (PAT) {
+    jobs.push(gh(`/repos/${PRIV}/actions/runs?per_page=60`, true).then(r => { if (r.ok) { S.privRunsOk = true; add("priv", r.json.workflow_runs); } }));
+    jobs.push(raw(PRIV, "ledger/digest.json").then(t => { S.digest = jparse(t); }));
+    jobs.push(raw(PRIV, "notify/watchdog_state.json").then(t => { S.wd = jparse(t); }));
+    jobs.push(raw(PRIV, "market/minute_progress.json").then(t => { S.progress = jparse(t); }));
+    jobs.push(raw(PRIV, "agents/handoff/last_run.txt").then(t => { S.lastCheckin = t ? t.trim() : null; }));
+    jobs.push(raw(PRIV, "agents/handoff/summary.txt").then(t => { S.summary = t ? t.trim().split("\n").filter(Boolean).slice(0, 4) : null; }));
+    jobs.push(gh(`/repos/${PRIV}/commits?path=kite_token.json&per_page=1`, true).then(r => { if (r.ok && r.json[0]) S.login = new Date(r.json[0].commit.committer.date); else S.loginErr = true; }));
+  }
+  jobs.push(ghPub(`/repos/${PUB}/contents/data/prices_live.json`).then(async r => {
+    let txt = null;
+    if (r.ok && r.json && r.json.content) { try { txt = atob(r.json.content.replace(/\n/g, "")); } catch (e) {} }
+    if (!txt) { try { const x = await fetch(`https://raw.githubusercontent.com/${PUB}/main/data/prices_live.json?t=${Date.now()}`); if (x.ok) txt = await x.text(); } catch (e) {} }
+    const d = jparse(txt); S.prices = d ? { at: parseAny(d.updated_at), date: d.data_date, count: d.count } : null;
+  }));
+  await Promise.all(jobs);
+  // weekly / rarely-run public jobs may not be among the last 100 runs
+  // (without a key GitHub allows 60 calls an hour, so hand-run jobs are only looked up with one;
+  // answers are kept for 30 minutes in this tab)
+  const missing = AGENTS.filter(a => a.file && a.repo === "pub" && (PAT || !a.manual) && (S.runs[`pub:${a.file}`] || []).length < 3);
+  const merge = (a, list) => { const k = `pub:${a.file}`, have = new Set((S.runs[k] || []).map(x => x.id)); for (const x of list) if (!have.has(x.id)) (S.runs[k] = S.runs[k] || []).push(x); };
+  if (!S.limited) await Promise.all(missing.map(a => {
+    let c = null; try { c = JSON.parse(sessionStorage.getItem(`agents:${a.file}`) || "null"); } catch (e) {}
+    if (c && Date.now() - c.at < 30 * MIN) { merge(a, c.runs); return null; }
+    return ghPub(`/repos/${PUB}/actions/workflows/${a.file}/runs?per_page=8`).then(r => {
+      if (r.ok) { merge(a, r.json.workflow_runs); try { sessionStorage.setItem(`agents:${a.file}`, JSON.stringify({ at: Date.now(), runs: r.json.workflow_runs })); } catch (e) {} }
+      else if (r.status === 403 || r.status === 429) S.limited = true;
+    });
+  }));
+  for (const f in S.runs) S.runs[f].sort((a, b) => tRun(b) - tRun(a));
+  S.keyRejected = KEY_REJECTED;
+  return S;
+}
+
+// ── judging ──
+function runEval(runs) {
+  runs = runs || [];
+  const active = runs.find(r => ["queued", "in_progress", "waiting", "requested", "pending"].includes(r.status));
+  const done = runs.filter(r => r.status === "completed");
+  const lastOK = done.find(r => r.conclusion === "success");
+  const lastDone = done.find(r => !["skipped", "cancelled", "neutral"].includes(r.conclusion));
+  const failed = lastDone && lastDone.conclusion !== "success" && (!lastOK || tRun(lastDone) > tRun(lastOK)) ? lastDone : null;
+  return { active, lastOK, failed, any: runs.length > 0 };
+}
+const activeWhy = (ev, now, what) => ev.active.status === "queued" ? `Queued since ${when(tRun(ev.active), now)} — waiting for GitHub to start it.` : (what || `Running since ${when(tRun(ev.active), now)}.`);
+const activeLabel = ev => ev.active.status === "queued" ? "Queued" : null;
+const dayMatch = (kind, p) => kind === "trading" ? isTrading(p) : kind === "daily" ? true : kind === "sat" ? p.dow === 6 : kind === "sun" ? p.dow === 0 : p.dow >= 1 && p.dow <= 5;
+function dueWindow(due, now) {
+  let last = null, cur = null;
+  for (let k = 0; k <= 9 && !last; k++) {
+    const p = dayOf(now, -k);
+    if (!dayMatch(due.days, p)) continue;
+    const start = atIST(p.y, p.m, p.d, due.at[0], due.at[1]), by = new Date(start.getTime() + due.allow * H);
+    if (by <= now) last = { start, by }; else if (start <= now && !cur) cur = { start, by };
+  }
+  return { last, cur };
+}
+function judge(a, S) {
+  const now = S.now, runs = S.runs[`${a.repo}:${a.file}`] || [], ev = runEval(runs), facts = [], pfacts = [];
+  const lastOKt = ev.lastOK ? tRun(ev.lastOK) : null;
+  const res = (s, why, extra) => Object.assign({ s, why, facts, pfacts, runs, lastOKt }, extra || {});
+  if (a.static) return res("idle", a.when, { label: a.retired ? "Retired" : "Not tracked here" });
+  if (a.repo === "priv" && !PAT) return res("unk", "Add your read-only key in the dashboard's Ledger tab to see this.", { label: "Needs key" });
+  if (a.crons) { const n = nextFire(a.crons, now); if (n) facts.push(`Next scheduled start: ${when(n, now)}`); }
+  if (lastOKt) facts.unshift(`Last successful run: ${when(lastOKt, now)} (${ago(lastOKt, now)})`);
+  const pToday = ist(now), trading = isTrading(pToday), mins = pToday.h * 60 + pToday.mi, [openM, closeM] = session(pToday);
+
+  if (a.id === "login") {
+    if (!S.login) return res("unk", S.loginErr ? "Couldn't read the login time with this key." : "No login found.");
+    facts.unshift(`Last login saved: ${when(S.login, now)}`);
+    const today = dayKey(ist(S.login)) === dayKey(pToday);
+    if (!trading) return res("idle", `No trading session today. Last login ${when(S.login, now)}.`, { label: "No session" });
+    if (today) return res("ok", `Logged in today at ${hhmm(S.login)}.`, { label: "Logged in" });
+    if (mins < openM) return res("wait", `Not logged in yet today — log in before ${pad(Math.floor(openM / 60))}:${pad(openM % 60)}.`, { label: "Log in" });
+    return res("act", "Not logged in today: prices, alerts, the trade capture and the backfill need it.", { label: "Log in" });
+  }
+  if (a.id === "prices") {
+    const P = S.prices;
+    if (P && P.at) facts.unshift(`Prices last updated: ${when(P.at, now)} (${P.count || 0} stocks)`);
+    if (trading && mins >= openM && mins <= closeM + 5) {
+      if (P && P.at && now - P.at <= 15 * MIN) return res(ev.active ? "run" : "ok", `Live — prices updated ${ago(P.at, now)}.`, { label: "Live" });
+      if (mins < openM + 10) return res("wait", "Market just opened — the first prices arrive within 10 minutes.", { label: "Starting" });
+      if (ev.active) return res("warn", ev.active.status === "queued" ? "Queued at GitHub — no prices yet." : `Running, but the latest prices are ${P && P.at ? ago(P.at, now).replace(" ago", "") : "missing or"} old.`, { label: activeLabel(ev) || "Stale" });
+      return res(ev.failed ? "fail" : "warn", "Not running during market hours. Log in, or start it from GitHub.", { label: "Stopped" });
+    }
+    if (trading && mins < openM) return res("wait", "Starts before the open with your login or the Cloudflare worker (09:10).", { label: "Before open" });
+    if (ev.failed && !ev.active) return res("fail", `Last run failed ${when(tRun(ev.failed), now)}.`);
+    return res("idle", P && P.at ? `Market closed. Last prices ${when(P.at, now)}.` : "Market closed.", { label: "Closed" });
+  }
+  if (a.id === "morning") {
+    if (!S.wd) return res("unk", "Couldn't read the watchdog's state file.");
+    const sent = Array.isArray(S.wd.morning_sent) ? S.wd.morning_sent.map(String) : [];
+    const key = `morning|${dayKey(pToday)}`;
+    const lastSent = sent.length ? sent[sent.length - 1].split("|")[1] : null;
+    if (lastSent) facts.unshift(`Last summary sent: ${lastSent}`);
+    if (!trading) return res("idle", "No trading session today.", { label: "No session" });
+    if (sent.includes(key)) return res("ok", "Sent this morning.", { label: "Sent" });
+    if (mins < 8 * 60 + 45) return res("wait", "Due from 08:45, once the price loop is running.", { label: "Due 08:45" });
+    if (mins > 15 * 60 + 30) return res("warn", "Not sent today — the price loop sends it, so check whether it ran.");
+    return res(mins > 9 * 60 + 30 ? "warn" : "wait", "Not sent yet — it goes out from the price loop's next round.", { label: mins > 9 * 60 + 30 ? "Late" : "Due" });
+  }
+  if (a.id === "ledger") {
+    const d = S.digest;
+    if (d && d.accounts) {
+      const accs = Object.entries(d.accounts);
+      const gens = accs.map(([, v]) => parseAny(v.generated_at)).filter(Boolean);
+      const oldest = gens.length ? new Date(Math.min(...gens)) : null;
+      if (oldest) facts.unshift(`All accounts rebuilt by: ${when(oldest, now)}`);
+      let act = 0, chk = 0;
+      for (const [id, v] of accs) { const is = Array.isArray(v && v.issues) ? v.issues : []; const A = is.filter(x => x && x.level === "act").length, C = is.filter(x => x && x.level === "check").length; act += A; chk += C; pfacts.push(`${id.toUpperCase()}: ${A + C ? `${A} to act on, ${C} to check` : "no open items"}`); }
+      const w = dueWindow(a.due, now);
+      if (ev.active) return res("run", activeWhy(ev, now, "Rebuilding now."), { label: activeLabel(ev) });
+      if (ev.failed && S.privRunsOk) return res("fail", `Last run failed ${when(tRun(ev.failed), now)}.`);
+      if (w.last && (!oldest || oldest < w.last.start)) return res("warn", `Not rebuilt since the market closed ${when(w.last.start, now).replace(/ \d\d:\d\d$/, "")} (expected by ${when(w.last.by, now)}).`);
+      return res("ok", act + chk ? `Up to date. ${act + chk} open item${act + chk > 1 ? "s" : ""} in the books (${act} to act on).` : "Up to date. No open items in the books.", { finding: act ? "warn" : null });
+    }
+  }
+  if (a.id === "checkin") {
+    if (S.summary && S.summary.length) pfacts.unshift(`Last phone line: ${S.summary[0]}`);
+    if (S.lastCheckin) facts.unshift(`Last check-in day: ${S.lastCheckin}`);
+    if (ev.active) return res("run", activeWhy(ev, now, "Claude is checking the ledger now."), { label: activeLabel(ev) });
+    if (ev.failed && S.privRunsOk) return res("fail", `Last run failed ${when(tRun(ev.failed), now)}.`);
+    const w = dueWindow(a.due, now);
+    const dm = /^(\d{4})-(\d\d)-(\d\d)$/.exec(S.lastCheckin || "");
+    if (!dm) return res("unk", S.lastCheckin == null ? "Couldn't read the check-in's note (no check-in saved yet, or the key can't read it)." : "The check-in's date file is unreadable.");
+    const doneDay = atIST(+dm[1], +dm[2], +dm[3], 23, 0);
+    if (w.last && (!doneDay || doneDay < w.last.start)) return res("warn", `No check-in for ${when(w.last.start, now).replace(/ \d\d:\d\d$/, "")} yet (expected by ${when(w.last.by, now)}).`);
+    return res("ok", S.summary && S.summary.length ? `Last finding: ${S.summary[0]}` : "Up to date.", { pwhy: `Ran for ${S.lastCheckin}.` });
+  }
+  if (a.id === "watchdog") {
+    const chk = S.wd && parseAny(S.wd.checked_at);
+    if (chk) facts.unshift(`Last check: ${when(chk, now)}`);
+    const latest = [chk, lastOKt].filter(Boolean).sort((x, y) => y - x)[0];
+    if (ev.active) return res("run", activeWhy(ev, now, "Checking now."), { label: activeLabel(ev) });
+    if (ev.failed) return res("fail", `Last run failed ${when(tRun(ev.failed), now)}.`);
+    if (!latest) return res("unk", "No runs found.");
+    if (now - latest > 5 * H) return res("warn", `No check for ${ago(latest, now).replace(" ago", "")} (runs every 2 hours; GitHub can be late).`);
+    return res("ok", `Last check ${ago(latest, now)}.`);
+  }
+  if (a.id === "backfill") {
+    const P = S.progress;
+    if (ev.active) facts.unshift("A run is downloading now.");
+    if (P) {
+      const done = (P.months_done || []).length;
+      let total = null; const af = /^(\d{4})-(\d\d)-(\d\d)/.exec(P.archive_from || "");
+      if (af) { let y = +af[1], m = +af[2] - 1; if (+af[3] > 1) m = +af[2]; if (m < 1) { m = 12; y--; } total = (y - 2015) * 12 + (m - 2) + 1; }
+      const up = parseAny(P.updated_at);
+      facts.unshift(`Months downloaded: ${done}${total ? ` of ${total}` : ""}${up ? ` (last ${when(up, now)})` : ""}`);
+      if (total && done >= total) return res("ok", "Complete: every month since Feb 2015 is downloaded.", { label: "Complete" });
+      if (ev.active) return res("run", activeWhy(ev, now, `Downloading — ${done}${total ? ` of ${total}` : ""} months done.`), { label: activeLabel(ev) });
+      if (ev.failed) return res("fail", `Last run failed ${when(tRun(ev.failed), now)}.`);
+      if (up && now - up > 30 * H) return res("warn", `No new month for ${ago(up, now).replace(" ago", "")} — it needs a Kite login to move.`);
+      return res("ok", `${done}${total ? ` of ${total}` : ""} months done; continues with your next login.`);
+    }
+  }
+  // generic: manual or scheduled GitHub job
+  if (a.repo === "priv" && !S.privRunsOk) return res("unk", "Your key can't read the private repo's job history.", { label: "No access" });
+  if (!ev.any) return res(a.manual ? "idle" : "unk", a.manual ? "Not run recently." : (S.limited ? "GitHub's limit for this page was reached; try again later." : "No runs found."), a.manual ? { label: "On demand" } : null);
+  if (ev.active) return res("run", activeWhy(ev, now), { label: activeLabel(ev) });
+  if (a.manual) return res(ev.failed ? "warn" : "idle", ev.failed ? `Last run failed ${when(tRun(ev.failed), now)}.` : `Last run ${when(lastOKt || tRun(runs[0]), now)}.`, { label: ev.failed ? "Last run failed" : "On demand" });
+  if (ev.failed) return res("fail", `Last run failed ${when(tRun(ev.failed), now)}.`);
+  if (a.due) {
+    const w = dueWindow(a.due, now);
+    if (w.last && (!lastOKt || lastOKt < new Date(w.last.start.getTime() - H))) return res("warn", `No successful run for ${when(w.last.start, now).replace(/ \d\d:\d\d$/, "")} (expected by ${when(w.last.by, now)}).`);
+    if (w.cur && (!lastOKt || lastOKt < w.cur.start)) facts.push(`Today's run expected by ${when(w.cur.by, now)}`);
+  }
+  return res("ok", lastOKt ? `Last ran ${ago(lastOKt, now)}.` : "Working.");
+}
+
+const runsActive = v => (v.runs || []).some(r => ["queued", "in_progress", "waiting", "requested", "pending"].includes(r.status));
+// ── drawing ──
+const $ = id => document.getElementById(id);
+const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+let STATE = null, VERDICT = {}, OPEN = null;
+
+function draw() {
+  const S = STATE, now = S.now, focusId = document.activeElement && document.activeElement.id;
+  VERDICT = {};
+  for (const a of AGENTS) {
+    try { VERDICT[a.id] = judge(a, S); }
+    catch (e) { VERDICT[a.id] = { s: "unk", why: "Couldn't read this agent's status (an unexpected file format).", facts: [], pfacts: [], runs: S.runs[`${a.repo}:${a.file}`] || [], lastOKt: null }; }
+  }
+  const sched = AGENTS.filter(a => !a.static && !a.manual);
+  const n = s => sched.filter(a => VERDICT[a.id].s === s).length;
+  const bad = n("fail") + n("act"), late = n("warn"), run = n("run"), ok = n("ok") + n("idle") + n("wait");
+  const need = bad + late, unk = n("unk");
+  $("title").textContent = need ? `${need} agent${need > 1 ? "s" : ""} need${need > 1 ? "" : "s"} attention` : unk ? "All visible agents working" : "All agents working";
+  $("finding").textContent = `${ok} fine · ${run} running · ${late} late · ${bad} failed or waiting on you` + (n("unk") ? ` · ${n("unk")} not visible` : "");
+  $("updated").textContent = `Checked ${when(now, now)} IST · tap any agent for details`;
+  const notes = [];
+  if (!PAT) notes.push("Private agents (login, ledger, check-in) need your read-only key: open the dashboard's Ledger tab on this device and paste it there once.");
+  else if (S.keyRejected) notes.push("GitHub rejected the saved key — it may have expired. Paste a new read-only key in the dashboard's Ledger tab.");
+  else if (!S.privRunsOk) notes.push("Your key reads the private files but not the private job history, so ledger and check-in status comes from the files they write.");
+  if (S.limited) notes.push("GitHub's hourly limit for this page was reached, so some jobs show no runs. It resets within the hour.");
+  $("banner").hidden = !notes.length; $("banner").textContent = notes.join(" ");
+
+  const tr = $("track"); tr.textContent = "";
+  for (const id of TRACK) {
+    const a = AGENTS.find(x => x.id === id), v = VERDICT[id];
+    const b = el("button", `stop s-${v.s}`); b.type = "button"; b.setAttribute("aria-label", `${a.name}: ${v.label || LABEL[v.s]}`);
+    const l = el("div", "lamp", ICON[v.s]); b.append(l, el("b", null, a.short || a.name), el("span", null, v.label || LABEL[v.s]));
+    b.addEventListener("click", () => openSheet(id)); tr.append(b);
+  }
+  const gs = $("groups"); gs.textContent = ""; const attn = [];
+  for (const [g, title, sub] of GROUPS) {
+    const sec = el("section", "group"); sec.id = `g-${g}`;
+    const h = el("h2", null, title); h.append(el("small", null, sub)); sec.append(h);
+    const board = el("div", "board");
+    for (const a of AGENTS.filter(x => x.g === g)) {
+      const v = VERDICT[a.id];
+      const r = el("button", `row s-${v.s}`); r.type = "button"; r.id = `a-${a.id}`;
+      r.append(el("span", "dot"), el("span", "name", a.name), el("span", "chip", v.label || LABEL[v.s]), el("span", "what", v.why));
+      r.append(el("span", "when", runsActive(v) ? "running now" : v.lastOKt ? `ran ${ago(v.lastOKt, now)}` : ""));
+      r.addEventListener("click", () => openSheet(a.id)); board.append(r);
+      if (!a.manual && ["fail", "act", "warn"].includes(v.s)) attn.push(r);
+    }
+    sec.append(board); gs.append(sec);
+  }
+  const ab = $("attn-board"); ab.textContent = "";
+  for (const r of attn) { const c = r.cloneNode(true); c.id = `x-${r.id}`; c.addEventListener("click", () => openSheet(r.id.slice(2))); ab.append(c); }
+  $("attn").hidden = !attn.length;
+  if (OPEN) { const q = $("q-one"); if (!q || (!q.value && document.activeElement !== q)) openSheet(OPEN, true); }
+  if (focusId && focusId !== "q-one" && $(focusId) && !OPEN) $(focusId).focus({ preventScroll: true });
+}
+
+// The prompt leaves out private lines (account names, the check-in's finding) and anything key-like.
+const scrub = t => { let x = String(t); if (PAT) x = x.split(PAT).join("[key]"); return x.replace(/\b(gh[pousr]_|github_pat_)[A-Za-z0-9_]+/g, "[key]").replace(/[A-Za-z0-9_\-]{32,}/g, "[removed]"); };
+const cut = (t, n) => { const c = Array.from(t); return c.length > n ? c.slice(0, n).join("") + "…" : t; };
+function statusText(now) {
+  const lines = AGENTS.filter(a => !a.static).map(a => { const v = VERDICT[a.id]; return `- ${a.name}: ${v.label || LABEL[v.s]} — ${v.pwhy || v.why}`; });
+  return `Status of my NSE tracker agents (Agents page, ${dayKey(ist(now))} ${hhmm(now)} IST; "today" below means that date):\n${lines.join("\n")}`;
+}
+function prompt(question, id) {
+  const now = STATE.now;
+  let p = `I'm looking at the Agents page of my NSE tracker.\n\n${statusText(now)}\n`;
+  if (id) {
+    const a = AGENTS.find(x => x.id === id), v = VERDICT[id];
+    const rr = (v.runs || []).slice(0, 5).map(r => `  ${when(tRun(r), now)}: ${r.status === "completed" ? r.conclusion : r.status} (${r.event})`).join("\n");
+    p += `\nAgent in focus: ${a.name}${a.file ? ` (${a.repo === "priv" ? "private" : "public"} workflow ${a.file})` : ""}\nSchedule: ${a.when}\nStatus: ${v.label || LABEL[v.s]} — ${v.pwhy || v.why}\n${v.facts.length ? v.facts.map(f => "  " + f).join("\n") + "\n" : ""}${rr ? `Recent runs:\n${rr}\n` : ""}`;
+  }
+  return scrub(`${cut(p, 6000)}\n\nMy question: ${cut(question.trim() || "Is everything working, and is there anything I should do?", 2000)}`);
+}
+async function copyText(t) {
+  try { await navigator.clipboard.writeText(t); return true; } catch (e) {
+    const ta = el("textarea"); ta.value = t; ta.style.position = "fixed"; ta.style.opacity = "0"; document.body.append(ta); ta.select();
+    let ok = false; try { ok = document.execCommand("copy"); } catch (e2) {} ta.remove(); return ok;
+  }
+}
+function askHandler(kind0, qid, id, noteEl) {
+  return async () => {
+    if (!STATE) return;
+    let kind = kind0;
+    const text = prompt(($(qid) || {}).value || "", id);
+    const url = `https://claude.ai/new?q=${encodeURIComponent(text)}`;
+    if (kind !== "copy" && url.length > 7000) kind = "copy";   // very long links get cut off: copy instead
+    if (kind === "copy") {
+      const pending = copyText(text);            // starts the copy inside the tap, before the new tab takes focus
+      window.open(PROJECT_URL, "_blank", "noopener");
+      const ok = await pending;
+      noteEl.textContent = ok ? "Copied. Your Stock market chat is opening — paste it there (Claude there can also check and fix things)." : "Couldn't copy on this device. Use “Ask in a new Claude chat” instead.";
+    } else {
+      window.open(url, "_blank", "noopener");
+      noteEl.textContent = "Opened a new Claude chat with your question and the status.";
+    }
+  };
+}
+
+let OPENER = null;
+function openSheet(id, keep) {
+  if (!keep) OPENER = document.activeElement;
+  const a = AGENTS.find(x => x.id === id), v = VERDICT[id], now = STATE.now;
+  OPEN = id;
+  const body = $("d-body"); body.textContent = "";
+  const chip = el("span", `chip s-${v.s}`, v.label || LABEL[v.s]);
+  const h = el("h3", null, a.name); h.id = "d-title";
+  body.append(chip, h, el("p", "why", v.why));
+  body.append(el("h4", null, "What it does"), el("p", null, a.what));
+  if (a.how) body.append(el("h4", null, "How it works"), el("p", null, a.how));
+  body.append(el("h4", null, "When it runs"), el("p", null, a.when));
+  const allFacts = v.facts.concat(v.pfacts || []);
+  if (allFacts.length) { const ul = el("ul", "facts"); for (const f of allFacts) ul.append(el("li", null, f)); body.append(el("h4", null, "Status details"), ul); }
+  if (v.runs && v.runs.length) {
+    const t = el("table", "runs"), tb = el("tbody");
+    for (const r of v.runs.slice(0, 8)) {
+      const tr = el("tr"), state = r.status === "completed" ? r.conclusion : r.status;
+      const mins = r.run_started_at && r.updated_at && r.status === "completed" ? Math.max(0, Math.round((new Date(r.updated_at) - new Date(r.run_started_at)) / MIN)) : null;
+      const c1 = el("td", null, when(tRun(r), now)), c2 = el("td", null, `${state}${mins != null ? ` · ${mins} min` : ""} · ${r.event}`), c3 = el("td");
+      if (/^https:\/\/github\.com\//.test(r.html_url || "")) { const ln = el("a", null, "Log"); ln.href = r.html_url; ln.target = "_blank"; ln.rel = "noopener"; c3.append(ln); }
+      tr.append(c1, c2, c3); tb.append(tr);
+    }
+    t.append(tb); body.append(el("h4", null, "Recent runs"), t);
+  }
+  if (a.file) { const p = el("p"); const ln = el("a", null, "Open this job on GitHub"); ln.href = `https://github.com/${a.repo === "priv" ? PRIV : PUB}/actions/workflows/${a.file}`; ln.target = "_blank"; ln.rel = "noopener"; p.append(ln); body.append(p); }
+  body.append(el("h4", null, "Ask Claude about this agent"));
+  const ta = el("textarea"); ta.id = "q-one"; ta.placeholder = "e.g. Why did this fail? What should I do?";
+  const acts = el("div", "acts"), b1 = el("button", "btn primary", "Copy & open my Stock market chat"), b2 = el("button", "btn", "Ask in a new Claude chat");
+  b1.type = b2.type = "button"; const note = el("p", "note"); note.setAttribute("aria-live", "polite");
+  b1.addEventListener("click", askHandler("copy", "q-one", id, note)); b2.addEventListener("click", askHandler("new", "q-one", id, note));
+  acts.append(b1, b2); body.append(ta, acts, note);
+  if (!keep) { $("sheet").hidden = false; $("shade").hidden = false; $("d-close").focus(); }
+}
+function closeSheet() { OPEN = null; $("sheet").hidden = true; $("shade").hidden = true; if (OPENER && OPENER.focus) OPENER.focus(); }
+$("d-close").addEventListener("click", closeSheet);
+$("shade").addEventListener("click", closeSheet);
+document.addEventListener("keydown", e => { if (e.key === "Escape" && OPEN) closeSheet(); });
+for (const b of document.querySelectorAll("[data-ask]")) b.addEventListener("click", askHandler(b.dataset.ask, b.dataset.q, null, $("copied-all")));
+
+let busy = false;
+async function refresh() {
+  if (busy) return; busy = true; $("refresh").textContent = "Checking…";
+  try { STATE = await load(); draw(); }
+  catch (e) { $("finding").textContent = "Couldn't load the status. Check the connection and tap Refresh."; }
+  finally { busy = false; $("refresh").textContent = "Refresh"; }
+}
+$("refresh").addEventListener("click", refresh);
+refresh();
+// with a key the hourly API allowance is large: keep the page current while it is open
+if (PAT) {
+  setInterval(() => { if (document.visibilityState === "visible") refresh(); }, 3 * 60e3);
+  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible" && STATE && Date.now() - STATE.now > 60e3) refresh(); });
+}
+window.__agents = { judge, nextFire, dueWindow, AGENTS, isTrading, ist, prompt: (q, id) => prompt(q, id) };
+}
+</script>
+</body>
+</html>
