@@ -1,0 +1,33 @@
+name: Watchdog (ledger, 1-minute backfill, daily scan)
+
+# Phone alerts for what nothing else checks; no AI involved (scripts/watchdog.py):
+# new ledger issues, no ledger rebuild after a trading day's close, the 1-minute
+# backfill stuck for 24 hours, the daily scan missing. Each alert once.
+# Every two hours; GitHub may start scheduled runs late, which is fine here.
+on:
+  schedule:
+    - cron: "23 */2 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: watchdog
+  cancel-in-progress: false
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      - name: Check
+        env:
+          SECRETS_REPO_PAT: ${{ secrets.SECRETS_REPO_PAT }}
+          SECRETS_REPO: ${{ secrets.SECRETS_REPO }}
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+        run: python scripts/watchdog.py
