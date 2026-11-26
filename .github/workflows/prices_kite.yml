@@ -198,6 +198,9 @@ jobs:
             python scripts/trade_watch.py || true
             # Phone alerts (ntfy): swing levels, GTT triggers, STRONG cycle dips.
             python scripts/notify.py || true
+            # Once a day from 08:45 IST: one summary before the open (login, scan, ledger, watchdog,
+            # 1-minute backfill) - scripts/watchdog.py --morning; replaces a laptop-bound check
+            python scripts/watchdog.py --morning || true
             # never sleep past the end: an overrunning last sleep let GitHub's 6-hour kill land
             # before the successor run was started (review 24 Nov 2026)
             left=$(( END - $(now) ))
