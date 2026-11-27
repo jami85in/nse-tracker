@@ -195,9 +195,9 @@ const AGENTS = [
     how: "You tap the login link; the Cloudflare worker saves today's session in the private repo and starts the price loop. Family accounts log in the same way on the days they trade. The key itself is never shown here: this page only reads when it was last saved." },
   { id: "prices", g: "day", name: "Live prices & alerts", short: "Prices", file: "prices_kite.yml", repo: "pub",
     crons: ["38 3 * * 1-5", "13 5 * * 1-5", "47 6 * * 1-5", "7 9 * * 1-5"],
-    when: "09:10–15:35 on trading days, every 2 minutes",
+    when: "08:45–15:35 on trading days, every 2 minutes",
     what: "Fetches Kite prices every 2 minutes and checks dip, swing and GTT alerts in the same round.",
-    how: "Started by your login or by the Cloudflare worker at 09:10 (GitHub backups at 09:08, 10:43, 12:17 and 14:37). Each run lasts up to 340 minutes and hands over to a fresh one before the 15:10 buy-at-close rounds. No dip alert goes out on prices more than 10 minutes old." },
+    how: "Started by your login or by the Cloudflare worker's 15-minute check from 08:45, which also restarts a stopped loop (GitHub backups at 09:08, 10:43, 12:17 and 14:37). Each run lasts up to 340 minutes and hands over to a fresh one before the 15:10 buy-at-close rounds. No dip alert goes out on prices more than 10 minutes old." },
   { id: "morning", g: "day", name: "Morning summary", short: "Morning", repo: "priv", when: "From 08:45 on trading days (inside the price loop)",
     what: "One phone message before the open: “Ready for the open”, or the first thing to do.",
     how: "Each round of the price loop checks the login, the overnight scan, the ledger, the watchdog and the 1-minute backfill, and sends the summary once a day." },
@@ -208,12 +208,12 @@ const AGENTS = [
     how: "Runs in the private repo, so trade data and logs never become public. Also runs when you upload a tradebook or change adjustments. Writes a small digest of open items that the watchdog and the evening check-in read." },
   { id: "checkin", g: "day", name: "Evening check-in (Claude)", short: "Check-in", file: "evening_checkin.yml", repo: "priv",
     crons: ["43 15 * * 1-5", "13 18 * * 1-5"], due: { days: "trading", at: [21, 13], allow: 6 },
-    when: "21:13 on trading days (backup 23:43)",
+    when: "Right after the after-close ledger rebuild, about 16:00 on trading days (backups 21:13, 23:43)",
     what: "Claude reads the ledger digest, explains any new issue, proposes a fix, saves a note and sends one line to your phone.",
     how: "Runs Claude inside a private GitHub job with read-only tools; it can only write its own note. A privacy filter checks the phone line, which never carries amounts." },
   { id: "watchdog", g: "day", name: "Watchdog", short: "Watchdog", file: "watchdog.yml", repo: "pub", crons: ["23 */2 * * *"],
-    when: "Every 2 hours, all week",
-    what: "Checks the ledger, the daily scan and the 1-minute backfill, and alerts once per new problem.",
+    when: "Every hour, all week (started by the Cloudflare worker; GitHub backup every 2 hours)",
+    what: "Checks the ledger, the daily scan, the 1-minute backfill, live prices, the login, the evening check-in and the NSE calendar copies, and alerts once per new problem.",
     how: "Runs in the public repo (free minutes) and reads private status with a key kept as a GitHub secret. It remembers what it has already alerted, so you hear about each problem once." },
   { id: "archive", g: "day", name: "1-minute candles: daily archive", short: "Archive", file: "minute_archive.yml", repo: "pub",
     crons: ["47 10 * * 1-5", "22 13 * * 1-5", "7 16 * * 1-5"], due: { days: "trading", at: [16, 17], allow: 10 },
@@ -258,8 +258,8 @@ const AGENTS = [
   { id: "collect", g: "tools", name: "Backtest collectors", file: "backtest_collect.yml", repo: "pub", manual: true, when: "When you run them", what: "One-off history collection (also OHLC history, gap fill, shares outstanding).", how: "" },
   { id: "legacy", g: "tools", name: "Legacy price update", file: "prices.yml", repo: "pub", manual: true, when: "Manual fallback only", what: "The old price job, kept as a fallback to the Kite loop.", how: "" },
 
-  { id: "worker", g: "other", name: "Login & order-link worker (Cloudflare)", static: true, when: "Always on; starts the price loop at 09:10 on weekdays",
-    what: "Runs your one-tap logins and the “Review order in Kite” links in alerts.", how: "Lives in your Cloudflare account. This page can't read its status; a missing 09:10 start shows up as the price loop not running." },
+  { id: "worker", g: "other", name: "Login & order-link worker (Cloudflare)", static: true, when: "Always on; every 15 minutes it starts or restarts the price loop on trading days and starts the hourly watchdog",
+    what: "Runs your one-tap logins and the “Review order in Kite” links in alerts.", how: "Lives in your Cloudflare account. This page can't read its status; a missed start shows up as the price loop not running." },
   { id: "jyothy", g: "other", name: "JYOTHYLAB buyback check (Claude)", static: true, when: "Once, Tue 1 Dec 20:00 — needs your laptop on",
     what: "Books the accepted buyback shares once the buyback settles.", how: "A one-off Claude reminder in your Stock market chat." },
   { id: "retired", g: "other", name: "Old Claude morning & evening tasks", static: true, retired: true, when: "Off since 26–27 Nov 2026",
@@ -392,7 +392,7 @@ function judge(a, S) {
       if (ev.active) return res("warn", ev.active.status === "queued" ? "Queued at GitHub — no prices yet." : `Running, but the latest prices are ${P && P.at ? ago(P.at, now).replace(" ago", "") : "missing or"} old.`, { label: activeLabel(ev) || "Stale" });
       return res(ev.failed ? "fail" : "warn", "Not running during market hours. Log in, or start it from GitHub.", { label: "Stopped" });
     }
-    if (trading && mins < openM) return res("wait", "Starts before the open with your login or the Cloudflare worker (09:10).", { label: "Before open" });
+    if (trading && mins < openM) return res("wait", "Starts before the open with your login or the Cloudflare worker (from 08:45).", { label: "Before open" });
     if (ev.failed && !ev.active) return res("fail", `Last run failed ${when(tRun(ev.failed), now)}.`);
     return res("idle", P && P.at ? `Market closed. Last prices ${when(P.at, now)}.` : "Market closed.", { label: "Closed" });
   }
@@ -443,7 +443,7 @@ function judge(a, S) {
     if (ev.active) return res("run", activeWhy(ev, now, "Checking now."), { label: activeLabel(ev) });
     if (ev.failed) return res("fail", `Last run failed ${when(tRun(ev.failed), now)}.`);
     if (!latest) return res("unk", "No runs found.");
-    if (now - latest > 5 * H) return res("warn", `No check for ${ago(latest, now).replace(" ago", "")} (runs every 2 hours; GitHub can be late).`);
+    if (now - latest > 3 * H) return res("warn", `No check for ${ago(latest, now).replace(" ago", "")} (runs every hour from the Cloudflare worker; GitHub can be late).`);
     return res("ok", `Last check ${ago(latest, now)}.`);
   }
   if (a.id === "backfill") {
