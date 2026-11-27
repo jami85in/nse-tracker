@@ -203,6 +203,33 @@ jobs:
             # Once a day from 08:45 IST: one summary before the open (login, scan, ledger, watchdog,
             # 1-minute backfill) - scripts/watchdog.py --morning; replaces a laptop-bound check
             python scripts/watchdog.py --morning || true
+            # 1-minute history backfill: start it on today's login when nothing of it is running or
+            # queued - its own GitHub schedules often land hours late (27 Nov 2026: no run from the
+            # 08:43 login until a manual start at 12:20). Checked at most every 30 minutes; a queued
+            # Minute-candles run is never pushed out (one concurrency group: a newer pending run
+            # cancels an older one), and nothing starts once every month is downloaded.
+            if [ "$(( $(now) - ${BF_CHECKED:-0} ))" -ge 1800 ] && token_fresh >/dev/null 2>&1; then
+              BF_CHECKED=$(now)
+              LEFT=$(python - 2>/dev/null <<'PY' || true
+          import sys
+          sys.path.insert(0, "scripts")
+          from private_repo import PrivateRepo
+          from watchdog import months_total
+          p, _ = PrivateRepo().get_json("market/minute_progress.json", None)
+          t = months_total((p or {}).get("archive_from"))
+          if p and t:
+              print(max(0, t - len(p.get("months_done") or [])))
+          PY
+              )
+              if [ -n "$LEFT" ] && [ "$LEFT" -gt 0 ] 2>/dev/null; then
+                BUSY=$(gh run list -R "$GITHUB_REPOSITORY" --limit 30 --json workflowName,status --jq \
+                  '[.[] | select((.workflowName | startswith("Minute candles")) and .status != "completed" and ((.workflowName | contains("history")) or .status != "in_progress"))] | length' 2>/dev/null || echo 1)
+                if [ "${BUSY:-1}" = "0" ]; then
+                  gh workflow run minute_history.yml -R "$GITHUB_REPOSITORY" --ref main \
+                    && echo "[$(ist)] started the 1-minute history backfill ($LEFT months left)" || true
+                fi
+              fi
+            fi
             # never sleep past the end: an overrunning last sleep let GitHub's 6-hour kill land
             # before the successor run was started (review 24 Nov 2026)
             left=$(( END - $(now) ))
