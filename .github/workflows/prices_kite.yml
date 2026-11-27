@@ -222,9 +222,13 @@ jobs:
           PY
               )
               if [ -n "$LEFT" ] && [ "$LEFT" -gt 0 ] 2>/dev/null; then
-                BUSY=$(gh run list -R "$GITHUB_REPOSITORY" --limit 30 --json workflowName,status --jq \
-                  '[.[] | select((.workflowName | startswith("Minute candles")) and .status != "completed" and ((.workflowName | contains("history")) or .status != "in_progress"))] | length' 2>/dev/null || echo 1)
-                if [ "${BUSY:-1}" = "0" ]; then
+                # per workflow: a list across all workflows only reaches back ~1 hour in market hours
+                # (a Pages build every 2 minutes), so a long history run fell out of it (review 27 Nov 2026)
+                H_BUSY=$(gh run list -R "$GITHUB_REPOSITORY" --workflow minute_history.yml --limit 10 --json status \
+                  --jq '[.[] | select(.status != "completed")] | length' 2>/dev/null || echo 1)
+                A_WAIT=$(gh run list -R "$GITHUB_REPOSITORY" --workflow minute_archive.yml --limit 10 --json status \
+                  --jq '[.[] | select(.status != "completed" and .status != "in_progress")] | length' 2>/dev/null || echo 1)
+                if [ "${H_BUSY:-1}" = "0" ] && [ "${A_WAIT:-1}" = "0" ]; then
                   gh workflow run minute_history.yml -R "$GITHUB_REPOSITORY" --ref main \
                     && echo "[$(ist)] started the 1-minute history backfill ($LEFT months left)" || true
                 fi
