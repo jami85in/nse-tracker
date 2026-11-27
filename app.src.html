@@ -359,7 +359,7 @@ const RAW_BASE    = `https://raw.githubusercontent.com/${GITHUB_USER}/${GITHUB_R
 // instead of requiring a manual file diff to find out. This exists because
 // PWA/service-worker caching has repeatedly made "is this actually deployed
 // yet" the hardest part of diagnosing issues in this app.
-const BUILD_VERSION = "2026-11-27.2";
+const BUILD_VERSION = "2026-11-27.3";
 
 // NSE trading calendar — keep in step with scripts/market_session.py.
 // Special sessions on a weekend (Diwali Muhurat) and weekday holidays.
@@ -520,15 +520,16 @@ async function fetchLivePrices() {
   // day. The actual, narrower signal worth surfacing is: it is GENUINELY
   // market hours right now (computed fresh from the real clock, not from
   // any possibly-stale flag in either file) AND Kite — which claims to be
-  // our live source — hasn't kept pace with its own ~5-minute refresh
+  // our live source — hasn't kept pace with its own ~2-minute refresh
   // cadence. That combination is the only thing that indicates something
   // is actually wrong; baseline winning the comparison on its own, at any
   // time of day, is not.
-  const KITE_REFRESH_TOLERANCE_MINUTES = 15; // 3x the 5-min cron cadence — tied to the real schedule, not an arbitrary guess
-  const version = await fetchVersion();
+  const KITE_REFRESH_TOLERANCE_MINUTES = 8; // 4 rounds of the 2-min price loop (27 Nov 2026; was 15 for the old 5-10 min cadence)
+  // No version lookup here: it costs a GitHub API call (60 an hour without a key) and the price
+  // file changes every 2 minutes anyway - a per-minute cache-buster keeps the CDN copy current.
   async function grab(filename) {
     try {
-      const res = await fetch(`${RAW_BASE}/${filename}?v=${encodeURIComponent(version)}`);
+      const res = await fetch(`${RAW_BASE}/${filename}?t=${Math.floor(Date.now() / 60000)}`);
       if (!res.ok) return null;
       const text = await res.text();
       if (!text || text[0] !== '{') return null;
@@ -3507,7 +3508,7 @@ function GttList({ ledger, livePrices }) {
     const load = () => ghGet(repo, pat, acct === "huf" ? "ledger/gtt.json" : `ledger/accounts/${acct}/gtt.json`)
       .then(d => { if (on) setG(d); }).catch(() => { if (on) setG(null); });
     load();
-    const t = setInterval(load, 10 * 60 * 1000);      // the price loop refreshes it every ~10 min
+    const t = setInterval(load, 2 * 60 * 1000);       // the price loop refreshes it every 2 min
     return () => { on = false; clearInterval(t); };
   }, [acct]);
   if (!g || !(g.gtts || []).length || (ledger && ledger.account && ledger.account.family)) return null;
@@ -3552,7 +3553,7 @@ function TodayOrders({ ledger, livePrices }) {
     const load = () => ghGet(repo, pat, acct === "huf" ? "ledger/orders.json" : `ledger/accounts/${acct}/orders.json`)
       .then(x => { if (on) setD(x); }).catch(() => { if (on) setD(null); });
     load();
-    const t = setInterval(load, 10 * 60 * 1000);
+    const t = setInterval(load, 2 * 60 * 1000);       // in step with the 2-min price loop
     return () => { on = false; clearInterval(t); };
   }, [acct]);
   const today = istToday();
@@ -5510,7 +5511,7 @@ function App() {
         setPricesStale(false);
       }
     };
-    livePriceRef.current = setInterval(refreshPrices, 3 * 60 * 1000);  // every 3 min while app open
+    livePriceRef.current = setInterval(refreshPrices, 60 * 1000);  // every minute while open: a new price (every 2 min) shows within a minute
     return () => clearInterval(livePriceRef.current);
   }, [scanData, holdings, positions]);
 
@@ -5789,7 +5790,7 @@ function App() {
 
       {kiteDelayed && (
         <div style={{ background: T.warn + "18", borderBottom: `1px solid ${T.warn}44`, padding: "8px 16px", fontSize: 12, color: T.warn, fontWeight: 600 }}>
-          ⚠ Kite prices haven't updated in over 15 minutes during market hours — showing the last available price until it catches up.
+          ⚠ Kite prices haven't updated in over 8 minutes during market hours — showing the last available price until it catches up.
         </div>
       )}
 

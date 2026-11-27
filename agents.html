@@ -195,9 +195,9 @@ const AGENTS = [
     how: "You tap the login link; the Cloudflare worker saves today's session in the private repo and starts the price loop. Family accounts log in the same way on the days they trade. The key itself is never shown here: this page only reads when it was last saved." },
   { id: "prices", g: "day", name: "Live prices & alerts", short: "Prices", file: "prices_kite.yml", repo: "pub",
     crons: ["38 3 * * 1-5", "13 5 * * 1-5", "47 6 * * 1-5", "7 9 * * 1-5"],
-    when: "09:10–15:35 on trading days, every 5 minutes",
-    what: "Fetches Kite prices every 5 minutes and sends dip, swing and GTT alerts to your phone.",
-    how: "Started by your login or by the Cloudflare worker at 09:10 (GitHub backups at 09:08, 10:43, 12:17 and 14:37). Each run lasts up to 340 minutes and hands over to a fresh one before the 15:10 buy-at-close rounds. No alert goes out on prices more than 25 minutes old." },
+    when: "09:10–15:35 on trading days, every 2 minutes",
+    what: "Fetches Kite prices every 2 minutes and checks dip, swing and GTT alerts in the same round.",
+    how: "Started by your login or by the Cloudflare worker at 09:10 (GitHub backups at 09:08, 10:43, 12:17 and 14:37). Each run lasts up to 340 minutes and hands over to a fresh one before the 15:10 buy-at-close rounds. No dip alert goes out on prices more than 10 minutes old." },
   { id: "morning", g: "day", name: "Morning summary", short: "Morning", repo: "priv", when: "From 08:45 on trading days (inside the price loop)",
     what: "One phone message before the open: “Ready for the open”, or the first thing to do.",
     how: "Each round of the price loop checks the login, the overnight scan, the ledger, the watchdog and the 1-minute backfill, and sends the summary once a day." },
@@ -387,7 +387,7 @@ function judge(a, S) {
     const P = S.prices;
     if (P && P.at) facts.unshift(`Prices last updated: ${when(P.at, now)} (${P.count || 0} stocks)`);
     if (trading && mins >= openM && mins <= closeM + 5) {
-      if (P && P.at && now - P.at <= 15 * MIN) return res(ev.active ? "run" : "ok", `Live — prices updated ${ago(P.at, now)}.`, { label: "Live" });
+      if (P && P.at && now - P.at <= 8 * MIN) return res(ev.active ? "run" : "ok", `Live — prices updated ${ago(P.at, now)}.`, { label: "Live" });
       if (mins < openM + 10) return res("wait", "Market just opened — the first prices arrive within 10 minutes.", { label: "Starting" });
       if (ev.active) return res("warn", ev.active.status === "queued" ? "Queued at GitHub — no prices yet." : `Running, but the latest prices are ${P && P.at ? ago(P.at, now).replace(" ago", "") : "missing or"} old.`, { label: activeLabel(ev) || "Stale" });
       return res(ev.failed ? "fail" : "warn", "Not running during market hours. Log in, or start it from GitHub.", { label: "Stopped" });
