@@ -2,8 +2,11 @@ name: Watchdog (ledger, 1-minute backfill, daily scan)
 
 # Phone alerts for what nothing else checks; no AI involved (scripts/watchdog.py):
 # new ledger issues, no ledger rebuild after a trading day's close, the 1-minute
-# backfill stuck for 24 hours, the daily scan missing. Each alert once.
-# Every two hours; GitHub may start scheduled runs late, which is fine here.
+# backfill stuck for 24 hours, no scan since the last close, live prices stopped
+# while logged in, no login after the open, no evening check-in, NSE calendar
+# copies out of step. Each alert once.
+# Started every hour by the kite-login worker's Cloudflare cron (workflow_dispatch:
+# dependable); the two-hourly schedule below is a backup (GitHub drops most of it).
 on:
   schedule:
     - cron: "23 */2 * * *"
@@ -22,6 +25,8 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: main      # a dispatched run that waited in the queue must still read the latest prices
       - uses: actions/setup-python@v6
         with:
           python-version: "3.11"

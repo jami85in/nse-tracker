@@ -36,6 +36,12 @@ jobs:
           git config user.name "nse-tracker-bot"
           git config user.email "actions@github.com"
           git add data/backtest/sector_membership.json data/backtest/relative_strength.json
-          git diff --staged --quiet || git commit -m "relative-strength: $(date -u +'%Y-%m-%d')"
-          git pull --rebase --autostash origin main || true
-          git push
+          git diff --staged --quiet && { echo "No changes."; exit 0; }
+          git commit -m "relative-strength: $(date -u +'%Y-%m-%d')"
+          # GitHub may start this hours late, inside market hours, where the price loop pushes every
+          # 2 minutes: retry instead of failing on one rejected push (review 27 Nov 2026)
+          for try in 1 2 3 4; do
+            git pull -q --rebase --autostash origin main && git push -q && exit 0
+            git rebase --abort 2>/dev/null || true; sleep 15
+          done
+          echo "::error::Could not push after 4 attempts."; exit 1

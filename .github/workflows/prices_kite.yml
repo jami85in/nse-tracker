@@ -38,7 +38,8 @@ name: NSE Live Price Update (Kite Connect)
 #     hit the cap at ~13:28, and the scheduled backups were delayed until the
 #     evening — so prices froze at 13:20 for the rest of the day.
 # In practice the kite-login worker starts this run: on the HUF login, and from
-# its Cloudflare cron at 09:10 IST (skipped if a loop is running or queued).
+# its Cloudflare cron every 15 minutes from 30 min before the open to the close
+# (skipped if a loop is running or queued), which also restarts a stopped loop.
 # GitHub's schedules below often arrive hours late (Nov 2026: 5-16 h), so they
 # are only backups; a start after 15:35 exits at once. The older manual "Kite
 # Daily Token Refresh" workflow also starts this run when a token is saved.
@@ -149,6 +150,10 @@ jobs:
             echo "Started after today's close ($(ist)) — nothing to do."
             exit 0
           fi
+          # This run covers (part of) the session: only such a run starts the day's minute archive
+          # after the close. A late backup run landing after the close must not, as each extra start
+          # pushes a waiting Kite job out of the kite-historical queue (review 27 Nov 2026).
+          echo "LOOP_BEFORE_CLOSE=1" >> "$GITHUB_ENV"
 
           token_fresh() {
             python - <<'PY'
@@ -163,14 +168,41 @@ jobs:
           PY
           }
 
+          # Alert scripts: a crash must not end the loop, but it must not be silent either. They are
+          # re-read from main every round, so a bad push would otherwise stop every phone alert while
+          # this run stays green (review 27 Nov 2026). 3 failed rounds in a row -> one notice straight
+          # to ntfy (not through notify.py, which may be what's broken).
+          # One notice for all three scripts (a broken shared helper fails them all), at most once every
+          # 90 rounds (3 hours at the 2-minute beat). Each call has a time limit: rc 124 counts as a failure.
+          declare -A FAILS=()
+          # A script not named in the last notice is announced at once.
+          ROUND=0; LAST_NOTICE=-1000; NAMED=" "
+          guard() {
+            local name=$1 n k bad=""
+            shift
+            if "$@"; then FAILS[$name]=0; return 0; fi
+            n=$(( ${FAILS[$name]:-0} + 1 )); FAILS[$name]=$n
+            echo "::warning::$name failed at $(ist) ($n round(s) in a row)"
+            if [ -n "$NTFY_TOPIC" ] && [ "$n" -ge 3 ] && { [ $(( ROUND - LAST_NOTICE )) -ge 90 ] || [ "${NAMED#* $name }" = "$NAMED" ]; }; then
+              for k in "${!FAILS[@]}"; do [ "${FAILS[$k]}" -ge 3 ] && bad="$bad scripts/$k.py"; done
+              LAST_NOTICE=$ROUND; NAMED=" ${bad//scripts\//} "; NAMED=${NAMED//.py/}
+              curl -s -m 20 -H "Title: Alert script failing" -H "Priority: 4" \
+                -d "Failing 3+ price-loop rounds in a row (now $(ist)):$bad. Phone alerts or trade sync from them may be missing. Check the 'NSE Live Price Update (Kite Connect)' run log." \
+                "https://ntfy.sh/$NTFY_TOPIC" > /dev/null || true
+            fi
+            return 0
+          }
+
           waited=0; fetched=0
           while [ "$(now)" -lt "$END" ]; do
+            ROUND=$((ROUND+1))
             RSTART=$(now)
             # pick up script fixes pushed during the session (notify.py, trade_watch.py)
             # (bash -e: every fallback must succeed, or one network blip would end the loop for the day)
             git pull -q --rebase --autostash origin main || { git rebase --abort 2>/dev/null || true; git reset -q --hard origin/main || true; }
             if token_fresh; then
-              python scripts/prices_kite.py || echo "::warning::price fetch failed at $(ist) — will retry"
+              # a stalled fetch must not hang the loop (the worker can't restart a run that looks alive)
+              timeout 300 python scripts/prices_kite.py || echo "::warning::price fetch failed at $(ist) — will retry"
               git add data/prices_live.json
               if ! git diff --staged --quiet; then
                 git commit -q -m "prices(kite): $(date -u +'%H:%M UTC')"
@@ -197,12 +229,12 @@ jobs:
             # New trades in any Kite-connected account that logged in today go to
             # the private ledger now, not only in the evening. Runs even before the
             # HUF login, for wife/mother. Prints nothing about trades.
-            python scripts/trade_watch.py || true
+            guard trade_watch timeout 240 python scripts/trade_watch.py
             # Phone alerts (ntfy): swing levels, GTT triggers, STRONG cycle dips.
-            python scripts/notify.py || true
+            guard notify timeout 240 python scripts/notify.py
             # Once a day from 08:45 IST: one summary before the open (login, scan, ledger, watchdog,
             # 1-minute backfill) - scripts/watchdog.py --morning; replaces a laptop-bound check
-            python scripts/watchdog.py --morning || true
+            guard watchdog timeout 240 python scripts/watchdog.py --morning
             # 1-minute history backfill: start it on today's login when nothing of it is running or
             # queued - its own GitHub schedules often land hours late (27 Nov 2026: no run from the
             # 08:43 login until a manual start at 12:20). Checked at most every 30 minutes; a queued
@@ -265,6 +297,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          if [ "${LOOP_BEFORE_CLOSE:-}" != "1" ]; then
+            echo "This run didn't cover the session (a late backup start) - the archive is left to the run that did and to its own schedules."
+            exit 0
+          fi
           if python - <<'PY'
           import datetime, sys
           sys.path.insert(0, "scripts")
@@ -339,10 +375,31 @@ jobs:
         if: failure()
         env:
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          GH_TOKEN: ${{ github.token }}
         run: |
-          h=$(TZ=Asia/Kolkata date +%H%M); d=$(TZ=Asia/Kolkata date +%u)
-          if [ "$d" -le 5 ] && [ "$h" -ge 0900 ] && [ "$h" -le 1530 ] && [ -n "$NTFY_TOPIC" ]; then
+          # The NSE calendar decides (special sessions such as Muhurat included); the fixed weekday
+          # 09:00-15:30 window is only the fallback when the scripts aren't there (review 27 Nov 2026).
+          IN=$(python3 - 2>/dev/null <<'PY' || true
+          import datetime, sys
+          sys.path.insert(0, "scripts")
+          import market_session as m
+          now = datetime.datetime.now(m.IST)
+          s = m.session(now.date())
+          print("yes" if s and s[0] - datetime.timedelta(minutes=30) <= now <= s[1] else "no")
+          PY
+          )
+          if [ "$IN" != "yes" ] && [ "$IN" != "no" ]; then
+            h=$(TZ=Asia/Kolkata date +%H%M); d=$(TZ=Asia/Kolkata date +%u)
+            if [ "$d" -le 5 ] && [ "$h" -ge 0900 ] && [ "$h" -le 1530 ]; then IN=yes; else IN=no; fi
+          fi
+          # One notice per streak of failures (none if another run failed within the hour): the login
+          # worker restarts a failed loop every 15 minutes, so a repeating failure (a bad push, a PyPI
+          # outage) would otherwise alert ~26 times a day; the worker's hourly restart notice covers the rest.
+          RECENT=$(gh run list -R "$GITHUB_REPOSITORY" --workflow prices_kite.yml --status failure --limit 5 \
+            --json createdAt --jq '[.[] | select((now - (.createdAt | fromdateiso8601)) < 3600)] | length' 2>/dev/null || echo 0)
+          if [ "${RECENT:-0}" != "0" ]; then echo "A failed run was already reported within the hour - no new notice."; IN=no; fi
+          if [ "$IN" = "yes" ] && [ -n "$NTFY_TOPIC" ]; then
             curl -s -m 20 -H "Title: Price loop run failed" -H "Priority: 4" \
-              -d "The price-loop run failed at $(TZ=Asia/Kolkata date +'%H:%M IST'): no prices or alerts until it is started again ('NSE Live Price Update (Kite Connect)' in GitHub Actions)." \
+              -d "The price-loop run failed at $(TZ=Asia/Kolkata date +'%H:%M IST'). The login worker's 15-minute check starts a new one; if it doesn't within 15 minutes, start 'NSE Live Price Update (Kite Connect)' in GitHub Actions." \
               "https://ntfy.sh/$NTFY_TOPIC" > /dev/null || true
           fi

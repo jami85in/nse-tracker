@@ -53,6 +53,10 @@ jobs:
           import market_session
           now = datetime.datetime.now(market_session.IST)
           s = market_session.session(now.date())
+          # Until 05:40 IST the previous evening's login still works: an archive run GitHub started
+          # after midnight saves the last session (archive() fills missed days; review 27 Nov 2026).
+          if now.time() < datetime.time(5, 40):
+              print("Overnight run: saving the last session(s) while the login lasts."); sys.exit(0)
           if not s:
               print("No NSE session today."); sys.exit(1)
           if now < s[1]:
