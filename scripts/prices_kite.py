@@ -11,7 +11,7 @@ kite_token_reader.py). If no valid (non-stale) token is found — i.e. you
 haven't done today's Kite login on the kite-login page yet — this exits cleanly without
 touching prices_live.json, preserving whatever was there before.
 
-Runs every 10 minutes (INTERVAL_SECONDS) inside the price loop of
+Runs every 2 minutes (INTERVAL_SECONDS) inside the price loop of
 .github/workflows/prices_kite.yml (Kite Connect allows ~3 requests/second;
 the quote endpoint takes up to 500 instruments per call). An exchange
 holiday missing from scripts/market_session.py is caught from 09:17 by the

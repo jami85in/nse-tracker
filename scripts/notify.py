@@ -18,7 +18,7 @@ doesn't repeat it). Checks:
      seasonal gain on top of this cycle's entry-month close): a priority-4
      heads-up during the day, and the priority-5 "buy at the close" alert from
      15:10 IST (the backtest buys at the close, so the paper record keeps the
-     price of the first 10-minute round from 15:10 that met the rule). Plan: +2% after charges within 5 trading
+     price of the first round from 15:10 that met the rule). Plan: +2% after charges within 5 trading
      days, else exit at the day-5 close. Backtest (Sep 2020 - Nov 2026, daily
      bars, one position per stock): today's STRONG list and medians
      (in-sample) 81.3% hit, misses avg -4.9%, +0.70% a trade (3,492 trades,
@@ -326,6 +326,9 @@ def order_alerts(priv, prices, today):
 
 
 MARKET_CLOSE = dt.time(15, 30)   # the loop runs a few minutes past the close: no "buy" alert then
+# Prices older than this pause the cycle-dip checks and raise the "not updating" notice. The loop
+# fetches every 2 minutes since 27 Nov 2026 (was 10, with 25 minutes here): 10 minutes = 5 missed rounds.
+PRICE_MAX_AGE = 10 * 60
 
 
 def cycle_target(s, p):
@@ -962,7 +965,7 @@ def main():
     dips_ok = dips3_ok = False
     dip_off = None                               # why the dip rules couldn't run (for the phone notice)
     upd = str(live.get("updated_at") or "")
-    try:   # cycle-dip alerts and paper records only on prices from the last ~25 minutes
+    try:   # cycle-dip alerts and paper records only on prices from the last PRICE_MAX_AGE seconds
         age = (now - dt.datetime.strptime(upd[:16], "%Y-%m-%d %H:%M").replace(tzinfo=IST)).total_seconds()
         if age < -120:                           # a time in the future: not trustworthy
             age = None
@@ -973,9 +976,9 @@ def main():
         # a weekend special session isn't in the price history or the backtest; its buys would also be
         # invisible to the open-plan check (review E7)
         print("::notice::cycle-dip checks off on a weekend special session")
-    elif fresh and ((age is None or age > 25 * 60) or (closing_now and upd[11:16] < "15:05")):
+    elif fresh and ((age is None or age > PRICE_MAX_AGE) or (closing_now and upd[11:16] < "15:05")):
         # buy-at-close alerts and paper records need a price from the closing window
-        print("::warning::cycle-dip checks skipped - " + ("live prices are older than 25 minutes" if (age is None or age > 25 * 60)
+        print("::warning::cycle-dip checks skipped - " + (f"live prices are older than {PRICE_MAX_AGE // 60} minutes" if (age is None or age > PRICE_MAX_AGE)
                                                           else "waiting for a price from the closing window"))
         if closing_now and now.time() >= dt.time(15, 18):   # say so: silence after a heads-up reads as "no longer qualifies"
             alerts.append(("sys:close-wait", "⚠️ No closing prices yet",
@@ -1027,7 +1030,7 @@ def main():
         import market_session as M
         from kite_token_reader import token_is_stale
         s_ = M.session(now.date())
-        if s_ and s_[0] + dt.timedelta(minutes=30) <= now <= s_[1] and (not fresh or age is None or age > 25 * 60):
+        if s_ and s_[0] + dt.timedelta(minutes=30) <= now <= s_[1] and (not fresh or age is None or age > PRICE_MAX_AGE):
             tok, _ = priv.get_json(ACCOUNTS[0][2], None)
             try:   # a login in the last 20 minutes: no full round has run with it yet (the login can land
                    # between this round's token check and notify.py - review E1 25 Nov 2026)
@@ -1227,7 +1230,7 @@ def main():
                         rebuilt[pp["symbol"]]["repeat_of"] = pp["repeat_of"]   # a later round saw the open plan (review E10)
                 else:
                     rebuilt[pp["symbol"]] = dict(pp, seen_at=now.strftime("%H:%M"),
-                                                 price_is="first 10-min round from 15:10 that met the rule")
+                                                 price_is="first round from 15:10 that met the rule")
             if rebuilt:
                 local_p[key_] = rebuilt
                 if state_ok:
