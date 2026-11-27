@@ -359,7 +359,7 @@ const RAW_BASE    = `https://raw.githubusercontent.com/${GITHUB_USER}/${GITHUB_R
 // instead of requiring a manual file diff to find out. This exists because
 // PWA/service-worker caching has repeatedly made "is this actually deployed
 // yet" the hardest part of diagnosing issues in this app.
-const BUILD_VERSION = "2026-11-27.1";
+const BUILD_VERSION = "2026-11-27.2";
 
 // NSE trading calendar — keep in step with scripts/market_session.py.
 // Special sessions on a weekend (Diwali Muhurat) and weekday holidays.
@@ -3391,6 +3391,15 @@ const ledgerPrice = (h, livePrices, ledger) => {
 };
 const rs = v => (typeof v === "number" ? (v < 0 ? "-" : "") + "₹" + Math.abs(v).toLocaleString("en-IN", { maximumFractionDigits: Math.abs(v) >= 1000 ? 0 : 2 }) : "—");
 const sgnRs = v => (typeof v === "number" ? (v >= 0 ? "+" : "-") + "₹" + Math.abs(v).toLocaleString("en-IN", { maximumFractionDigits: 0 }) : "—");
+// Short amount for small spaces (monthly bars): 850 · 4.2K · 38K · 404K · 12.5L; "" for zero
+const kAmt = v => {
+  if (typeof v !== "number" || !isFinite(v) || Math.round(v) === 0) return "";
+  const a = Math.abs(v), s = v < 0 ? "−" : "";
+  if (a < 999.5) return s + Math.round(a);
+  if (a < 9950) return s + (a / 1000).toFixed(1).replace(/\.0$/, "") + "K";
+  if (a < 999500) return s + Math.round(a / 1000) + "K";
+  return s + (a / 1e5).toFixed(1).replace(/\.0$/, "") + "L";
+};
 const pctOf = (a, b) => (typeof a === "number" && b ? ((a / b - 1) * 100) : null);
 // Same money in a bank deposit (ledger "bank" block): short text, and the yearly
 // return only once the holding is 3+ months old (a few weeks' XIRR is noise).
@@ -3722,18 +3731,22 @@ function AutoPortfolio({ ledger, livePrices, scanData }) {
       </div>
 
       <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, padding: 14, marginBottom: 16 }}>
-        <div style={{ color: T.muted, fontSize: 11, letterSpacing: 1, marginBottom: 10 }}>BOOKED P&L BY MONTH · {fy}</div>
-        <div style={{ display: "flex", alignItems: "stretch", gap: 3, height: 110 }}>
+        <div style={{ color: T.muted, fontSize: 11, letterSpacing: 1, marginBottom: 10 }}>BOOKED P&L BY MONTH · {fy} <span style={{ letterSpacing: 0, fontSize: 10 }}>(₹, K = thousand, L = lakh)</span></div>
+        <div style={{ display: "flex", alignItems: "stretch", gap: 3, height: 140 }}>
           {months.map(m => {
-            const v = byMonth[m], hpct = Math.abs(v) / maxAbs * 50;
+            // bars use up to 75% of their half so the amount fits above (profit) or below (loss)
+            const v = byMonth[m], hpct = Math.abs(v) / maxAbs * 75, lbl = kAmt(v);
+            const amt = c => <div style={{ color: c, fontSize: 9, fontWeight: 700, textAlign: "center", whiteSpace: "nowrap", letterSpacing: -0.3, lineHeight: "12px", margin: "0 -2px" }}>{lbl}</div>;
             return (
               <div key={m} title={`${m}: ${sgnRs(v)}`} style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
                 <div style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "flex-end" }}>
-                  {v > 0 && <div style={{ height: `${hpct * 2}%`, background: T.green, borderRadius: "3px 3px 0 0", minHeight: 2 }} />}
+                  {v > 0 && lbl && amt(T.green)}
+                  {v > 0 && <div style={{ height: `${hpct}%`, background: T.green, borderRadius: "3px 3px 0 0", minHeight: 2 }} />}
                 </div>
                 <div style={{ height: 1, background: T.border }} />
                 <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
-                  {v < 0 && <div style={{ height: `${hpct * 2}%`, background: T.red, borderRadius: "0 0 3px 3px", minHeight: 2 }} />}
+                  {v < 0 && <div style={{ height: `${hpct}%`, background: T.red, borderRadius: "0 0 3px 3px", minHeight: 2 }} />}
+                  {v < 0 && lbl && amt(T.red)}
                 </div>
                 <div style={{ color: T.muted, fontSize: 8, textAlign: "center", marginTop: 3 }}>{MONTH_ABBR[Number(m.slice(5, 7)) - 1].slice(0, 1)}</div>
               </div>
