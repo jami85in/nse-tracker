@@ -9,7 +9,8 @@ name: NSE Live Price Update (Kite Connect)
 # 13:52 out of 33 slots), which is why prices only moved after a manual run.
 #
 # Now a single run starts before the open and LOOPS for the whole session:
-#   - every INTERVAL_SECONDS (default 10 min) it fetches prices and commits;
+#   - every INTERVAL_SECONDS (default 2 min since 27 Nov 2026; was 10) it fetches prices and commits;
+#     rounds start on that beat: the sleep is the interval minus the round's own time;
 #   - if today's Kite token isn't refreshed yet it simply waits and re-checks,
 #     so prices start flowing within minutes of your daily login, unattended;
 #   - it stops 5 minutes after today's close, or earlier at its own limit:
@@ -24,7 +25,7 @@ name: NSE Live Price Update (Kite Connect)
 #   - every round it also checks Kite for new trades in each account that has
 #     logged in today (HUF, wife, mother) and saves them to the private ledger
 #     (scripts/trade_watch.py), so a buy or sell shows on the dashboard within
-#     about 15-20 minutes instead of after the evening capture, and sends phone
+#     a few minutes instead of after the evening capture, and sends phone
 #     alerts through ntfy (scripts/notify.py): swing target/exit levels, GTT and
 #     order updates, login reminders, status notices, and STRONG seasonal-cycle
 #     dips (down 3%+ today, or 5-12% over 3 days after a 5%+ slide, with the
@@ -52,11 +53,11 @@ on:
   workflow_dispatch:
     inputs:
       interval_seconds:
-        description: "Seconds between price fetches (default 600 = 10 min)"
+        description: "Seconds between price fetches (default 120 = 2 min)"
         required: false
-        default: "600"
+        default: "120"
         type: choice                      # a fixed list: free text reached bash arithmetic (review 24 Nov 2026)
-        options: ["600", "300", "900", "120"]
+        options: ["120", "300", "600", "900"]
       force:
         description: "Fetch even if the calendar says NSE is closed (an unlisted special session)"
         required: false
@@ -113,7 +114,7 @@ jobs:
           KITE_API_KEY_WIFE: ${{ secrets.KITE_API_KEY_WIFE }}
           KITE_API_KEY_MOTHER: ${{ secrets.KITE_API_KEY_MOTHER }}
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
-          INTERVAL_SECONDS: ${{ github.event.inputs.interval_seconds || '600' }}
+          INTERVAL_SECONDS: ${{ github.event.inputs.interval_seconds || '120' }}
           FORCE_SESSION: ${{ github.event.inputs.force || 'false' }}
           GH_TOKEN: ${{ github.token }}
           # abort a git transfer slower than 1 KB/s for 60 s, so a stalled pull/push can't hang
@@ -124,7 +125,7 @@ jobs:
           git config user.name "nse-tracker-bot"
           git config user.email "actions@github.com"
 
-          case "$INTERVAL_SECONDS" in ''|*[!0-9]*) INTERVAL_SECONDS=600 ;; esac   # digits only
+          case "$INTERVAL_SECONDS" in ''|*[!0-9]*) INTERVAL_SECONDS=120 ;; esac   # digits only
           now()   { date +%s; }
           ist()   { TZ=Asia/Kolkata date +'%H:%M IST'; }
           END=$(python scripts/market_session.py end)
@@ -164,6 +165,7 @@ jobs:
 
           waited=0; fetched=0
           while [ "$(now)" -lt "$END" ]; do
+            RSTART=$(now)
             # pick up script fixes pushed during the session (notify.py, trade_watch.py)
             # (bash -e: every fallback must succeed, or one network blip would end the loop for the day)
             git pull -q --rebase --autostash origin main || { git rebase --abort 2>/dev/null || true; git reset -q --hard origin/main || true; }
@@ -205,7 +207,9 @@ jobs:
             # before the successor run was started (review 24 Nov 2026)
             left=$(( END - $(now) ))
             [ "$left" -le 0 ] && break
-            sleep $(( left < INTERVAL_SECONDS ? left : INTERVAL_SECONDS ))
+            # start the next round INTERVAL_SECONDS after this one started (at least 15 s apart)
+            wait_s=$(( INTERVAL_SECONDS - ($(now) - RSTART) )); [ "$wait_s" -lt 15 ] && wait_s=15
+            sleep $(( left < wait_s ? left : wait_s ))
           done
           echo "Loop done at $(ist): $fetched price updates committed."
           SESSION_END=$(python scripts/market_session.py end)
