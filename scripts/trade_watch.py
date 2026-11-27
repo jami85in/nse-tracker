@@ -141,4 +141,4 @@ if __name__ == "__main__":
         sys.exit(main())
     except Exception as e:                    # never print the payload — only what kind of failure
         print(f"::warning::trade sync skipped this round ({type(e).__name__})")
-        sys.exit(0)
+        sys.exit(3)   # the price loop counts failed rounds and alerts after 3 in a row (review 27 Nov 2026)

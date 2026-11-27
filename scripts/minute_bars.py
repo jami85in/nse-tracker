@@ -386,7 +386,7 @@ def main():
             import market_session
             now = dt.datetime.now(IST)
             ses = market_session.session(now.date())
-            if ses and now >= ses[1]:
+            if (ses and now >= ses[1]) or now.time() < dt.time(5, 40):   # overnight: the last session
                 archive(kite, priv)
         except Exception as e:
             print(f"::warning::today's archive check failed ({type(e).__name__})")

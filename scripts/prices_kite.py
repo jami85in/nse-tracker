@@ -271,8 +271,11 @@ def main():
         "circuits": {k: v for k, v in CIRCUITS.items() if k in prices},
     }
     os.makedirs("data", exist_ok=True)
-    with open("data/prices_live.json", "w") as f:
+    # write then rename: a run stopped mid-write (the loop's time limit) can't leave a cut-off file
+    # for the loop to commit (review 27 Nov 2026)
+    with open("data/prices_live.json.tmp", "w") as f:
         json.dump(output, f)
+    os.replace("data/prices_live.json.tmp", "data/prices_live.json")
     print(f"  ✓ Written {len(prices)} live prices to data/prices_live.json")
 
 

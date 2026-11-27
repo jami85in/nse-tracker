@@ -1056,8 +1056,9 @@ def main():
             if not any(k.startswith(str(y)) for k in M.HOLIDAYS):
                 alerts.append((f"sys:calendar-{y}", f"⚠️ NSE {y} holidays missing",
                                f"scripts/market_session.py has no {y} holidays: without them the price loop runs on exchange "
-                               f"holidays and the dip rules count sessions wrongly. Add NSE's {y} list there and to NSE_HOLIDAYS in "
-                               f"app.src.html (the dashboard's copy).", 3, "warning"))
+                               f"holidays and the dip rules count sessions wrongly. Add NSE's {y} list there, to NSE_HOLIDAYS in "
+                               f"app.src.html (the dashboard) and HOLIDAYS in agents.html (the Agents page); the login "
+                               f"worker reads market_session.py itself.", 3, "warning"))
     except Exception:
         pass
     try:   # the cycle summary is rebuilt every Saturday; an old one silently misses stocks entering their season
@@ -1256,4 +1257,4 @@ if __name__ == "__main__":
         sys.exit(main())
     except Exception as e:
         print(f"::warning::notifications skipped this round ({type(e).__name__})")
-        sys.exit(0)
+        sys.exit(3)   # the price loop counts failed rounds and alerts after 3 in a row (review 27 Nov 2026)
